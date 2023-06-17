@@ -1,12 +1,15 @@
 #ifndef SRC_SLIDE_MIDI_HPP_
 #define SRC_SLIDE_MIDI_HPP_
+#include <opencv2/core/cvdef.h>
 
 #include <rtmidi/RtMidi.h>
 #include <iostream>
 #include <mutex>
 #include <chrono>
+#include <vector>
+#include <cstdint>
 
-struct MidiEvent {
+CV_EXPORTS struct MidiEvent {
 	bool on_ = false;
 	bool cc_ = false;
 	bool clock_ = false;
@@ -18,21 +21,21 @@ struct MidiEvent {
 	uint16_t value_ = 0;
 };
 
-std::ostream& operator<<(std::ostream &out, const MidiEvent& ev);
-class MidiReceiver {
+CV_EXPORTS std::ostream& operator<<(std::ostream &out, const MidiEvent& ev);
+CV_EXPORTS class MidiReceiver {
 private:
 	RtMidiIn *midiin_ = new RtMidiIn();
 	int32_t inport_;
 public:
 	static std::vector<MidiEvent>* queue_;
 	static std::mutex* evMtx_;
-	MidiReceiver(int32_t inport, bool autostart = true);
-	virtual ~MidiReceiver();
-	void start();
-	void stop();
-	void clear();
+	CV_EXPORTS MidiReceiver(int32_t inport, bool autostart = true);
+	CV_EXPORTS virtual ~MidiReceiver();
+	CV_EXPORTS void start();
+	CV_EXPORTS void stop();
+	CV_EXPORTS void clear();
 
-	std::vector<MidiEvent> receive();
+	CV_EXPORTS std::vector<MidiEvent> receive();
 };
 
 #endif /* SRC_SLIDE_MIDI_HPP_ */

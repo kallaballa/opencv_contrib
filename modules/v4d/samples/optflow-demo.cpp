@@ -4,6 +4,7 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include <opencv2/v4d/v4d.hpp>
+#include <opencv2/v4d/midiplayback.hpp>
 
 #include <opencv2/features2d.hpp>
 #include <opencv2/imgproc.hpp>
@@ -17,6 +18,7 @@
 #include <string>
 #include <thread>
 #include <random>
+#include <any>
 
 using std::cerr;
 using std::endl;
@@ -28,13 +30,15 @@ enum BackgroundModes {
     GREY,
     COLOR,
     VALUE,
-    BLACK
+    BLACK,
+    COUNTBG
 };
 
 enum PostProcModes {
     GLOW,
     BLOOM,
-    NONE
+    NONE,
+    COUNTPPM
 };
 
 /** Application parameters **/
@@ -42,30 +46,17 @@ enum PostProcModes {
 constexpr unsigned int WIDTH = 1280;
 constexpr unsigned int HEIGHT = 720;
 const unsigned long DIAG = hypot(double(WIDTH), double(HEIGHT));
-#ifndef __EMSCRIPTEN__
 constexpr const char* OUTPUT_FILENAME = "optflow-demo.mkv";
-#endif
 constexpr bool OFFSCREEN = false;
 
 cv::Ptr<cv::v4d::V4D> window;
-#ifndef __EMSCRIPTEN__
-cv::Ptr<cv::v4d::V4D> menuWindow;
-#endif
-
+MidiReceiver* receiver;
 /** Visualization parameters **/
 
 // Generate the foreground at this scale.
-#ifndef __EMSCRIPTEN__
 float fg_scale = 0.5f;
-#else
-float fg_scale = 0.5f;
-#endif
 // On every frame the foreground loses on brightness. specifies the loss in percent.
-#ifndef __EMSCRIPTEN__
 float fg_loss = 2.5;
-#else
-float fg_loss = 10.0;
-#endif
 //Convert the background to greyscale
 BackgroundModes background_mode = GREY;
 // Peak thresholds for the scene change detection. Lowering them makes the detection more sensitive but
@@ -74,17 +65,9 @@ float scene_change_thresh = 0.29f;
 float scene_change_thresh_diff = 0.1f;
 // The theoretical maximum number of points to track which is scaled by the density of detected points
 // and therefor is usually much smaller.
-#ifndef __EMSCRIPTEN__
 int max_points = 250000;
-#else
-int max_points = 100000;
-#endif
 // How many of the tracked points to lose intentionally, in percent.
-#ifndef __EMSCRIPTEN__
 float point_loss = 25;
-#else
-float point_loss = 10;
-#endif
 // The theoretical maximum size of the drawing stroke which is scaled by the area of the convex hull
 // of tracked points and therefor is usually much smaller.
 int max_stroke = 10;
@@ -100,11 +83,7 @@ bool stretch = false;
 //Use OpenCL or not
 bool use_acceleration = true;
 //The post processing mode
-#ifndef __EMSCRIPTEN__
 PostProcModes post_proc_mode = GLOW;
-#else
-PostProcModes post_proc_mode = NONE;
-#endif
 // Intensity of glow or bloom defined by kernel size. The default scales with the image diagonal.
 int GLOW_KERNEL_SIZE = std::max(int(DIAG / 100 % 2 == 0 ? DIAG / 100 + 1 : DIAG / 100), 1);
 //The lightness selection threshold
@@ -298,33 +277,178 @@ static void composite_layers(cv::UMat& background, const cv::UMat& foreground, c
     cv::add(background, post, dst);
 }
 
-static void setup_gui(cv::Ptr<cv::v4d::V4D> main, cv::Ptr<cv::v4d::V4D> menu) {
+enum FormWidgetType {
+    NOTYPE,
+    INT,
+    LONG,
+    FLOAT,
+    DOUBLE,
+    BOOL,
+    COLOR_PICKER,
+    COMBOBOX,
+};
+
+std::vector<std::pair<FormWidgetType, nanogui::Widget*>> midi_table;
+
+template<typename T> nanogui::detail::FormWidget<T>* getFormWidget(nanogui::Widget* widget) {
+        return dynamic_cast<nanogui::detail::FormWidget<T>*>(widget);
+}
+
+static FormWidgetType getFormWidgetType(nanogui::Widget* widget) {
+    if (dynamic_cast<nanogui::ComboBox*>(widget) != nullptr) {
+        return COMBOBOX;
+    } else if (dynamic_cast<nanogui::ColorPicker*>(widget) != nullptr) {
+        return COLOR_PICKER;
+    }
+    return NOTYPE;
+}
+
+template<typename T> static bool isFormWidget(nanogui::Widget* widget) {
+    if(dynamic_cast<nanogui::detail::FormWidget<T>*>(widget) != nullptr) {
+        return true;
+    }
+    return false;
+}
+
+std::string createStatusStringFromWidget(FormWidgetType type, nanogui::Widget* widget, uint16_t newVal) {
+    assert(newVal < 256);
+    std::ostringstream oss;
+    nanogui::detail::FormWidget<PostProcModes>* fw1;
+    nanogui::detail::FormWidget<BackgroundModes>* fw2;
+    string tooltip = widget->tooltip();
+    std::any val;
+    string str;
+    string defVal;
+    nanogui::Color color;
+    cv::Scalar rgb;
+    cv::Scalar hls;
+    nanogui::Color newCol;
+    switch (type) {
+    case INT:
+        val = getFormWidget<int>(widget)->get_max_value() / 127.0f * newVal;
+        defVal = getFormWidget<int>(widget)->default_value();
+        getFormWidget<int>(widget)->set_value(std::any_cast<float>(val));
+        getFormWidget<int>(widget)->callback()(std::to_string(int(std::any_cast<float>(val))));
+        str = std::to_string(std::any_cast<float>(val));
+        break;
+    case LONG:
+        val = getFormWidget<long>(widget)->get_max_value() / 127.0f * newVal;
+        defVal = getFormWidget<long>(widget)->default_value();
+        getFormWidget<long>(widget)->set_value(std::any_cast<float>(val));
+        getFormWidget<long>(widget)->callback()(std::to_string(long(std::any_cast<float>(val))));
+        str = std::to_string(std::any_cast<float>(val));
+        break;
+    case FLOAT:
+        val = getFormWidget<float>(widget)->get_max_value() / 127.0f * newVal;
+        defVal = getFormWidget<float>(widget)->default_value();
+        getFormWidget<float>(widget)->set_value(std::any_cast<float>(val));
+        getFormWidget<float>(widget)->callback()(std::to_string(std::any_cast<float>(val)));
+        str = std::to_string(std::any_cast<float>(val));
+        break;
+    case DOUBLE:
+        val = getFormWidget<double>(widget)->get_max_value() / 127.0f * newVal;
+        defVal = getFormWidget<double>(widget)->default_value();
+        getFormWidget<double>(widget)->set_value(std::any_cast<float>(val));
+        getFormWidget<double>(widget)->callback()(std::to_string(double(std::any_cast<float>(val))));
+        str = std::to_string(std::any_cast<float>(val));
+        break;
+    case BOOL:
+        val = newVal > 127;
+        getFormWidget<bool>(widget)->set_value(std::any_cast<bool>(val));
+        getFormWidget<bool>(widget)->callback()(std::any_cast<bool>(val));
+        str = std::to_string(std::any_cast<bool>(val));
+        break;
+    case COLOR_PICKER:
+        color = getFormWidget<nanogui::Color>(widget)->value();
+        hls = cv::v4d::colorConvert(cv::Scalar(color.r() * 255, color.g() * 255, color.b() * 255), cv::COLOR_RGB2HLS_FULL);
+        hls[0] = newVal;
+        hls[1] = 128;
+        hls[2] = 128;
+        rgb = cv::v4d::colorConvert(hls, cv::COLOR_HLS2RGB_FULL);
+        str = string("(") + std::to_string(rgb[0]) + ", " + std::to_string(rgb[1]) + ", " + std::to_string(rgb[2]) + ")";
+        newCol = nanogui::Color(rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1.0f);
+        getFormWidget<nanogui::Color>(widget)->set_value(newCol);
+        getFormWidget<nanogui::Color>(widget)->final_callback()(newCol);
+        break;
+    case COMBOBOX:
+        fw1 = getFormWidget<PostProcModes>(widget);
+        fw2 = getFormWidget<BackgroundModes>(widget);
+        assert(fw1 != nullptr || fw2 != nullptr);
+        if(fw1 != nullptr) {
+            val = (static_cast<int>(PostProcModes::COUNTPPM) - 1) / 127.0f * newVal;
+            str = fw1->items()[int(std::any_cast<float>(val))];
+            fw1->set_selected_index(int(std::any_cast<float>(val)));
+            fw1->callback()(int(std::any_cast<float>(val)));
+        }
+        if(fw2 != nullptr) {
+            val = (static_cast<int>(BackgroundModes::COUNTBG) -1) / 127.0f * newVal;
+            str = fw2->items()[int(std::any_cast<float>(val))];
+            fw2->set_selected_index(int(std::any_cast<float>(val)));
+            fw2->callback()(int(std::any_cast<float>(val)));
+        }
+
+        break;
+    default:
+        assert(false);
+        break;
+    }
+    oss << tooltip << ": " << str << std::endl;
+    return oss.str();
+}
+
+static void add_variables_to_midi_table(std::vector<nanogui::Widget*> children) {
+    FormWidgetType type;
+    for(auto *child : children) {
+        if(!child->tooltip().empty()) {
+            if(isFormWidget<int>(child)) {
+                midi_table.push_back({INT, child});
+            } else if(isFormWidget<long>(child)) {
+                midi_table.push_back({LONG, child});
+            } else if(isFormWidget<float>(child)) {
+                midi_table.push_back({FLOAT, child});
+            } else if(isFormWidget<double>(child)) {
+                midi_table.push_back({DOUBLE, child});
+            } else if(isFormWidget<bool>(child)) {
+                midi_table.push_back({BOOL, child});
+            } else if((type = getFormWidgetType(child)) != NOTYPE) {
+                midi_table.push_back({type, child});
+            } else {
+                assert(false);
+            }
+        }
+        add_variables_to_midi_table(child->children());
+    }
+}
+
+static void setup_gui(cv::Ptr<cv::v4d::V4D> main) {
     main->nanogui([&](cv::v4d::FormHelper& form){
         form.makeDialog(5, 30, "Effects");
 
         form.makeGroup("Foreground");
-        form.makeFormVariable("Scale", fg_scale, 0.1f, 4.0f, true, "", "Generate the foreground at this scale");
-        form.makeFormVariable("Loss", fg_loss, 0.1f, 99.9f, true, "%", "On every frame the foreground loses on brightness");
+        form.makeFormVariable("Scale", fg_scale, 0.1f, 4.0f, true, "", "");
+        form.makeFormVariable("Loss", fg_loss, 0.1f, 99.9f, true, "%", "Foreground brightness loss");
 
         form.makeGroup("Background");
-        form.makeComboBox("Mode",background_mode, {"Grey", "Color", "Value", "Black"});
+        auto* modeCombo = form.makeComboBox("Mode",background_mode, {"Grey", "Color", "Value", "Black"}, "Background mode");
 
         form.makeGroup("Points");
-        form.makeFormVariable("Max. Points", max_points, 10, 1000000, true, "", "The theoretical maximum number of points to track which is scaled by the density of detected points and therefor is usually much smaller");
-        form.makeFormVariable("Point Loss", point_loss, 0.0f, 100.0f, true, "%", "How many of the tracked points to lose intentionally");
+        form.makeFormVariable("Max. Points", max_points, 10, 1000000, true, "", "Maximum number of points");
+        form.makeFormVariable("Point Loss", point_loss, 0.0f, 100.0f, true, "%", "How many points to lose");
 
         form.makeGroup("Optical flow");
-        form.makeFormVariable("Max. Stroke Size", max_stroke, 1, 100, true, "px", "The theoretical maximum size of the drawing stroke which is scaled by the area of the convex hull of tracked points and therefor is usually much smaller");
-        form.makeColorPicker("Color", effect_color, "The primary effect color",[&](const nanogui::Color &c) {
+        form.makeFormVariable("Max. Stroke Size", max_stroke, 1, 100, true, "px", "Stroke size");
+        form.makeColorPicker("Color", effect_color, "Color",[&](const nanogui::Color &c) {
             effect_color[0] = c[0];
             effect_color[1] = c[1];
             effect_color[2] = c[2];
         });
-        form.makeFormVariable("Alpha", alpha, 0.0f, 1.0f, true, "", "The opacity of the effect");
+        form.makeFormVariable("Alpha", alpha, 0.0f, 1.0f, true, "", "Opacity");
+        add_variables_to_midi_table(form.window()->children());
+
 
         form.makeDialog(220, 30, "Post Processing");
-        auto* postPocMode = form.makeComboBox("Mode",post_proc_mode, {"Glow", "Bloom", "None"});
-        auto* kernelSize = form.makeFormVariable("Kernel Size", GLOW_KERNEL_SIZE, 1, 63, true, "", "Intensity of glow defined by kernel size");
+        auto* postPocMode = form.makeComboBox("Mode",post_proc_mode, {"Glow", "Bloom", "None"}, "Post processing mode");
+        auto* kernelSize = form.makeFormVariable("Kernel Size", GLOW_KERNEL_SIZE, 1, 63, true, "", "Intensity of post processing");
         kernelSize->set_callback([=](const int& k) {
             static int lastKernelSize = GLOW_KERNEL_SIZE;
 
@@ -339,8 +463,8 @@ static void setup_gui(cv::Ptr<cv::v4d::V4D> main, cv::Ptr<cv::v4d::V4D> menu) {
             lastKernelSize = k;
             kernelSize->set_value(GLOW_KERNEL_SIZE);
         });
-        auto* thresh = form.makeFormVariable("Threshold", bloom_thresh, 1, 255, true, "", "The lightness selection threshold", true, false);
-        auto* gain = form.makeFormVariable("Gain", bloom_gain, 0.1f, 20.0f, true, "", "Intensity of the effect defined by gain", true, false);
+        auto* thresh = form.makeFormVariable("Threshold", bloom_thresh, 1, 255, true, "", "", true, false);
+        auto* gain = form.makeFormVariable("Gain", bloom_gain, 0.1f, 20.0f, true, "", "", true, false);
         postPocMode->set_callback([=](const int& m) {
             switch(m) {
             case GLOW:
@@ -360,49 +484,34 @@ static void setup_gui(cv::Ptr<cv::v4d::V4D> main, cv::Ptr<cv::v4d::V4D> menu) {
             break;
 
             }
-            postPocMode->set_selected_index(m);
+            dynamic_cast<nanogui::ComboBox*>(postPocMode)->set_selected_index(m);
         });
-
-        form.makeDialog(220, 175, "Settings");
-
-        form.makeGroup("Scene Change Detection");
-        form.makeFormVariable("Threshold", scene_change_thresh, 0.1f, 1.0f, true, "", "Peak threshold. Lowering it makes detection more sensitive");
-        form.makeFormVariable("Threshold Diff", scene_change_thresh_diff, 0.1f, 1.0f, true, "", "Difference of peak thresholds. Lowering it makes detection more sensitive");
-    });
-
-    menu->nanogui([&](cv::v4d::FormHelper& form){
-        form.makeDialog(8, 16, "Display");
-
-        form.makeGroup("Display");
-        form.makeFormVariable("Show FPS", show_fps, "Enable or disable the On-screen FPS display");
-        form.makeFormVariable("Stetch", stretch, "Stretch the frame buffer to the window size")->set_callback([=](const bool &s) {
-            main->setFrameBufferScaling(s);
-        });
-
-#ifndef __EMSCRIPTEN__
-        form.makeButton("Fullscreen", [=]() {
-            main->setFullscreen(!main->isFullscreen());
-        });
-
-        form.makeButton("Offscreen", [=]() {
-            main->setVisible(!main->isVisible());
-        });
-#endif
+        add_variables_to_midi_table(form.window()->children());
     });
 }
+
 
 static bool iteration() {
     //BGRA
     static cv::UMat background, down;
     static cv::UMat foreground(window->framebufferSize(), CV_8UC4, cv::Scalar::all(0));
-    //RGB
-    static cv::UMat menuFrame;
     //GREY
     static cv::UMat downPrevGrey, downNextGrey, downMotionMaskGrey;
     static vector<cv::Point2f> detectedPoints;
-
+    static std::vector<MidiEvent> events;
+    static string txt;
+    static auto start = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    static auto lastHUD = start;
     if(!window->capture())
         return false;
+
+    events = receiver->receive();
+    for(auto& ev : events) {
+        if(ev.cc_) {
+            lastHUD = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            txt = createStatusStringFromWidget(midi_table[ev.controller_ - 12].first, midi_table[ev.controller_ - 12].second, ev.value_);
+        }
+    }
 
     window->fb([&](cv::UMat& frameBuffer) {
         cv::resize(frameBuffer, down, cv::Size(window->framebufferSize().width * fg_scale, window->framebufferSize().height * fg_scale));
@@ -419,11 +528,11 @@ static bool iteration() {
         cv::v4d::nvg::clear();
         if (!downPrevGrey.empty()) {
             //We don't want the algorithm to get out of hand when there is a scene change, so we suppress it when we detect one.
-            if (!detect_scene_change(downMotionMaskGrey, scene_change_thresh, scene_change_thresh_diff)) {
+//            if (!detect_scene_change(downMotionMaskGrey, scene_change_thresh, scene_change_thresh_diff)) {
                 //Visualize the sparse optical flow using nanovg
                 cv::Scalar color = cv::Scalar(effect_color.b() * 255.0f, effect_color.g() * 255.0f, effect_color.r() * 255.0f, alpha * 255.0f);
                 visualize_sparse_optical_flow(downPrevGrey, downNextGrey, detectedPoints, fg_scale, max_stroke, color, max_points, point_loss);
-            }
+//            }
         }
     });
 
@@ -432,62 +541,59 @@ static bool iteration() {
     window->fb([&](cv::UMat& framebuffer){
         //Put it all together (OpenCL)
         composite_layers(background, foreground, framebuffer, framebuffer, GLOW_KERNEL_SIZE, fg_loss, background_mode, post_proc_mode);
-#ifndef __EMSCRIPTEN__
-        cvtColor(framebuffer, menuFrame, cv::COLOR_BGRA2RGB);
-#endif
     });
 
-#ifndef __EMSCRIPTEN__
-    window->write();
+    auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
-    menuWindow->feed(menuFrame);
+    if(now - lastHUD < 1000) {
+        window->nvg([txt, now, lastHUD](const cv::Size& sz) {
+            using namespace cv::v4d::nvg;
+            beginPath();
+            float size = 30.0f;
+            float border = size / 6.0f;
+            roundedRect(border * 4, border, sz.width - border * 8, size, border);
+            fillColor(cv::v4d::colorConvert(cv::Scalar(0, 175, 100, cv::saturate_cast<uchar>(100 / ((now - lastHUD) / 1000.0))), cv::COLOR_HLS2BGR_FULL));
+            fill();
+            fontSize(size);
+            fontFace("sans-bold");
+            fontBlur(0.5);
+            fillColor(cv::Scalar(0, 0, 0, cv::saturate_cast<uchar>(255.0 / ((now - lastHUD) / 1000.0))));
+            textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
+            text(sz.width / 2, border * 4, txt.c_str(), nullptr);
+        });
+    }
 
-    if(!menuWindow->display())
-        return false;
-#endif
-
+    window->nvg([now](const cv::Size& sz) {
+        using namespace cv::v4d::nvg;
+        string norec = "No Recording!";
+        float size = 30.0f;
+        float width = (size / 2.0f) * norec.size();
+        fontSize(size);
+        fontFace("mono");
+        fillColor(cv::Scalar(0, 0, 255, 255.0 * (1.0 - pow(sinf(((now - start) / 1000.0) * 0.5), 200))));
+        textAlign(NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
+        text((sz.width - width) - size / 2.0, sz.height - size, norec.c_str(), nullptr);
+    });
     //If onscreen rendering is enabled it displays the framebuffer in the native window. Returns false if the window was closed.
     return window->display();
 }
-#ifndef __EMSCRIPTEN__
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         std::cerr << "Usage: optflow <input-video-file>" << endl;
         exit(1);
     }
-#else
-int main() {
-#endif
     try {
+        receiver = new MidiReceiver(0);
         using namespace cv::v4d;
         window = V4D::make(cv::Size(WIDTH, HEIGHT), cv::Size(), "Sparse Optical Flow Demo", OFFSCREEN);
-#ifndef __EMSCRIPTEN__
-        menuWindow = V4D::make(cv::Size(240, 360), cv::Size(), "Display Settings", OFFSCREEN);
-#endif
-
         window->printSystemInfo();
-
-        if (!OFFSCREEN) {
-#ifndef __EMSCRIPTEN__
-            setup_gui(window, menuWindow);
-            menuWindow->setResizable(false);
-#else
-            setup_gui(window, window);
-#endif
-        }
-
-#ifndef __EMSCRIPTEN__
-        Source src = makeCaptureSource(argv[1]);
-        window->setSource(src);
-
-        Sink sink = makeWriterSink(OUTPUT_FILENAME, cv::VideoWriter::fourcc('V', 'P', '9', '0'),
-                src.fps(), cv::Size(WIDTH, HEIGHT));
-        window->setSink(sink);
-#else
-    Source src = makeCaptureSource(WIDTH, HEIGHT, window);
-    window->setSource(src);
-#endif
-
+        window->setPrintFPS(true);
+        window->setShowFPS(false);
+        setup_gui(window);
+        window->showGui(false);
+        window->setDefaultKeyboardEventCallback();
+        window->setSource(makeCaptureSource(argv[1]));
         window->run(iteration);
     } catch (std::exception& ex) {
         cerr << ex.what() << endl;

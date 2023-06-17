@@ -96,7 +96,7 @@ public:
      * @param enabled Indicates if the widget is initially enabled
      * @return A pointer to the newly created ColorPicker
      */
-    CV_EXPORTS nanogui::ColorPicker* makeColorPicker(const string& label, nanogui::Color& color,
+    CV_EXPORTS nanogui::detail::FormWidget<nanogui::Color>* makeColorPicker(const string& label, nanogui::Color& color,
             const string& tooltip = "", std::function<void(const nanogui::Color)> fn = nullptr,
             bool visible = true, bool enabled = true);
     /*!
@@ -107,9 +107,10 @@ public:
      * @param items A vector of strings with one string per enumeration value
      * @return A pointer to the newly created ComboBox
      */
-    template<typename T> nanogui::ComboBox* makeComboBox(const string& label, T& e,
-            const std::vector<string>& items) {
+    template<typename T> nanogui::detail::FormWidget<T>*  makeComboBox(const string& label, T& e,
+            const std::vector<string>& items, const string& tooltip = "") {
         auto* var = this->add_variable(label, e, true);
+        var->set_tooltip(tooltip);
         var->set_items(items);
         return var;
     }

@@ -22,7 +22,7 @@ class CV_EXPORTS Source {
     std::function<bool(cv::UMat&)> generator_;
     cv::UMat frame_;
     uint64_t count_ = 0;
-    float fps_;
+    float fps_ = 25;
 public:
     /*!
      * Constructs the Source object from a generator functor.

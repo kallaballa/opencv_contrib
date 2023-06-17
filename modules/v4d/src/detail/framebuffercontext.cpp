@@ -313,8 +313,7 @@ void FrameBufferContext::init() {
     glfwSetKeyCallback(getGLFWWindow(),
             [](GLFWwindow* glfwWin, int key, int scancode, int action, int mods) {
                 V4D* v4d = reinterpret_cast<V4D*>(glfwGetWindowUserPointer(glfwWin));
-                if(v4d->hasNguiCtx())
-                    v4d->nguiCtx().screen().key_callback_event(key, scancode, action, mods);
+                v4d->keyboard_event(key, scancode, action, mods);
             }
     );
     glfwSetCharCallback(getGLFWWindow(), [](GLFWwindow* glfwWin, unsigned int codepoint) {
@@ -527,6 +526,10 @@ void FrameBufferContext::toGLTexture2D(cv::UMat& u, cv::ogl::Texture2D& texture)
     if (status != CL_SUCCESS)
         CV_Error_(cv::Error::OpenCLApiCallError,
                 ("OpenCL: clEnqueueCopyBufferToImage failed: %d", status));
+
+    status = clFinish(q);
+    if (status != CL_SUCCESS)
+        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
 #endif
 }
 
@@ -572,6 +575,10 @@ void FrameBufferContext::fromGLTexture2D(const cv::ogl::Texture2D& texture, cv::
     if (status != CL_SUCCESS)
         CV_Error_(cv::Error::OpenCLApiCallError,
                 ("OpenCL: clEnqueueCopyImageToBuffer failed: %d", status));
+
+    status = clFinish(q);
+    if (status != CL_SUCCESS)
+        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
 #endif
 }
 
@@ -632,13 +639,6 @@ void FrameBufferContext::execute(std::function<void(cv::UMat&)> fn) {
             FrameBufferContext::FrameBufferScope fbScope(*this, framebuffer_);
             fn(framebuffer_);
         }
-
-        cl_int status = 0;
-        cl_command_queue q = (cl_command_queue) cv::ocl::Queue::getDefault().ptr();
-
-        status = clFinish(q);
-        if (status != CL_SUCCESS)
-            CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
 #endif
     });
 }

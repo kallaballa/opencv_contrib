@@ -1,5 +1,6 @@
-#include "midiplayback.hpp"
+#include <opencv2/v4d/midiplayback.hpp>
 
+#include <opencv2/core/cvdef.h>
 #include <thread>
 #include <iostream>
 #include <algorithm>
@@ -32,13 +33,13 @@ std::vector<MidiEvent>::iterator findClosestEvent(std::vector<MidiEvent> & data,
 }
 
 
-MidiPlayback::MidiPlayback(int32_t inport) : recv_(inport, false) {
+CV_EXPORTS MidiPlayback::MidiPlayback(int32_t inport) : recv_(inport, false) {
 }
 
-MidiPlayback::~MidiPlayback(){
+CV_EXPORTS MidiPlayback::~MidiPlayback(){
 }
 
-void MidiPlayback::record() {
+CV_EXPORTS void MidiPlayback::record() {
 	std::unique_lock<std::mutex> lock(bufferMtx_);
 	if(running_)
 		return;
@@ -62,13 +63,13 @@ void MidiPlayback::record() {
 	t.detach();
 }
 
-void MidiPlayback::stop() {
+CV_EXPORTS void MidiPlayback::stop() {
 	std::unique_lock<std::mutex> lock(bufferMtx_);
 	recv_.stop();
 	running_ = false;
 }
 
-std::vector<MidiEvent> MidiPlayback::get_until_epoch(uint64_t sinceEpoch) {
+CV_EXPORTS std::vector<MidiEvent> MidiPlayback::get_until_epoch(uint64_t sinceEpoch) {
 	std::unique_lock<std::mutex> lock(bufferMtx_);
 
 	if(recordBuffer_.empty()) {
@@ -94,7 +95,7 @@ std::vector<MidiEvent> MidiPlayback::get_until_epoch(uint64_t sinceEpoch) {
 }
 
 
-std::vector<MidiEvent> MidiPlayback::get_until_tick(uint64_t tick) {
+CV_EXPORTS std::vector<MidiEvent> MidiPlayback::get_until_tick(uint64_t tick) {
 	std::unique_lock<std::mutex> lock(bufferMtx_);
 
 	if(recordBuffer_.empty()) {

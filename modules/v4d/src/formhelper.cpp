@@ -36,7 +36,7 @@ nanogui::detail::FormWidget<bool>* FormHelper::makeFormVariable(const string& na
     return var;
 }
 
-nanogui::ColorPicker* FormHelper::makeColorPicker(const string& label, nanogui::Color& color,
+nanogui::detail::FormWidget<nanogui::Color>* FormHelper::makeColorPicker(const string& label, nanogui::Color& color,
         const string& tooltip, std::function<void(const nanogui::Color)> fn, bool visible,
         bool enabled) {
     auto* colorPicker = add_variable(label, color);

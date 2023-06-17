@@ -581,6 +581,10 @@ uint64_t V4D::frameCount() {
     return frameCnt_;
 }
 
+float V4D::fps() {
+    return source_.fps();
+}
+
 bool V4D::isClosed() {
     return fbCtx().isClosed();
 }

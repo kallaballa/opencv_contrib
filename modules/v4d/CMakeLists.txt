@@ -1,7 +1,9 @@
 if(NOT EMSCRIPTEN)
   find_package(glfw3 3 REQUIRED)
+  pkg_check_modules(RtMidi REQUIRED)
   include("FindGLEW")
   include("FindOpenGL")
+
 else()
   pkg_check_modules (glew glew)
 endif()
@@ -203,5 +205,5 @@ target_include_directories(${the_module} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}thi
 if(EMSCRIPTEN)
   ocv_target_link_libraries(${the_module} -lnanogui)
 else()
-  ocv_target_link_libraries(${the_module} -lOpenCL -lnanogui glfw GLEW::GLEW OpenGL::GLU OpenGL::OpenGL)
+  ocv_target_link_libraries(${the_module} -lOpenCL -lnanogui glfw GLEW::GLEW OpenGL::GLU OpenGL::OpenGL -lrtmidi)
 endif()

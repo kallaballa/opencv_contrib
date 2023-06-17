@@ -1,4 +1,4 @@
-#include "midireceiver.hpp"
+#include <opencv2/v4d/midireceiver.hpp>
 
 //#include <iostream>
 

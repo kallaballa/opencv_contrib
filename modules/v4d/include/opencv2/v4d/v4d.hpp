@@ -356,6 +356,8 @@ public:
      * @return true if framebuffer is scaled during blitting.
      */
     CV_EXPORTS bool isFrameBufferScaling();
+    CV_EXPORTS float fps();
+
     /*!
      * Everytime a frame is displayed this count is incremented
      * @return the current frame count
@@ -382,12 +384,12 @@ public:
 
     CV_EXPORTS void makeCurrent();
     NanoguiContext& nguiCtx();
+    void setDefaultKeyboardEventCallback();
 private:
     V4D(const cv::Size& size, const cv::Size& fbsize,
             const string& title, bool offscreen, bool debug, int major, int minor, bool compat, int samples);
 
     void init();
-    void setDefaultKeyboardEventCallback();
     void setKeyboardEventCallback(
             std::function<bool(int key, int scancode, int action, int modifiers)> fn);
     void setMouseDrag(bool d);
