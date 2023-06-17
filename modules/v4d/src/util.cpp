@@ -298,7 +298,11 @@ Source makeVaSource(const string& inputFilename, const int vaDeviceIndex) {
 Sink makeWriterSink(const string& outputFilename, const int fourcc, const float fps,
         const cv::Size& frameSize) {
     if (isIntelVaSupported()) {
-        return makeVaSink(outputFilename, fourcc, fps, frameSize, 0);
+        try {
+            return makeVaSink(outputFilename, fourcc, fps, frameSize, 0);
+        } catch(...) {
+            cerr << "Exception caught: Continue without VAAPI." << endl;
+        }
     }
 
     cv::Ptr<cv::VideoWriter> writer = new cv::VideoWriter(outputFilename, cv::CAP_FFMPEG,
@@ -313,7 +317,11 @@ Sink makeWriterSink(const string& outputFilename, const int fourcc, const float 
 
 Source makeCaptureSource(const string& inputFilename) {
     if (isIntelVaSupported()) {
-        return makeVaSource(inputFilename, 0);
+        try {
+            return makeVaSource(inputFilename, 0);
+        } catch(...) {
+            cerr << "Exception caught: Continue without VAAPI." << endl;
+        }
     }
 
     cv::Ptr<cv::VideoCapture> capture = new cv::VideoCapture(inputFilename, cv::CAP_FFMPEG);

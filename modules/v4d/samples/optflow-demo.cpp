@@ -43,8 +43,8 @@ enum PostProcModes {
 
 /** Application parameters **/
 
-constexpr unsigned int WIDTH = 1280;
-constexpr unsigned int HEIGHT = 720;
+constexpr unsigned int WIDTH = 1920;
+constexpr unsigned int HEIGHT = 1080;
 const unsigned long DIAG = hypot(double(WIDTH), double(HEIGHT));
 constexpr const char* OUTPUT_FILENAME = "optflow-demo.mkv";
 constexpr bool OFFSCREEN = false;
@@ -545,32 +545,38 @@ static bool iteration() {
 
     auto now = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 
-    if(now - lastHUD < 1000) {
+    if(now - lastHUD < 10000) {
         window->nvg([txt, now, lastHUD](const cv::Size& sz) {
             using namespace cv::v4d::nvg;
             beginPath();
-            float size = 30.0f;
+            float size = 40.0f;
             float border = size / 6.0f;
-            roundedRect(border * 4, border, sz.width - border * 8, size, border);
-            fillColor(cv::v4d::colorConvert(cv::Scalar(0, 175, 100, cv::saturate_cast<uchar>(100 / ((now - lastHUD) / 1000.0))), cv::COLOR_HLS2BGR_FULL));
+            float h = 2.0 * size * (1.0 - ((now - lastHUD) / 1000.0));
+            roundedRect(size * 10, border + ((size) - (h / 2.0)), sz.width - size * 20, h, border);
+            fillColor(cv::v4d::colorConvert(cv::Scalar(127, 200, 100, cv::saturate_cast<uchar>(512.0 / (255.0 * ((now - lastHUD) / 10000.0)))), cv::COLOR_HLS2BGR_FULL) / 1.5);
             fill();
+
+            beginPath();
+            roundedRect(size * 10, border + ((size) - (h / 2.0)), sz.width - size * 20, h, border);
+            strokeColor(cv::v4d::colorConvert(cv::Scalar(127, 100, 100, cv::saturate_cast<uchar>(512.0 / (255.0 * ((now - lastHUD) / 10000.0)))), cv::COLOR_HLS2BGR_FULL) / 1.5);
+            stroke();
+
             fontSize(size);
             fontFace("sans-bold");
-            fontBlur(0.5);
-            fillColor(cv::Scalar(0, 0, 0, cv::saturate_cast<uchar>(255.0 / ((now - lastHUD) / 1000.0))));
+            fillColor(cv::Scalar(0, 0, 0, cv::saturate_cast<uchar>(512.0 / (255.0 * ((now - lastHUD) / 10000.0)))));
             textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_MIDDLE);
-            text(sz.width / 2, border * 4, txt.c_str(), nullptr);
+            text(sz.width / 2, border * 7, txt.c_str(), nullptr);
         });
     }
 
     window->nvg([now](const cv::Size& sz) {
         using namespace cv::v4d::nvg;
-        string norec = "No Recording!";
+        string norec = "No recording!";
         float size = 30.0f;
         float width = (size / 2.0f) * norec.size();
         fontSize(size);
         fontFace("mono");
-        fillColor(cv::Scalar(0, 0, 255, 255.0 * (1.0 - pow(sinf(((now - start) / 1000.0) * 0.5), 200))));
+        fillColor(cv::Scalar(0, 0, 255, 255.0 * (1.0 - pow(sinf(((now - start) / 1000.0) * 1.5), 200))));
         textAlign(NVG_ALIGN_LEFT | NVG_ALIGN_MIDDLE);
         text((sz.width - width) - size / 2.0, sz.height - size, norec.c_str(), nullptr);
     });
