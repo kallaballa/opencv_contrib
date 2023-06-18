@@ -310,7 +310,7 @@ template<typename T> static bool isFormWidget(nanogui::Widget* widget) {
     return false;
 }
 
-std::string createStatusStringFromWidget(FormWidgetType type, nanogui::Widget* widget, uint16_t newVal) {
+std::string create_status_string_from_widget(FormWidgetType type, nanogui::Widget* widget, uint16_t newVal) {
     assert(newVal < 256);
     std::ostringstream oss;
     nanogui::detail::FormWidget<PostProcModes>* fw1;
@@ -325,38 +325,50 @@ std::string createStatusStringFromWidget(FormWidgetType type, nanogui::Widget* w
     nanogui::Color newCol;
     switch (type) {
     case INT:
-        val = getFormWidget<int>(widget)->get_max_value() / 127.0f * newVal;
+        val = getFormWidget<int>(widget)->get_max_value() / 127.0 * newVal;
+        if(std::any_cast<double>(val) < getFormWidget<int>(widget)->get_min_value()) {
+            val = double(getFormWidget<int>(widget)->get_min_value());
+        }
         defVal = getFormWidget<int>(widget)->default_value();
-        getFormWidget<int>(widget)->set_value(std::any_cast<float>(val));
-        getFormWidget<int>(widget)->callback()(std::to_string(int(std::any_cast<float>(val))));
-        str = std::to_string(std::any_cast<float>(val));
+        getFormWidget<int>(widget)->set_value(std::any_cast<double>(val));
+        getFormWidget<int>(widget)->callback()(std::to_string(int(std::any_cast<double>(val))));
+        str = std::to_string(int(std::any_cast<double>(val)));
         break;
     case LONG:
-        val = getFormWidget<long>(widget)->get_max_value() / 127.0f * newVal;
+        val = getFormWidget<long>(widget)->get_max_value() / 127.0 * newVal;
+        if(std::any_cast<double>(val) < getFormWidget<long>(widget)->get_min_value()) {
+            val = double(getFormWidget<long>(widget)->get_min_value());
+        }
         defVal = getFormWidget<long>(widget)->default_value();
-        getFormWidget<long>(widget)->set_value(std::any_cast<float>(val));
-        getFormWidget<long>(widget)->callback()(std::to_string(long(std::any_cast<float>(val))));
-        str = std::to_string(std::any_cast<float>(val));
+        getFormWidget<long>(widget)->set_value(std::any_cast<double>(val));
+        getFormWidget<long>(widget)->callback()(std::to_string(long(std::any_cast<double>(val))));
+        str = std::to_string(long(std::any_cast<double>(val)));
         break;
     case FLOAT:
-        val = getFormWidget<float>(widget)->get_max_value() / 127.0f * newVal;
+        val = getFormWidget<float>(widget)->get_max_value() / 127.0 * newVal;
+        if(std::any_cast<double>(val) < getFormWidget<float>(widget)->get_min_value()) {
+            val = double(getFormWidget<float>(widget)->get_min_value());
+        }
         defVal = getFormWidget<float>(widget)->default_value();
-        getFormWidget<float>(widget)->set_value(std::any_cast<float>(val));
-        getFormWidget<float>(widget)->callback()(std::to_string(std::any_cast<float>(val)));
-        str = std::to_string(std::any_cast<float>(val));
+        getFormWidget<float>(widget)->set_value(std::any_cast<double>(val));
+        getFormWidget<float>(widget)->callback()(std::to_string(float(std::any_cast<double>(val))));
+        str = std::to_string(float(std::any_cast<double>(val)));
         break;
     case DOUBLE:
-        val = getFormWidget<double>(widget)->get_max_value() / 127.0f * newVal;
+        val = getFormWidget<double>(widget)->get_max_value() / 127.0 * newVal;
+        if(std::any_cast<double>(val) < getFormWidget<double>(widget)->get_min_value()) {
+            val = getFormWidget<double>(widget)->get_min_value();
+        }
         defVal = getFormWidget<double>(widget)->default_value();
-        getFormWidget<double>(widget)->set_value(std::any_cast<float>(val));
-        getFormWidget<double>(widget)->callback()(std::to_string(double(std::any_cast<float>(val))));
-        str = std::to_string(std::any_cast<float>(val));
+        getFormWidget<double>(widget)->set_value(std::any_cast<double>(val));
+        getFormWidget<double>(widget)->callback()(std::to_string(std::any_cast<double>(val)));
+        str = std::to_string(std::any_cast<double>(val));
         break;
     case BOOL:
         val = newVal > 127;
         getFormWidget<bool>(widget)->set_value(std::any_cast<bool>(val));
         getFormWidget<bool>(widget)->callback()(std::any_cast<bool>(val));
-        str = std::to_string(std::any_cast<bool>(val));
+        str = std::any_cast<bool>(val) ? "true" : "false";
         break;
     case COLOR_PICKER:
         color = getFormWidget<nanogui::Color>(widget)->value();
@@ -381,7 +393,7 @@ std::string createStatusStringFromWidget(FormWidgetType type, nanogui::Widget* w
             fw1->callback()(int(std::any_cast<float>(val)));
         }
         if(fw2 != nullptr) {
-            val = (static_cast<int>(BackgroundModes::COUNTBG) -1) / 127.0f * newVal;
+            val = (static_cast<int>(BackgroundModes::COUNTBG) - 1) / 127.0f * newVal;
             str = fw2->items()[int(std::any_cast<float>(val))];
             fw2->set_selected_index(int(std::any_cast<float>(val)));
             fw2->callback()(int(std::any_cast<float>(val)));
@@ -433,7 +445,7 @@ static void setup_gui(cv::Ptr<cv::v4d::V4D> main) {
 
         form.makeGroup("Points");
         form.makeFormVariable("Max. Points", max_points, 10, 1000000, true, "", "Maximum number of points");
-        form.makeFormVariable("Point Loss", point_loss, 0.0f, 100.0f, true, "%", "How many points to lose");
+        form.makeFormVariable("Point Loss", point_loss, 0.1f, 99.9f, true, "%", "How many points to lose");
 
         form.makeGroup("Optical flow");
         form.makeFormVariable("Max. Stroke Size", max_stroke, 1, 100, true, "px", "Stroke size");
@@ -442,7 +454,7 @@ static void setup_gui(cv::Ptr<cv::v4d::V4D> main) {
             effect_color[1] = c[1];
             effect_color[2] = c[2];
         });
-        form.makeFormVariable("Alpha", alpha, 0.0f, 1.0f, true, "", "Opacity");
+        form.makeFormVariable("Alpha", alpha, 0.01f, 1.0f, true, "", "Opacity");
         add_variables_to_midi_table(form.window()->children());
 
 
@@ -500,6 +512,9 @@ static bool iteration() {
     static vector<cv::Point2f> detectedPoints;
     static std::vector<MidiEvent> events;
     static string txt;
+    static std::random_device rd;
+    static std::mt19937 g(rd());
+    static std::uniform_int_distribution<std::mt19937::result_type> dist(1,127);
     static auto start = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
     static auto lastHUD = start;
     if(!window->capture())
@@ -509,7 +524,12 @@ static bool iteration() {
     for(auto& ev : events) {
         if(ev.cc_) {
             lastHUD = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-            txt = createStatusStringFromWidget(midi_table[ev.controller_ - 12].first, midi_table[ev.controller_ - 12].second, ev.value_);
+            txt = create_status_string_from_widget(midi_table[ev.controller_ - 12].first, midi_table[ev.controller_ - 12].second, ev.value_);
+        } else if(ev.on_) {
+            lastHUD = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+            for(const auto& p : midi_table) {
+                create_status_string_from_widget(p.first, p.second, dist(g));
+            }
         }
     }
 
@@ -528,11 +548,11 @@ static bool iteration() {
         cv::v4d::nvg::clear();
         if (!downPrevGrey.empty()) {
             //We don't want the algorithm to get out of hand when there is a scene change, so we suppress it when we detect one.
-//            if (!detect_scene_change(downMotionMaskGrey, scene_change_thresh, scene_change_thresh_diff)) {
+            if (!detect_scene_change(downMotionMaskGrey, scene_change_thresh, scene_change_thresh_diff)) {
                 //Visualize the sparse optical flow using nanovg
                 cv::Scalar color = cv::Scalar(effect_color.b() * 255.0f, effect_color.g() * 255.0f, effect_color.r() * 255.0f, alpha * 255.0f);
                 visualize_sparse_optical_flow(downPrevGrey, downNextGrey, detectedPoints, fg_scale, max_stroke, color, max_points, point_loss);
-//            }
+            }
         }
     });
 

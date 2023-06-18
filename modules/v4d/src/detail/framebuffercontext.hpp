@@ -60,10 +60,6 @@ class FrameBufferContext {
     GLuint renderBufferID_ = 0;
     GLuint pboID_ = 0;
     GLint viewport_[4];
-    GLint maxAttach_;
-    double blitScaleX_ = 1;
-    GLint blitOffsetX_;
-    GLint blitOffsetY_;
 #ifndef __EMSCRIPTEN__
     cl_mem clImage_ = nullptr;
     CLExecContext_t context_;
