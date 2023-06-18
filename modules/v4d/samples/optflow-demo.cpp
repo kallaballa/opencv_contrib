@@ -530,6 +530,8 @@ static bool iteration() {
             for(const auto& p : midi_table) {
                 create_status_string_from_widget(p.first, p.second, dist(g));
             }
+            txt = "Random";
+            break;
         }
     }
 
