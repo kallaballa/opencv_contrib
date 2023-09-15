@@ -1,3 +1,9 @@
 [submodule "modules/v4d/third/bgfx"]
 	path = modules/v4d/third/bgfx
-	url = https://github.com/bkaradzic/bgfx.git
+	url = https://github.com/kallaballa/bgfx.git
+[submodule "modules/v4d/third/bx"]
+	path = modules/v4d/third/bx
+	url = https://github.com/bkaradzic/bx.git
+[submodule "modules/v4d/third/bimg"]
+	path = modules/v4d/third/bimg
+	url = https://github.com/bkaradzic/bimg.git
