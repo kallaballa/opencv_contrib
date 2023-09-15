@@ -14,7 +14,7 @@ macro(add_emscripten_sample sample source assets)
     ocv_add_executable(${sample} ${source})
     ocv_target_include_modules(${sample} opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs opencv_v4d opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn  opencv_flann)
     ocv_target_link_libraries(${sample} LINK_PRIVATE opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs
-    opencv_v4d opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn  opencv_flann nanogui)
+    opencv_v4d opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn  opencv_flann bgfx-shared-libRelease)
     target_link_directories(${sample} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
     target_compile_features(${sample} PRIVATE cxx_std_20)
     set_target_properties(${sample} PROPERTIES SUFFIX ".js")
@@ -31,11 +31,12 @@ endmacro()
 macro(add_binary_sample sample source)
     #add_executable(${sample} ${source})
     # ocv_target_include_modules(${sample} opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs opencv_v4d opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn  opencv_flann)
-    # ocv_target_link_libraries(${sample} LINK_PRIVATE opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs opencv_v4d opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn opencv_flann nanogui)
+    # ocv_target_link_libraries(${sample} LINK_PRIVATE opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs opencv_v4d opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn opencv_flann bgfx-shared-libRelease)
     target_compile_features(${sample} PRIVATE cxx_std_20)
-    target_link_directories(${sample} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
-    target_include_directories(${sample} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include/opencv2/v4d/detail/")
-    target_link_libraries(${sample} PRIVATE nanogui glfw OpenGL::GL GLEW::GLEW)
+    target_link_directories(${sample} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx/.build/linux64_gcc/bin/")
+    target_include_directories(${sample} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/include/opencv2/v4d/detail/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx/examples/common/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bimg/include/")
+    target_sources(${sample} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/src/glad.cpp")
+    target_link_libraries(${sample} PRIVATE bgfx-shared-libRelease glfw OpenGL::GL GLEW::GLEW)
 endmacro()
 
 if(EMSCRIPTEN)
@@ -58,6 +59,7 @@ else()
     message(STATUS "Module opencv_v4d disabled because GLEW was not found")
     ocv_module_disable(v4d)
   endif()
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DBX_CONFIG_DEBUG=0")
 endif()
 
 get_property(known_features GLOBAL PROPERTY CMAKE_CXX_KNOWN_FEATURES)
@@ -82,35 +84,47 @@ if(GIT_FOUND AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/../../.git")
   endif()
 endif()
 
-if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third/nanogui/CMakeLists.txt")
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx/makefile")
     message(FATAL_ERROR "The submodules were not downloaded! GIT_SUBMODULE was turned off or failed. Please update submodules and try again.")
 endif()
 
+# if (NOT (TARGET glad_v4d))
+#         add_library(glad_v4d "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/src/glad.cpp")
+#         include_directories("${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include/")
+# endif()
+
 cmake_policy(SET CMP0079 NEW)
 
-   ocv_add_module(v4d opencv_core opencv_imgproc opencv_videoio opencv_video)
 
-   ocv_glob_module_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/" "${CMAKE_CURRENT_SOURCE_DIR}/include/opencv2/v4d" "${CMAKE_CURRENT_SOURCE_DIR}/include/opencv2/v4d/detail")
-  ocv_module_include_directories("${CMAKE_CURRENT_SOURCE_DIR}/third/nanogui/ext/glad/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/nanogui/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/nanogui/ext/nanovg/src/")
-  ocv_create_module()
+ocv_add_module(v4d opencv_core opencv_imgproc opencv_videoio opencv_video)
+
+ocv_glob_module_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/" "${CMAKE_CURRENT_SOURCE_DIR}/include/opencv2/v4d" "${CMAKE_CURRENT_SOURCE_DIR}/include/opencv2/v4d/detail")
+  ocv_module_include_directories("${CMAKE_CURRENT_SOURCE_DIR}/third/bx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bimg/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx/examples/common/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx/include")
+   ocv_create_module()
+target_sources(${the_module} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/src/glad.cpp")
+# target_sources(${the_module} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx/examples/common/nanovg/nanovg.cpp")
+
 ocv_add_samples(opencv_v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs opencv_v4d opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn opencv_flann)
-
 set_target_properties(${the_module} PROPERTIES LINKER_LANGUAGE CXX)
+add_custom_command(
+                  TARGET ${the_module} PRE_BUILD
+                  COMMAND make clean
+                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx")
+add_custom_command(
+                  TARGET ${the_module} PRE_BUILD
+                  COMMAND make -j16 CXX_FLAGS='-fPIC' C_FLAGS='-fPIC' linux-release64
+                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx")
 add_custom_command(
  TARGET ${the_module} POST_BUILD
   COMMAND ${CMAKE_COMMAND} -E copy
    "${CMAKE_CURRENT_LIST_DIR}/doc/lena.png"
    "${CMAKE_CURRENT_BINARY_DIR}/doc/lena.png")
 
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/third/nanogui/ext/glad/include/")
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/third/nanogui/include/")
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/third/nanogui/ext/nanovg/src/")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include/")
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx/include/")
 
 if(BUILD_EXAMPLES)
   if(EMSCRIPTEN)
-    set(NANOGUI_BUILD_GLFW OFF)
-    include_directories("${CMAKE_CURRENT_SOURCE_DIR}/third/nanogui/ext/glfw/include/")
-
     add_emscripten_sample(example_v4d_display_image samples/display_image.cpp false)
     add_emscripten_sample(example_v4d_display_image_fb samples/display_image_fb.cpp false)
     add_emscripten_sample(example_v4d_vector_graphics samples/vector_graphics.cpp false)
@@ -151,41 +165,21 @@ if(BUILD_EXAMPLES)
   endif()
 endif()
 
-if(EMSCRIPTEN)
-  set(NANOGUI_BUILD_SHARED OFF)
-else()
-  set(NANOGUI_BUILD_SHARED ON)
-endif()
-set(NANOGUI_BUILD_PYTHON OFF)
-set(NANOGUI_BUILD_EXAMPLES OFF)
-set(NANOGUI_BACKEND "OpenGL" CACHE STRING "Choose the backend used for rendering (OpenGL/GLES 2/GLES 3/Metal)" FORCE)
 
 if(EMSCRIPTEN)
-    set(NANOGUI_BACKEND "GLES 3")
-    set(NANOGUI_BUILD_GLAD OFF)
-    set(NANOGUI_BUILD_GLFW OFF)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNANOGUI_USE_GLES=1 -DNANOGUI_GLES_VERSION=3")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 elseif(OPENCV_V4D_ENABLE_ES3)
-    set(NANOGUI_BACKEND "GLES 3")
-    set(NANOGUI_BUILD_GLAD OFF)
-    set(NANOGUI_BUILD_GLFW OFF)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOPENCV_V4D_USE_ES3=1 -DNANOGUI_USE_GLES=1 -DNANOGUI_GLES_VERSION=3")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOPENCV_V4D_USE_ES3=1")
 else()
-  set(NANOGUI_BACKEND "OpenGL")
-  set(NANOGUI_BUILD_GLAD ON)
-  set(NANOGUI_BUILD_GLFW OFF)
 endif()
 
-add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/third/nanogui "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
+
 target_compile_features(${the_module} PRIVATE cxx_std_20)
-target_compile_features(nanogui PRIVATE cxx_std_20)
-target_link_libraries(nanogui PRIVATE glfw)
-target_include_directories(nanogui PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third/nanogui/ext/glad/include/")
 ocv_warnings_disable(CMAKE_CXX_FLAGS -Wdeprecated-enum-enum-conversion)
-target_link_directories(${the_module} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
+target_link_directories(${the_module} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx/.build/linux64_gcc/bin/")
 
 if(EMSCRIPTEN)
-  ocv_target_link_libraries(${the_module} -lnanogui)
+  ocv_target_link_libraries(${the_module} bgfx-shared-libRelease)
 else()
-  ocv_target_link_libraries(${the_module} OpenCL::OpenCL -lnanogui glfw GLEW::GLEW OpenGL::GLU OpenGL::OpenGL)
+  ocv_target_link_libraries(${the_module} OpenCL::OpenCL bgfx-shared-libRelease -lexample-commonRelease glfw GLEW::GLEW OpenGL::GLU OpenGL::OpenGL -lglad_v4d)
 endif()

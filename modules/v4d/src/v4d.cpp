@@ -7,7 +7,6 @@
 #include "detail/framebuffercontext.hpp"
 #include "detail/clvacontext.hpp"
 #include "detail/nanovgcontext.hpp"
-#include "detail/nanoguicontext.hpp"
 #include "detail/glcontext.hpp"
 #include "detail/timetracker.hpp"
 #include "opencv2/v4d/dialog.hpp"
@@ -34,21 +33,15 @@ V4D::V4D(const cv::Size& size, const cv::Size& fbsize, const string& title, bool
 #ifndef __EMSCRIPTEN__
         CLExecScope_t scope(mainFbContext_->getCLExecContext());
 #endif
-        workaroundNvgContext_ = new detail::NanoVGContext(*mainFbContext_);
         nvgContext_ = new detail::NanoVGContext(*mainFbContext_);
-        nguiContext_ = new detail::NanoguiContext(*mainFbContext_);
         clvaContext_ = new detail::CLVAContext(*mainFbContext_);
         self_ = cv::Ptr<V4D>(this);
 }
 
 V4D::~V4D() {
     //don't delete form_. it is autmatically cleaned up by the base class (nanogui::Screen)
-    if(workaroundNvgContext_)
-        delete workaroundNvgContext_;
     if (nvgContext_)
         delete nvgContext_;
-    if (nguiContext_)
-        delete nguiContext_;
     if (clvaContext_)
         delete clvaContext_;
     if (mainFbContext_)
@@ -61,38 +54,6 @@ V4D::~V4D() {
 
 cv::ogl::Texture2D& V4D::texture() {
     return mainFbContext_->getTexture2D();
-}
-
-void V4D::setMouseButtonEventCallback(
-        std::function<void(int button, int action, int modifiers)> fn) {
-    mouseEventCb_ = fn;
-}
-
-void V4D::setKeyboardEventCallback(
-        std::function<bool(int key, int scancode, int action, int modifiers)> fn) {
-    keyEventCb_ = fn;
-}
-
-void V4D::mouse_button_event(int button, int action, int modifiers) {
-    if (mouseEventCb_)
-        return mouseEventCb_(button, action, modifiers);
-
-    return nguiCtx().screen().mouse_button_callback_event(button, action, modifiers);
-}
-
-bool V4D::keyboard_event(int key, int scancode, int action, int modifiers) {
-    if (keyEventCb_)
-        return keyEventCb_(key, scancode, action, modifiers);
-
-    return nguiCtx().screen().keyboard_event(key, scancode, action, modifiers);
-}
-
-cv::Point2f V4D::getMousePosition() {
-    return mousePos_;
-}
-
-void V4D::setMousePosition(const cv::Point2f& pt) {
-    mousePos_ = pt;
 }
 
 FrameBufferContext& V4D::fbCtx() {
@@ -108,11 +69,6 @@ CLVAContext& V4D::clvaCtx() {
 NanoVGContext& V4D::nvgCtx() {
     assert(nvgContext_ != nullptr);
     return *nvgContext_;
-}
-
-NanoguiContext& V4D::nguiCtx() {
-    assert(nguiContext_ != nullptr);
-    return *nguiContext_;
 }
 
 GLContext& V4D::glCtx(int32_t idx) {
@@ -136,10 +92,6 @@ bool V4D::hasClvaCtx() {
 
 bool V4D::hasNvgCtx() {
     return nvgContext_ != nullptr;
-}
-
-bool V4D::hasNguiCtx() {
-    return nguiContext_ != nullptr;
 }
 
 bool V4D::hasGlCtx(uint32_t idx) {
@@ -202,10 +154,6 @@ void V4D::nvg(std::function<void(const cv::Size&)> fn) {
     TimeTracker::getInstance()->execute("nvg(" + detail::func_id(fn) + ")", [&](){
         nvgCtx().render(fn);
     });
-}
-
-void V4D::nanogui(std::function<void(cv::v4d::FormHelper& form)> fn) {
-    nguiCtx().build(fn);
 }
 
 void V4D::copyTo(cv::UMat& m) {
@@ -374,13 +322,6 @@ bool V4D::isSinkReady() {
     return sink_.isReady();
 }
 
-void V4D::showGui(bool s) {
-    auto children = nguiCtx().screen().children();
-    for (auto* child : children) {
-        child->set_visible(s);
-    }
-}
-
 cv::Vec2f V4D::position() {
     return fbCtx().position();
 }
@@ -459,7 +400,6 @@ bool V4D::isVisible() {
 
 void V4D::setVisible(bool v) {
     fbCtx().setVisible(v);
-    nguiCtx().screen().perform_layout();
 }
 
 void V4D::setScaling(bool s) {
@@ -468,25 +408,6 @@ void V4D::setScaling(bool s) {
 
 bool V4D::isScaling() {
     return scaling_;
-}
-
-void V4D::setDefaultKeyboardEventCallback() {
-    setKeyboardEventCallback([&](int key, int scancode, int action, int modifiers) {
-        CV_UNUSED(scancode);
-        CV_UNUSED(modifiers);
-        if (key == GLFW_KEY_ESCAPE && action == GLFW_PRESS) {
-            setVisible(!isVisible());
-            return true;
-        } else if (key == GLFW_KEY_TAB && action == GLFW_PRESS) {
-            auto children = nguiCtx().screen().children();
-            for (auto* child : children) {
-                child->set_visible(!child->visible());
-            }
-
-            return true;
-        }
-        return false;
-    });
 }
 
 void V4D::swapContextBuffers() {
@@ -513,17 +434,6 @@ void V4D::swapContextBuffers() {
         emscripten_webgl_commit_frame();
 #endif
     });
-
-    run_sync_on_main<12>([this]() {
-        FrameBufferContext::GLScope glScope(nguiCtx().fbCtx(), GL_READ_FRAMEBUFFER);
-        nguiCtx().fbCtx().blitFrameBufferToScreen(viewport(), nguiCtx().fbCtx().getWindowSize(), isScaling());
-//        GL_CHECK(glFinish());
-#ifndef __EMSCRIPTEN__
-        glfwSwapBuffers(nguiCtx().fbCtx().getGLFWWindow());
-#else
-        emscripten_webgl_commit_frame();
-#endif
-    });
 }
 
 bool V4D::display() {
@@ -536,38 +446,11 @@ bool V4D::display() {
         if(debug_)
             swapContextBuffers();
 
-
-#ifdef __EMSCRIPTEN__
-        nguiCtx().render(printFPS_, showFPS_, showTracking_);
-#endif
         run_sync_on_main<6>([&, this](){
             {
                FrameBufferContext::GLScope glScope(fbCtx(), GL_READ_FRAMEBUFFER);
                fbCtx().blitFrameBufferToScreen(viewport(), fbCtx().getWindowSize(), isScaling());
             }
-#ifndef __EMSCRIPTEN__
-            nguiCtx().render(printFPS_, showFPS_, showTracking_);
-#endif
-
-//            {
-//                FrameBufferContext::GLScope glScope(nvgCtx().fbCtx(), GL_FRAMEBUFFER);
-//                GL_CHECK(glFinish());
-//            }
-//            {
-//                FrameBufferContext::GLScope glScope(nguiCtx().fbCtx(), GL_FRAMEBUFFER);
-//                GL_CHECK(glFinish());
-//            }
-//            for(size_t i = 0; i < numGlCtx(); ++i) {
-//                {
-//                    FrameBufferContext::GLScope glScope(glCtx(i).fbCtx(), GL_FRAMEBUFFER);
-//                    GL_CHECK(glFinish());
-//                }
-//            }
-//            {
-//                FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
-//                GL_CHECK(glFinish());
-//            }
-
             fbCtx().makeCurrent();
 #ifndef __EMSCRIPTEN__
             glfwSwapBuffers(fbCtx().getGLFWWindow());

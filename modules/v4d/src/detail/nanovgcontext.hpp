@@ -7,7 +7,7 @@
 #define SRC_OPENCV_NANOVGCONTEXT_HPP_
 
 #include "framebuffercontext.hpp"
-#include "opencv2/v4d/formhelper.hpp"
+#include "opencv2/v4d/nvg.hpp"
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
@@ -25,7 +25,6 @@ namespace detail {
  * Used to setup a nanovg context
  */
 class NanoVGContext {
-    nanogui::Screen* screen_ = nullptr;
     FrameBufferContext& mainFbContext_;
     FrameBufferContext nvgFbContext_;
     NVGcontext* context_;

@@ -8,7 +8,14 @@
 
 #include <stdio.h>
 #include <opencv2/core.hpp>
-#include "nanovg.h"
+#include "common.h"
+#include "bgfx_utils.h"
+
+//#include <bx/string.h>
+//#include <bx/timer.h>
+//#include <bimg/decode.h>
+//#include "entry/entry.h"
+#include "nanovg/nanovg.h"
 
 struct NVGcontext;
 

@@ -4,7 +4,6 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include "opencv2/v4d/nvg.hpp"
-#include <nanovg.h>
 #include "opencv2/core.hpp"
 
 #include <cstring>
