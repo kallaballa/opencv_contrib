@@ -25,8 +25,7 @@ namespace detail {
  * Used to setup a nanovg context
  */
 class NanoVGContext {
-    nanogui::Screen* screen_;
-    cv::v4d::FormHelper* form_;
+    nanogui::Screen* screen_ = nullptr;
     FrameBufferContext& mainFbContext_;
     FrameBufferContext nvgFbContext_;
     NVGcontext* context_;

@@ -34,6 +34,7 @@ V4D::V4D(const cv::Size& size, const cv::Size& fbsize, const string& title, bool
 #ifndef __EMSCRIPTEN__
         CLExecScope_t scope(mainFbContext_->getCLExecContext());
 #endif
+        workaroundNvgContext_ = new detail::NanoVGContext(*mainFbContext_);
         nvgContext_ = new detail::NanoVGContext(*mainFbContext_);
         nguiContext_ = new detail::NanoguiContext(*mainFbContext_);
         clvaContext_ = new detail::CLVAContext(*mainFbContext_);
@@ -42,6 +43,8 @@ V4D::V4D(const cv::Size& size, const cv::Size& fbsize, const string& title, bool
 
 V4D::~V4D() {
     //don't delete form_. it is autmatically cleaned up by the base class (nanogui::Screen)
+    if(workaroundNvgContext_)
+        delete workaroundNvgContext_;
     if (nvgContext_)
         delete nvgContext_;
     if (nguiContext_)

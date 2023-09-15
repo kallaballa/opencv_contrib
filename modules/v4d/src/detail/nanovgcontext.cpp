@@ -11,7 +11,7 @@ namespace cv {
 namespace v4d {
 namespace detail {
 
-NanoVGContext::NanoVGContext(FrameBufferContext& fbContext) :
+NanoVGContext::NanoVGContext(FrameBufferContext& fbContext, bool workaround) :
         mainFbContext_(fbContext), nvgFbContext_(fbContext.getV4D(), "NanoVG", fbContext), context_(
                 nullptr) {
     UMat tmp(fbCtx().size(), CV_8UC4);
@@ -27,7 +27,6 @@ NanoVGContext::NanoVGContext(FrameBufferContext& fbContext) :
             screen_ = new nanogui::Screen(true, true, false);
             screen_->initialize(fbCtx().getGLFWWindow(), false);
             context_ = screen_->nvg_context();
-            form_ = new cv::v4d::FormHelper(screen_);
             if (!context_)
                 throw std::runtime_error("Could not initialize NanoVG!");
        }

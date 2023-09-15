@@ -113,6 +113,7 @@ class CV_EXPORTS V4D {
     bool scaling_;
     FrameBufferContext* mainFbContext_ = nullptr;
     CLVAContext* clvaContext_ = nullptr;
+    NanoVGContext* workaroundNvgContext_ = nullptr;
     NanoVGContext* nvgContext_ = nullptr;
     NanoguiContext* nguiContext_ = nullptr;
     std::mutex glCtxMtx_;
