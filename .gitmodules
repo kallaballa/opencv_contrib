@@ -1,6 +1,6 @@
 [submodule "modules/v4d/third/bgfx"]
 	path = modules/v4d/third/bgfx
-	url = https://github.com/kallaballa/bgfx.git
+	url = git@github.com:kallaballa/bgfx.git
 [submodule "modules/v4d/third/bx"]
 	path = modules/v4d/third/bx
 	url = https://github.com/bkaradzic/bx.git

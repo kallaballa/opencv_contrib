@@ -4,6 +4,7 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include "nanovgcontext.hpp"
+#include "GL/glx.h"
 
 namespace cv {
 namespace v4d {
@@ -16,15 +17,18 @@ NanoVGContext::NanoVGContext(FrameBufferContext& fbContext) :
 
     run_sync_on_main<13>([this, &tmp]() {
         {
-            //Workaround for first frame glitch
             FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
-            FrameBufferContext::FrameBufferScope fbScope(fbCtx(), tmp);
-        }
-        {
-            FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
-//            screen_ = new nanogui::Screen(true, true, false);
-//            screen_->initialize(fbCtx().getGLFWWindow(), false);
-//            context_ = screen_->nvg_context();
+            bgfx::Init init;
+            init.platformData.context = glXGetCurrentContext();
+            init.platformData.backBuffer = (void*)glXGetCurrentDrawable();
+            init.resolution.width  = fbCtx().size().width;
+            init.resolution.height = fbCtx().size().height;
+            init.resolution.reset  = BGFX_RESET_VSYNC;
+            bgfx::init(init);
+
+            // Enable debug text.
+            bgfx::setDebug(BGFX_DEBUG_NONE);
+            context_ = nvgCreate(1, 0);
             if (!context_)
                 throw std::runtime_error("Could not initialize NanoVG!");
        }

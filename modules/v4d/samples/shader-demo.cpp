@@ -26,7 +26,7 @@ constexpr const char* OUTPUT_FILENAME = "shader-demo.mkv";
 /* Mandelbrot control parameters */
 int glow_kernel_size = std::max(int(DIAG / 200 % 2 == 0 ? DIAG / 200 + 1 : DIAG / 200), 1);
 // Red, green, blue and alpha. All from 0.0f to 1.0f
-nanogui::Color base_color_val(0.2f, 0.6f, 1.0f, 1.0f);
+//nanogui::Color base_color_val(0.2f, 0.6f, 1.0f, 1.0f);
 // Keep alpha separate for the GUI
 float alpha = 1.0f; //0.0-1.0
 //contrast boost
@@ -202,7 +202,7 @@ static void render_scene(const cv::Size& sz) {
     }
 
     glUseProgram(shader_program_hdl);
-    glUniform4f(base_color_hdl, base_color_val[0], base_color_val[1], base_color_val[2], alpha);
+    glUniform4f(base_color_hdl, 255, 0, 0, alpha);
     glUniform1i(contrast_boost_hdl, contrast_boost);
     glUniform1i(max_iterations_hdl, max_iterations);
     glUniform1f(center_y_hdl, center_y);
@@ -245,7 +245,7 @@ using namespace cv::v4d;
 //Setup the GUI using NanoGUI. A FormHelper implementation is provided for quick & simple GUIs but once you
 //have created a Dialog (using FormHelper::makeDialog) you can use NanoGUI directly to build more complex GUIs.
 //The variables passed to FormHelper e.g. via makeFormVariable are directly adjusted by the GUI.
-static void setup_gui(cv::Ptr<V4D> window) {
+/*static void setup_gui(cv::Ptr<V4D> window) {
     window->nanogui([](cv::v4d::FormHelper& form) {
         form.makeDialog(5, 30, "Fractal");
 
@@ -310,7 +310,7 @@ static void setup_gui(cv::Ptr<V4D> window) {
         form.makeFormVariable("Contrast boost", contrast_boost, 1, 255, true, "",
                 "Boost contrast by this factor");
     });
-}
+}*/
 
 static bool iteration(cv::Ptr<V4D> window) {
     if(!window->capture())
@@ -341,9 +341,9 @@ int main() {
     try {
         cv::Ptr<V4D> window = V4D::make(cv::Size(WIDTH, HEIGHT), cv::Size(), "Shader Demo", OFFSCREEN);
 
-        if (!OFFSCREEN) {
-            setup_gui(window);
-        }
+//        if (!OFFSCREEN) {
+//            setup_gui(window);
+//        }
 
         window->printSystemInfo();
 

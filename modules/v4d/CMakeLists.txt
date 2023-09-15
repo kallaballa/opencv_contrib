@@ -106,13 +106,13 @@ target_sources(${the_module} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/src
 
 ocv_add_samples(opencv_v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs opencv_v4d opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn opencv_flann)
 set_target_properties(${the_module} PROPERTIES LINKER_LANGUAGE CXX)
+# add_custom_command(
+#                   TARGET ${the_module} PRE_BUILD
+#                   COMMAND make clean
+#                   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx")
 add_custom_command(
                   TARGET ${the_module} PRE_BUILD
-                  COMMAND make clean
-                  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx")
-add_custom_command(
-                  TARGET ${the_module} PRE_BUILD
-                  COMMAND make -j16 CXX_FLAGS='-fPIC' C_FLAGS='-fPIC' linux-release64
+                  COMMAND make -j32 CXX_FLAGS='-fPIC' C_FLAGS='-fPIC' linux-release64
                   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx")
 add_custom_command(
  TARGET ${the_module} POST_BUILD
