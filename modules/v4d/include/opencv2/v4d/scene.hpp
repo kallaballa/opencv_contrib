@@ -177,6 +177,10 @@ public:
 		return autoCenter_;
 	}
 
+	RenderMode getMode() {
+		return mode_;
+	}
+
 	void setMode(RenderMode mode) {
 		mode_ = mode;
 	}

@@ -4,10 +4,8 @@ using namespace cv;
 using namespace cv::v4d;
 
 class VectorGraphicsPlan: public Plan {
+using Plan::Plan;
 public:
-	VectorGraphicsPlan(const cv::Size& sz) : Plan(sz) {
-	}
-
 	void infer(Ptr<V4D> win) override {
 		//Creates a NanoVG context and draws googly eyes that occasionally blink.
 		win->nvg([](const Size &sz) {
@@ -99,7 +97,7 @@ public:
 			ellipse(rx, ry, ex, ey);
 			fillPaint(gloss);
 			fill();
-		}, win->fbSize());
+		}, size());
 	}
 };
 

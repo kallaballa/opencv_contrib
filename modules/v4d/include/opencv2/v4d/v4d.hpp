@@ -321,7 +321,6 @@ public:
     void init_context_call(Tfn fn, Args&& ... args) {
     	static_assert(detail::is_stateless_lambda<std::remove_cv_t<std::remove_reference_t<decltype(fn)>>>::value, "All passed functors must be stateless lambdas");
     	static_assert(std::conjunction<std::is_lvalue_reference<Args>...>::value, "All arguments must be l-value references");
-    	cv::v4d::event::set_current_glfw_window(getGLFWWindow());
     }
 
 

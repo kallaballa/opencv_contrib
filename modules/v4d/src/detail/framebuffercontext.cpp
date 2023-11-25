@@ -13,7 +13,6 @@
 #include <opencv2/core/utils/logger.hpp>
 #include <exception>
 #include <iostream>
-#include "imgui_impl_glfw.h"
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 using std::cerr;
@@ -231,51 +230,10 @@ void FrameBufferContext::init() {
     context_ = CLExecContext_t::getCurrent();
 
     setup();
-    if(isRoot()) {
-    glfwSetWindowUserPointer(getGLFWWindow(), getV4D().get());
-    glfwSetCursorPosCallback(getGLFWWindow(), [](GLFWwindow* glfwWin, double x, double y) {
-        V4D* v4d = reinterpret_cast<V4D*>(glfwGetWindowUserPointer(glfwWin));
-        if(v4d->hasImguiCtx()) {
-            ImGui_ImplGlfw_CursorPosCallback(glfwWin, x, y);
-            if (!ImGui::GetIO().WantCaptureMouse) {
-                v4d->setMousePosition(cv::Point2f(float(x), float(y)));
-            }
-        }
-    });
+    if(isRoot() && !parent_) {
+    	event::init(glfwWindow_);
 
-    glfwSetMouseButtonCallback(getGLFWWindow(), [](GLFWwindow* glfwWin, int button, int action, int modifiers) {
-        V4D* v4d = reinterpret_cast<V4D*>(glfwGetWindowUserPointer(glfwWin));
-
-        if(v4d->hasImguiCtx()) {
-            ImGui_ImplGlfw_MouseButtonCallback(glfwWin, button, action, modifiers);
-
-            if (!ImGui::GetIO().WantCaptureMouse) {
-                // Pass event further
-            } else {
-                // Do nothing, since imgui already reacted to mouse click. It would be weird if unrelated things started happening when you click something on UI.
-            }
-        }
-    });
-
-    glfwSetKeyCallback(getGLFWWindow(), [](GLFWwindow* glfwWin, int key, int scancode, int action, int mods) {
-        V4D* v4d = reinterpret_cast<V4D*>(glfwGetWindowUserPointer(glfwWin));
-
-        if(v4d->hasImguiCtx()) {
-            ImGui_ImplGlfw_KeyCallback(glfwWin, key, scancode, action, mods);
-            if (!ImGui::GetIO().WantCaptureKeyboard) {
-                // Pass event further
-            } else {
-                // Do nothing, since imgui already reacted to mouse click. It would be weird if unrelated things started happening when you click something on UI.
-            }
-        }
-    });
-    glfwSetCharCallback(getGLFWWindow(), [](GLFWwindow* glfwWin, unsigned int codepoint) {
-        V4D* v4d = reinterpret_cast<V4D*>(glfwGetWindowUserPointer(glfwWin));
-
-        if(v4d->hasImguiCtx()) {
-            ImGui_ImplGlfw_CharCallback(glfwWin, codepoint);
-        }
-    });
+//    glfwSetWindowUserPointer(getGLFWWindow(), getV4D().get());
 ////    glfwSetDropCallback(getGLFWWindow(), [](GLFWwindow* glfwWin, int count, const char** filenames) {
 ////        V4D* v4d = reinterpret_cast<V4D*>(glfwGetWindowUserPointer(glfwWin));
 ////    });
@@ -326,12 +284,12 @@ void FrameBufferContext::init() {
 ////                            v4d->nvgCtx().fbCtx()->setup(cv::Size(width, height));
 ////                        }
 //            });
-    glfwSetWindowFocusCallback(getGLFWWindow(), [](GLFWwindow* glfwWin, int i) {
-            V4D* v4d = reinterpret_cast<V4D*>(glfwGetWindowUserPointer(glfwWin));
-            if(v4d->getGLFWWindow() == glfwWin) {
-                v4d->setFocused(i == 1);
-            }
-    });
+//    glfwSetWindowFocusCallback(getGLFWWindow(), [](GLFWwindow* glfwWin, int i) {
+//            V4D* v4d = reinterpret_cast<V4D*>(glfwGetWindowUserPointer(glfwWin));
+//            if(v4d->getGLFWWindow() == glfwWin) {
+//                v4d->setFocused(i == 1);
+//            }
+//    });
     }
 }
 

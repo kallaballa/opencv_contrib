@@ -392,7 +392,7 @@ bool V4D::display() {
 			imguiCtx()->render(getShowFPS());
 
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
-		glfwPollEvents();
+		event::poll();
 	} else {
 		fbCtx()->copyToRootWindow();
 	}

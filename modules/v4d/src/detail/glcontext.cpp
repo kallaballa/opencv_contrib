@@ -13,21 +13,21 @@ GLContext::GLContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext) 
 }
 
 void GLContext::execute(std::function<void()> fn) {
-	if(!fbCtx()->hasParent()) {
-		UMat tmp;
-		mainFbContext_->copyTo(tmp);
-		fbCtx()->copyFrom(tmp);
-	}
+//	if(!fbCtx()->hasParent()) {
+//		UMat tmp;
+//		mainFbContext_->copyTo(tmp);
+//		fbCtx()->copyFrom(tmp);
+//	}
 	{
 		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
 		GL_CHECK(glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
 		fn();
 	}
-	if(!fbCtx()->hasParent()) {
-		UMat tmp;
-		fbCtx()->copyTo(tmp);
-		mainFbContext_->copyFrom(tmp);
-	}
+//	if(!fbCtx()->hasParent()) {
+//		UMat tmp;
+//		fbCtx()->copyTo(tmp);
+//		mainFbContext_->copyFrom(tmp);
+//	}
 }
 
 const int32_t& GLContext::getIndex() const {

@@ -28,11 +28,11 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext) :
 }
 
 void NanoVGContext::execute(std::function<void()> fn) {
-        if (!fbCtx()->hasParent()) {
-            UMat tmp;
-            mainFbContext_->copyTo(tmp);
-            fbCtx()->copyFrom(tmp);
-        }
+//        if (!fbCtx()->hasParent()) {
+//            UMat tmp;
+//            mainFbContext_->copyTo(tmp);
+//            fbCtx()->copyFrom(tmp);
+//        }
 
         {
             FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
@@ -42,11 +42,11 @@ void NanoVGContext::execute(std::function<void()> fn) {
             fn();
         }
 
-        if (!fbCtx()->hasParent()) {
-            UMat tmp;
-            fbCtx()->copyTo(tmp);
-            mainFbContext_->copyFrom(tmp);
-        }
+//        if (!fbCtx()->hasParent()) {
+//            UMat tmp;
+//            fbCtx()->copyTo(tmp);
+//            mainFbContext_->copyFrom(tmp);
+//        }
 }
 
 
