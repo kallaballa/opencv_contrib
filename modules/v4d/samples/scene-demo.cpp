@@ -53,8 +53,8 @@ public:
         yaw_ = yaw;
         pitch_ = pitch;
         roll_ = roll;
-		right_ = normalize(front_.cross(worldUp_));  // normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
-        up_    = normalize(right_.cross(front_));
+        updateXY();
+        updateZ();
     }
 
     void reset() {
@@ -82,6 +82,9 @@ public:
 	}
 
 	void enableInertia(bool inertia) {
+//		rollSpeed_ = 0;
+//		pitchSpeed_ = 0;
+//		yawSpeed_ = 0;
 		enableInertia_ = inertia;
 	}
 
@@ -115,50 +118,52 @@ public:
         position_ = cv::Vec3f(posmat(0), posmat(1), posmat(2));
         front_ = normalize(cv::Vec3f(fmat(0), fmat(1), fmat(2)));
         right_ = normalize(front_.cross(worldUp_));
-        up_    = normalize(right_.cross(front_));
         updateZ();
     }
 
     void advance(float impulse) {
-    	if(enableInertia_)
-    		accelerate(advanceSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
-    	else
-    		advanceSpeed_ = impulse > 0 ? 30 : -30;
-
+    	impulse /= 10;
+    	if(!enableInertia_)
+    		impulse /= (mass_);
+    	accelerate(advanceSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
     	auto amount = (advanceSpeed_ * speedOverride_) * (std::fabs(impulse) * sensitivity_);
     	position_ += front_ * amount;
     }
 
     void strafe(float impulse) {
+    	impulse /= 10;
     	if(enableInertia_)
     		accelerate(strafeSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / (Global::fps() + 1));
     	else
-    		strafeSpeed_ = impulse > 0 ? 30 : -30;
+    		strafeSpeed_ = 1;
     	auto amount = (strafeSpeed_ * speedOverride_) * (std::fabs(impulse) * sensitivity_);
     	position_ += right_ * amount;
     }
 
     void roll(float impulse) {
+    	impulse /= 10.0;
     	if(enableInertia_)
-    		accelerate(rollSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
-    	else
-    		rollSpeed_ = impulse > 0 ? 30 : -30;
+    		accelerate(rollSpeed_, mass_, impulse, 1.0 / Global::fps());
+    	else {
+    		if(impulse * rollSpeed_ < 0)
+    			rollSpeed_ *= -1;
 
-    	auto amount = (rollSpeed_ * speedOverride_) * (std::fabs(impulse) * sensitivity_);
+    		if(impulse >= 0)
+    			rollSpeed_ += 1.0 / mass_;
+    		else
+    			rollSpeed_ -= 1.0 / mass_;
+    		impulse = 1.0;
+    	}
 
-    	if(enableInertia_)
-    		roll_ = amount;
-    	else
-    		roll_ = amount;
+    	impulse = std::fabs(impulse);
+
+    	float amount = (rollSpeed_ * speedOverride_) * (impulse * sensitivity_);
+    	roll_ += amount;
         updateZ();
     }
 
     void yaw(float impulse) {
-    	if(enableInertia_)
-    		accelerate(yawSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
-    	else
-    		yawSpeed_ = impulse > 0 ? 30 : -30;
-
+    	accelerate(yawSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
     	auto amount = (yawSpeed_ * speedOverride_) * (std::fabs(impulse) * sensitivity_);
     	yaw_ += amount;
         updateXY();
@@ -166,11 +171,7 @@ public:
     }
 
     void pitch(float impulse, bool constraint = false) {
-    	if(enableInertia_)
-    		accelerate(pitchSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
-    	else
-    		pitchSpeed_ = impulse > 0 ? 30 : -30;
-
+    	accelerate(pitchSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
     	auto amount = (pitchSpeed_ * speedOverride_) * (std::fabs(impulse) * sensitivity_);
     	pitch_ += amount;
 
@@ -212,21 +213,22 @@ public:
 
     void update() {
     	if(enableInertia_ ) {
-	        cerr << "before:" << rollSpeed_ << endl;
-
-			decelerate(advanceSpeed_, enableInertia_ ? mass_ : 1, 1.0 / (Global::fps() + 1));
-			decelerate(strafeSpeed_, enableInertia_ ? mass_ : 1, 1.0 / (Global::fps() + 1));
-			decelerate(pitchSpeed_, enableInertia_ ? mass_ : 1, 1.0 / (Global::fps() + 1));
-			decelerate(yawSpeed_, enableInertia_ ? mass_ : 1, 1.0 / (Global::fps() + 1));
-			decelerate(rollSpeed_, enableInertia_ ? mass_ : 1, 1.0 / (Global::fps() + 1));
+    		cerr << "BEFORE: " << rollSpeed_ << std::endl;
+			decelerate(advanceSpeed_, mass_ , 1.0 / (Global::fps() + 1));
+			decelerate(strafeSpeed_, mass_, 1.0 / (Global::fps() + 1));
+			decelerate(pitchSpeed_, mass_, 1.0 / (Global::fps() + 1));
+			decelerate(yawSpeed_, mass_, 1.0 / (Global::fps() + 1));
+			decelerate(rollSpeed_, mass_, 1.0 / (Global::fps() + 1));
 			position_ += front_ * (advanceSpeed_ * speedOverride_ * sensitivity_);
 			position_ += right_ * (strafeSpeed_ * speedOverride_ * sensitivity_);
 			pitch_ += (pitchSpeed_ * speedOverride_ * sensitivity_);
 			yaw_ += (yawSpeed_ * speedOverride_ * sensitivity_);
-			roll_ += (rollSpeed_ * speedOverride_ * sensitivity_);
 			updateXY();
+
+			roll_ += (rollSpeed_ * speedOverride_ * sensitivity_) / 10.0;
+
 	        updateZ();
-	        cerr << "after:" << rollSpeed_ << endl;
+	        cerr << "AFTER: " << roll_ << " speed: "<< rollSpeed_ << std::endl;
     	}
     }
 private:
@@ -244,17 +246,29 @@ private:
     }
 
     void accelerate(float& speed, const float mass, const float impulse, const float timeStep) {
-    	float scaled = impulse / (mass * timeStep);
-    	speed += scaled;
+    	float force = impulse / (mass * timeStep);
+    	speed += force;
     }
 
-
-
-    void decelerate(float& speed, const float mass, const float timeStep) {
-        float force =  std::fabs(speed / mass;
-
-        speed  += (speed * (force * timeStep));
+    void decelerate(float& speed, const float mass, const float timeStep, const float friction = 10, const float gravity = 1.0f) {
+    	if(speed == 0)
+    		return;
+        float force = mass * gravity; // force of gravity
+        float frictionForce = friction * force; // force of friction
+        float netForce = force - frictionForce; // net force on the object
+        float acceleration = netForce / mass; // acceleration (Newton's second law)
+        float deltaV = acceleration * timeStep; // change in velocity
+        if(deltaV * speed < 0)
+        	deltaV *= -1;
+        speed -= deltaV; // decrease speed
+        if(deltaV * speed < 0)
+        	speed = 0;
     }
+//
+//    void decelerate(float& speed, const float mass, const float timeStep) {
+//        float deceleration =  speed / (1 / mass);
+//        speed  -= deceleration * timeStep;
+//    }
 
     void updateZ() {
         // Create a rotation matrix for rolling
@@ -282,6 +296,7 @@ private:
         front_ = normalize(front);
     	// also re-calculate the Right and Up vector
         right_ = normalize(front_.cross(worldUp_));  // normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
+        up_    = normalize(right_.cross(front_));
     }
 };
 
@@ -294,7 +309,7 @@ class SceneDemoPlan : public Plan {
 		bool fly_;
 		float senitivity_;
 		float speed_;
-	} params_ = {gl::Scene::RenderMode::DEFAULT, true, true, 0.001, 1.0};
+	} params_ = {gl::Scene::RenderMode::DEFAULT, true, true, 0.3, 1.0};
 
 	inline static struct Transform {
 		cv::Vec3f translate_;
@@ -385,10 +400,10 @@ public:
 								camera.zoom(ev->abs());
 							break;
 						case Joystick::Axis::LEFT_TRIGGER:
-							camera.roll(ev->abs());
+							camera.roll(-ev->abs());
 							break;
 						case Joystick::Axis::RIGHT_TRIGGER:
-							camera.roll(-ev->abs());
+							camera.roll(ev->abs());
 							break;
 						}
 					}
