@@ -15,8 +15,10 @@ class Camera
 	constexpr static float ROLL        =  0.0f;
 	constexpr static float YAW         = -90.0f;
 	constexpr static float PITCH       =  0.0f;
-	constexpr static float SPEED       =  2.5f;
-	constexpr static float ZOOM        =  45.0f;
+	constexpr static float SPEED       =  0;
+	constexpr static float ZOOM        =  0.0f;
+	//only used in space ship mode
+	constexpr static float MASS		   =  1000.0f;
 public:
     // camera Attributes
     cv::Vec3f position_;
@@ -24,47 +26,72 @@ public:
     cv::Vec3f up_;
     cv::Vec3f right_;
     cv::Vec3f worldUp_;
-    cv::Vec3f lookAt_;
     // euler Angles
     float roll_;
     float yaw_;
     float pitch_;
     // camera options
-    float movementSpeed_;
     float zoom_;
 
+    //crude inertia physics
+    bool enableInertia_ = false;
+    float advanceSpeed_ = 0;
+    float strafeSpeed_ = 0;
+    float rollSpeed_ = 0;
+    float pitchSpeed_ = 0;
+    float yawSpeed_ = 0;
+
+    float speedOverride_ = 1.0;
+    float sensitivity_ = 1.0;
+    float mass_;
+
     // constructor with vectors
-    Camera(cv::Vec3f position = cv::Vec3f(0.0f, 0.0f, 0.0f), cv::Vec3f up = cv::Vec3f(0.0f, 1.0f, 0.0f), float yaw = YAW, float pitch = PITCH, float roll = ROLL) : front_(cv::Vec3f(0.0f, 0.0f, -1.0f)), movementSpeed_(SPEED),  zoom_(ZOOM)
+    Camera(cv::Vec3f position = cv::Vec3f(0.0f, 0.0f, 3.0f), cv::Vec3f up = cv::Vec3f(0.0f, 1.0f, 0.0f), float yaw = YAW, float pitch = PITCH, float roll = ROLL, float mass = MASS) : front_(cv::Vec3f(0.0f, 0.0f, -1.0f)), zoom_(ZOOM), mass_(mass)
     {
         position_ = position;
         worldUp_ = up;
         yaw_ = yaw;
         pitch_ = pitch;
         roll_ = roll;
-        updateCameraVectors();
+		right_ = normalize(front_.cross(worldUp_));  // normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
+        up_    = normalize(right_.cross(front_));
     }
-    // constructor with scalar values
-    Camera(float posX, float posY, float posZ, float upX, float upY, float upZ, float yaw, float pitch, float roll) : front_(cv::Vec3f(0.0f, 0.0f, -1.0f)), movementSpeed_(SPEED), zoom_(ZOOM)
-    {
-        position_ = cv::Vec3f(posX, posY, posZ);
-        worldUp_ = cv::Vec3f(upX, upY, upZ);
-        yaw_ = yaw;
-        pitch_ = pitch;
-        roll_ = roll;
-        updateCameraVectors();
+
+    void reset() {
+		advanceSpeed_ = 0;
+    	strafeSpeed_ = 0;
+		rollSpeed_ = 0;
+    	pitchSpeed_ = 0;
+    	yawSpeed_ = 0;
+    	zoom_ = ZOOM;
+        yaw_ = YAW;
+        pitch_ = PITCH;
+        roll_ = ROLL;
+        mass_ = MASS;
+        worldUp_ = cv::Vec3f(0.0f, 1.0f, 0.0f);
+    	position_ = cv::Vec3f(0.0f, 0.0f, 3.0f);
+        front_ = cv::Vec3f(0.0f, 0.0f, -1.0f);
+		right_ = normalize(front_.cross(worldUp_));  // normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
+        up_    = normalize(right_.cross(front_));
     }
 
     // returns the view matrix calculated using Euler Angles and the LookAt Matrix
-    cv::Matx44f getViewMatrix()
-    {
-        return gl::lookAt(position_, lookAt_, up_);
-    }
+	cv::Matx44f getViewMatrix() {
+		cv::Vec3f zoomed  = position_ + (front_ * -zoom_);
+		return gl::lookAt(zoomed, zoomed + front_, up_);
+	}
 
-    void circle(float xamount, float yamount, float zamount) {
-        // Convert degrees to radians
+	void enableInertia(bool inertia) {
+		enableInertia_ = inertia;
+	}
+
+	bool getSpaceShipMode() {
+		return enableInertia_;
+	}
+
+    void circle(float xamount, float yamount) {
         float xrad = radians(xamount);
         float yrad = radians(yamount);
-        float zrad = radians(zamount);
 
         // Create rotation matrices for each axis
         cv::Matx33f rotx = cv::Matx33f(
@@ -77,60 +104,130 @@ public:
             0, 1, 0,
             -sin(yrad), 0, cos(yrad)
         );
-        cv::Matx33f rotz = cv::Matx33f(
-            cos(zrad), -sin(zrad), 0,
-            sin(zrad), cos(zrad), 0,
-            0, 0, 1
-        );
 
         // Apply the rotations to the position vector
-        cv::Vec3f pos = position_ - lookAt_;
+        cv::Vec3f pos = position_;
+        cv::Vec3f f = front_;
         cv::Matx31f posmat = cv::Matx31f(pos[0], pos[1], pos[2]);
-        posmat = rotx * roty * rotz * posmat;
-        position_ = cv::Vec3f(posmat(0), posmat(1), posmat(2)) + lookAt_;
-
-        // Update the camera vectors
-        updateCameraVectors();
+        cv::Matx31f fmat = cv::Matx31f(f[0], f[1], f[2]);
+        posmat = rotx * roty * posmat;
+        fmat = rotx * roty * fmat;
+        position_ = cv::Vec3f(posmat(0), posmat(1), posmat(2));
+        front_ = normalize(cv::Vec3f(fmat(0), fmat(1), fmat(2)));
+        right_ = normalize(front_.cross(worldUp_));
+        up_    = normalize(right_.cross(front_));
+        updateZ();
     }
 
-    void advance(float amount) {
-    	position_ += front_ * (movementSpeed_ * amount);
-    	updateLookAt();
+    void advance(float impulse) {
+    	if(enableInertia_)
+    		accelerate(advanceSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
+    	else
+    		advanceSpeed_ = impulse > 0 ? 30 : -30;
+
+    	auto amount = (advanceSpeed_ * speedOverride_) * (std::fabs(impulse) * sensitivity_);
+    	position_ += front_ * amount;
     }
 
-    void strafe(float amount) {
-    	position_ += right_ * (movementSpeed_ * amount);
-    	updateLookAt();
+    void strafe(float impulse) {
+    	if(enableInertia_)
+    		accelerate(strafeSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / (Global::fps() + 1));
+    	else
+    		strafeSpeed_ = impulse > 0 ? 30 : -30;
+    	auto amount = (strafeSpeed_ * speedOverride_) * (std::fabs(impulse) * sensitivity_);
+    	position_ += right_ * amount;
     }
 
-    void roll(float amount) {
-        roll_ += amount;
-        updateCameraVectors();
+    void roll(float impulse) {
+    	if(enableInertia_)
+    		accelerate(rollSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
+    	else
+    		rollSpeed_ = impulse > 0 ? 30 : -30;
+
+    	auto amount = (rollSpeed_ * speedOverride_) * (std::fabs(impulse) * sensitivity_);
+
+    	if(enableInertia_)
+    		roll_ = amount;
+    	else
+    		roll_ = amount;
+        updateZ();
     }
 
-    void yaw(float amount) {
+    void yaw(float impulse) {
+    	if(enableInertia_)
+    		accelerate(yawSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
+    	else
+    		yawSpeed_ = impulse > 0 ? 30 : -30;
+
+    	auto amount = (yawSpeed_ * speedOverride_) * (std::fabs(impulse) * sensitivity_);
     	yaw_ += amount;
-        updateCameraVectors();
+        updateXY();
+        updateZ();
     }
 
-    void pitch(float amount, bool constraint = false) {
+    void pitch(float impulse, bool constraint = false) {
+    	if(enableInertia_)
+    		accelerate(pitchSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
+    	else
+    		pitchSpeed_ = impulse > 0 ? 30 : -30;
+
+    	auto amount = (pitchSpeed_ * speedOverride_) * (std::fabs(impulse) * sensitivity_);
     	pitch_ += amount;
-        updateCameraVectors();
+
         if (constraint) {
             if (pitch_ > 89.0f)
                 pitch_ = 89.0f;
             if (pitch_ < -89.0f)
                 pitch_ = -89.0f;
         }
+        updateXY();
+        updateZ();
     }
 
     void zoom(float amount) {
-        zoom_ -= (float)amount;
-        if (zoom_ < 1.0f)
-            zoom_ = 1.0f;
-        if (zoom_ > 45.0f)
-            zoom_ = 45.0f;
+        zoom_ += (float)amount;
+    }
 
+    void setSpeedOverride(float factor) {
+    	if(factor < 0)
+    		return;
+
+    	speedOverride_ = factor;
+    }
+
+    float getSpeedOverride() {
+		return speedOverride_;
+	}
+
+    void setSensitivity(float factor) {
+    	if(factor < 0)
+    		return;
+
+    	sensitivity_ = factor;
+    }
+
+    float getSensitivity() {
+		return sensitivity_;
+	}
+
+    void update() {
+    	if(enableInertia_ ) {
+	        cerr << "before:" << rollSpeed_ << endl;
+
+			decelerate(advanceSpeed_, enableInertia_ ? mass_ : 1, 1.0 / (Global::fps() + 1));
+			decelerate(strafeSpeed_, enableInertia_ ? mass_ : 1, 1.0 / (Global::fps() + 1));
+			decelerate(pitchSpeed_, enableInertia_ ? mass_ : 1, 1.0 / (Global::fps() + 1));
+			decelerate(yawSpeed_, enableInertia_ ? mass_ : 1, 1.0 / (Global::fps() + 1));
+			decelerate(rollSpeed_, enableInertia_ ? mass_ : 1, 1.0 / (Global::fps() + 1));
+			position_ += front_ * (advanceSpeed_ * speedOverride_ * sensitivity_);
+			position_ += right_ * (strafeSpeed_ * speedOverride_ * sensitivity_);
+			pitch_ += (pitchSpeed_ * speedOverride_ * sensitivity_);
+			yaw_ += (yawSpeed_ * speedOverride_ * sensitivity_);
+			roll_ += (rollSpeed_ * speedOverride_ * sensitivity_);
+			updateXY();
+	        updateZ();
+	        cerr << "after:" << rollSpeed_ << endl;
+    	}
     }
 private:
     float radians(float degrees) {
@@ -146,47 +243,60 @@ private:
         }
     }
 
-    void updateCameraVectors()
-    {
-        // calculate the new Front vector
-        cv::Vec3f front;
-        front[0] = cos(radians(yaw_)) * cos(radians(pitch_));
-        front[1] = sin(radians(pitch_));
-        front[2] = sin(radians(yaw_)) * cos(radians(pitch_));
-        front_ = normalize(front);
-        // also re-calculate the Right and Up vector
-        right_ = normalize(front_.cross(worldUp_));  // normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
-        up_    = normalize(right_.cross(front_));
+    void accelerate(float& speed, const float mass, const float impulse, const float timeStep) {
+    	float scaled = impulse / (mass * timeStep);
+    	speed += scaled;
+    }
 
+
+
+    void decelerate(float& speed, const float mass, const float timeStep) {
+        float force =  std::fabs(speed / mass;
+
+        speed  += (speed * (force * timeStep));
+    }
+
+    void updateZ() {
         // Create a rotation matrix for rolling
         cv::Matx33f rot = cv::Matx33f(
             cos(radians(roll_)), -sin(radians(roll_)), 0,
             sin(radians(roll_)), cos(radians(roll_)), 0,
             0, 0, 1
         );
+
         cv::Matx31f up = cv::Matx31f(up_[0], up_[1], up_[2]);
-        cv::Matx31f right = cv::Matx31f(right_[0], right_[1], right_[2]);
 
         // Apply the rotation to the up and right vectors
         up = rot * up;
-        right = rot * right;
 
         // Update the up and right vectors
-        up_ = cv::Vec3f(up(0), up(1), up(2));
-        right_ = cv::Vec3f(right(0), right(1), right(2));
-        updateLookAt();
+        up_ = normalize(cv::Vec3f(up(0), up(1), up(2)));
+        right_ = normalize(up_.cross(front_));
     }
 
-    void updateLookAt() {
-        lookAt_ = position_ + front_;
+    void updateXY() {
+        cv::Vec3f front;
+        front[0] = cos(radians(yaw_)) * cos(radians(pitch_));
+        front[1] = sin(radians(pitch_));
+        front[2] = sin(radians(yaw_)) * cos(radians(pitch_));
+        front_ = normalize(front);
+    	// also re-calculate the Right and Up vector
+        right_ = normalize(front_.cross(worldUp_));  // normalize the vectors, because their length gets closer to 0 the more you look up or down which results in slower movement.
     }
 };
 
 class SceneDemoPlan : public Plan {
 	const string filename_ = "Avocado.glb";
-	gl::Scene scene_;
-	Camera camera_;
-	struct Transform {
+	inline static Camera camera_;
+	inline static struct Params {
+		gl::Scene::RenderMode renderMode_;;
+		bool inertia_;
+		bool fly_;
+		float senitivity_;
+		float speed_;
+	} params_ = {gl::Scene::RenderMode::DEFAULT, true, true, 0.001, 1.0};
+
+	inline static struct Transform {
 		cv::Vec3f translate_;
 		cv::Vec3f rotation_;
 		cv::Vec3f scale_;
@@ -195,14 +305,21 @@ class SceneDemoPlan : public Plan {
 		cv::Matx44f model_;
 	} transform_;
 
-
+	gl::Scene scene_;
 public:
 	using Plan::Plan;
+	SceneDemoPlan(const cv::Rect& viewport) : Plan(viewport) {
+		Global::registerShared(camera_);
+		Global::registerShared(params_);
+		Global::registerShared(transform_);
+	}
 
 	void setup(cv::Ptr<V4D> window) override {
-		//Executed once before infer is called
-		window->gl([](const cv::Rect& viewport, gl::Scene& scene, const string& filename, Transform& transform) {
+		window->gl([](const cv::Rect& viewport, gl::Scene& scene, const string& filename) {
 			CV_Assert(scene.load(filename));
+		}, viewport(), scene_, filename_);
+
+		window->once([](const cv::Rect& viewport, const gl::Scene& scene, Transform& transform) {
 			float scale = scene.autoScale();
 			//initial center of scene deduced from bounding box
 		    cv::Vec3f center = scene.autoCenter();
@@ -213,51 +330,83 @@ public:
 	        transform.projection_ = gl::perspective(45.0f * (CV_PI/180), float(viewport.width) / viewport.height, 0.1f, 100.0f);
 		    //gl::modelView works analogous to glm::modelView
 		    transform.model_ = gl::modelView(transform.translate_, transform.rotation_, transform.scale_);
-		}, viewport(), scene_, filename_, transform_);
+		}, viewport(), scene_, transform_);
 	}
 
+
 	void infer(cv::Ptr<V4D> window) override {
-	    //Executed on every frame
-		window->gl(0,[](const int32_t& ctx, const cv::Rect& viewport, gl::Scene& scene, Transform& transform, Camera& camera){
-	        using namespace cv::v4d::event;
-	        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	        //retrieve current joystick events
-	        auto jsEvents = event::get<Joystick>();
+		window->branch(0, always_);
+		{
+			window->plain([](Transform& transform, Camera& camera, Params& params){
+				using namespace cv::v4d::event;
+				glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+				//retrieve current joystick events
+				auto joystick = event::get<Joystick>();
 
-	        // Process joystick events
-	        for (const auto& jsEvent : jsEvents) {
-	            if (jsEvent->type() == Joystick::Type::BUTTON_PRESS && jsEvent->button() == Joystick::Button::BUTTON_A) {
-	                // Use BUTTON_A to cycle through render modes
-	                int m = (static_cast<int>(scene.getMode()) + 1) % 3;
-	                scene.setMode(static_cast<gl::Scene::RenderMode>(m));
-	            } else if (jsEvent->type() == Joystick::Type::AXIS_MOVE && std::fabs(jsEvent->abs()) > 0.1) {
-	                if (jsEvent->axis() == Joystick::Axis::AXIS_LEFT_X) {
-	                	cerr << "LEFT_X" << jsEvent->abs() << endl;
-	                	camera.strafe(jsEvent->abs() / 100.0f);
-	                } else if (jsEvent->axis() == Joystick::Axis::AXIS_LEFT_Y && std::fabs(jsEvent->abs()) > 0.1) {
-	                	cerr << "LEFT_Y" << jsEvent->abs() << endl;
-	                    camera.advance(-jsEvent->abs() / 100.0f);
-	                } else if (jsEvent->axis() == Joystick::Axis::AXIS_RIGHT_X && std::fabs(jsEvent->abs()) > 0.1) {
-	                	cerr << "RIGHT_X" << jsEvent->abs() << endl;
-	                	camera.yaw(jsEvent->abs() / 10.0f);
-	                } else if (jsEvent->axis() == Joystick::Axis::AXIS_RIGHT_Y && std::fabs(jsEvent->abs()) > 0.1) {
-	                	cerr << "RIGHT_Y" << jsEvent->abs() << endl;
-	                	camera.pitch(jsEvent->abs() / 10.0f);
-	                } else if (jsEvent->axis() == Joystick::Axis::AXIS_LEFT_TRIGGER && jsEvent->value() > -1) {
-	                	cerr << "LEFT_TRIGGER" << jsEvent->value()  << endl;
-	                	camera.roll(-((jsEvent->value() + 1) / 2.0) / 10.0f);
-	                } else if (jsEvent->axis() == Joystick::Axis::AXIS_RIGHT_TRIGGER && jsEvent->value() > -1) {
-	                	cerr << "RIGHT_TRIGGER" << jsEvent->value() << endl;
-	                	camera.roll(((jsEvent->value() + 1) / 2.0) / 10.0f);
-	                }
-	            }
-	        }
-
-	        // Use the camera's view matrix
-	        transform.view_ = camera.getViewMatrix();
-
-	        scene.render(viewport, transform.projection_, transform.view_, transform.model_);
-	    }, viewport(), scene_, transform_, camera_);
+				for (const auto& ev : joystick) {
+					if (ev->is(Joystick::Type::RELEASE)) {
+						// Use BUTTON_A to cycle through render modes
+						if(ev->is(Joystick::Button::B))
+							params.renderMode_ = (static_cast<gl::Scene::RenderMode>((static_cast<int>(params.renderMode_) + 1) % 3));
+						else if(ev->is(Joystick::Button::Y)) {
+							camera.reset();
+						} else if(ev->is(Joystick::Button::BACK)) {
+							params.fly_ = !params.fly_;
+							camera.reset();
+						} else if(ev->is(Joystick::Button::X)) {
+							params.inertia_ = !params.inertia_;
+						} else if(ev->is(Joystick::Button::LB)) {
+							params.speed_ = params.speed_ + 0.1;
+						} else if(ev->is(Joystick::Button::RB)) {
+							params.speed_ = params.speed_ - 0.1;
+						}
+					} else if (ev->is(Joystick::Type::MOVE) && ev->active()) {
+						switch(ev->axis()) {
+						case Joystick::Axis::LEFT_X:
+							if(params.fly_)
+								camera.strafe(-ev->abs());
+							else
+								camera.circle(0, ev->abs());
+							break;
+						case Joystick::Axis::LEFT_Y:
+							if(params.fly_)
+								camera.advance(-ev->abs());
+							else
+								camera.circle(ev->abs(), 0);
+							break;
+						case Joystick::Axis::RIGHT_X:
+							if(params.fly_)
+								camera.yaw(ev->abs());
+							break;
+						case Joystick::Axis::RIGHT_Y:
+							if(params.fly_)
+								camera.pitch(ev->abs());
+							else
+								camera.zoom(ev->abs());
+							break;
+						case Joystick::Axis::LEFT_TRIGGER:
+							camera.roll(ev->abs());
+							break;
+						case Joystick::Axis::RIGHT_TRIGGER:
+							camera.roll(-ev->abs());
+							break;
+						}
+					}
+				}
+				camera.enableInertia(params.inertia_);
+				camera.setSpeedOverride(params.speed_);
+				camera.setSensitivity(params.senitivity_);
+				camera.update();
+				// Use the camera's view matrix
+				transform.view_ = camera.getViewMatrix();
+			}, transform_, camera_, params_);
+		}
+		window->branch(always_); {
+			window->gl([](const cv::Rect& viewport, gl::Scene& scene, Transform& transform, Params& params){
+				scene.setMode(params.renderMode_);
+				scene.render(viewport, transform.projection_, transform.view_, transform.model_);
+			}, viewport(), scene_, transform_, params_);
+		}
 	    window->write();
 	}
 
@@ -266,7 +415,7 @@ public:
 
 int main() {
     cv::Ptr<V4D> window = V4D::make(cv::Size(1280, 720), "Scene Demo", IMGUI);
-	cv::Ptr<SceneDemoPlan> plan = new SceneDemoPlan(cv::Size(1280, 720));
+	cv::Ptr<SceneDemoPlan> plan = new SceneDemoPlan(cv::Rect(0,0, 1280, 720));
 
     auto sink = makeWriterSink(window, "scene-demo.mkv", 60, plan->size());
     window->setSink(sink);
