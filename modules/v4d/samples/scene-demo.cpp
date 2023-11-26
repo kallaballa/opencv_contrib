@@ -41,6 +41,19 @@ public:
     float pitchSpeed_ = 0;
     float yawSpeed_ = 0;
 
+    bool advanceFired_ = false;
+    bool strafeFired_ = false;
+    bool rollFired_ = false;
+    bool pitchFired_ = false;
+    bool yawFired_ = false;
+
+    float advanceImpulse_ = 0;
+    float strafeImpulse_ = 0;
+    float rollImpulse_ = 0;
+    float pitchImpulse_ = 0;
+    float yawImpulse_ = 0;
+
+
     float speedOverride_ = 1.0;
     float sensitivity_ = 1.0;
     float mass_;
@@ -122,6 +135,8 @@ public:
     }
 
     void advance(float impulse) {
+    	advanceFired_ = true;
+    	advanceImpulse_  = impulse;
     	impulse /= 10;
     	if(!enableInertia_)
     		impulse /= (mass_);
@@ -131,6 +146,8 @@ public:
     }
 
     void strafe(float impulse) {
+    	strafeFired_ = true;
+    	strafeImpulse_  = impulse;
     	impulse /= 10;
     	if(enableInertia_)
     		accelerate(strafeSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / (Global::fps() + 1));
@@ -141,17 +158,16 @@ public:
     }
 
     void roll(float impulse) {
+    	rollFired_ = true;
+    	rollImpulse_  = impulse;
     	impulse /= 10.0;
     	if(enableInertia_)
     		accelerate(rollSpeed_, mass_, impulse, 1.0 / Global::fps());
     	else {
-    		if(impulse * rollSpeed_ < 0)
-    			rollSpeed_ *= -1;
-
     		if(impulse >= 0)
-    			rollSpeed_ += 1.0 / mass_;
+    			rollSpeed_ = 3;
     		else
-    			rollSpeed_ -= 1.0 / mass_;
+    			rollSpeed_ = -3;
     		impulse = 1.0;
     	}
 
@@ -163,6 +179,8 @@ public:
     }
 
     void yaw(float impulse) {
+    	yawFired_ = true;
+    	yawImpulse_  = impulse;
     	accelerate(yawSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
     	auto amount = (yawSpeed_ * speedOverride_) * (std::fabs(impulse) * sensitivity_);
     	yaw_ += amount;
@@ -171,6 +189,8 @@ public:
     }
 
     void pitch(float impulse, bool constraint = false) {
+    	pitchFired_ = true;
+    	pitchImpulse_  = impulse;
     	accelerate(pitchSpeed_, enableInertia_ ? mass_ : 1, impulse, 1.0 / Global::fps());
     	auto amount = (pitchSpeed_ * speedOverride_) * (std::fabs(impulse) * sensitivity_);
     	pitch_ += amount;
@@ -214,22 +234,43 @@ public:
     void update() {
     	if(enableInertia_ ) {
     		cerr << "BEFORE: " << rollSpeed_ << std::endl;
-			decelerate(advanceSpeed_, mass_ , 1.0 / (Global::fps() + 1));
-			decelerate(strafeSpeed_, mass_, 1.0 / (Global::fps() + 1));
-			decelerate(pitchSpeed_, mass_, 1.0 / (Global::fps() + 1));
-			decelerate(yawSpeed_, mass_, 1.0 / (Global::fps() + 1));
-			decelerate(rollSpeed_, mass_, 1.0 / (Global::fps() + 1));
-			position_ += front_ * (advanceSpeed_ * speedOverride_ * sensitivity_);
-			position_ += right_ * (strafeSpeed_ * speedOverride_ * sensitivity_);
-			pitch_ += (pitchSpeed_ * speedOverride_ * sensitivity_);
-			yaw_ += (yawSpeed_ * speedOverride_ * sensitivity_);
-			updateXY();
+    		if(!advanceFired_) {
+    			decelerate(advanceSpeed_, mass_ , 1.0 / (Global::fps() + 1));
+    			position_ += front_ * (advanceSpeed_ * speedOverride_ * sensitivity_);
+    		}
+    		if(!strafeFired_) {
+    			decelerate(strafeSpeed_, mass_, 1.0 / (Global::fps() + 1));
+    			position_ += right_ * (strafeSpeed_ * speedOverride_ * sensitivity_);
+    		}
+    		if(!pitchFired_) {
+    			decelerate(pitchSpeed_, mass_, 1.0 / (Global::fps() + 1));
+    			pitch_ += (pitchSpeed_ * speedOverride_ * sensitivity_);
+    		}
+    		if(!yawFired_) {
+    			decelerate(yawSpeed_, mass_, 1.0 / (Global::fps() + 1));
+    			yaw_ += (yawSpeed_ * speedOverride_ * sensitivity_);
+    		}
+			if(!pitchFired_ || !yawFired_ || !rollFired_)
+				updateXY();
 
-			roll_ += (rollSpeed_ * speedOverride_ * sensitivity_) / 10.0;
+			if(!rollFired_) {
+				decelerate(rollSpeed_, mass_, 1.0 / (Global::fps() + 1));
+				roll_ += (rollSpeed_ * speedOverride_ * sensitivity_ * std::fabs(rollImpulse_));
+    		}
 
-	        updateZ();
+			if(!advanceFired_ || !strafeFired_ || !pitchFired_ || !yawFired_ || !rollFired_)
+				updateZ();
 	        cerr << "AFTER: " << roll_ << " speed: "<< rollSpeed_ << std::endl;
+    	} else {
+    		rollSpeed_ = 0;
+    		updateXY();
+    		updateZ();
     	}
+        advanceFired_ = false;
+        strafeFired_ = false;
+        rollFired_ = false;
+        pitchFired_ = false;
+        yawFired_ = false;
     }
 private:
     float radians(float degrees) {
@@ -258,11 +299,13 @@ private:
         float netForce = force - frictionForce; // net force on the object
         float acceleration = netForce / mass; // acceleration (Newton's second law)
         float deltaV = acceleration * timeStep; // change in velocity
-        if(deltaV * speed < 0)
-        	deltaV *= -1;
-        speed -= deltaV; // decrease speed
-        if(deltaV * speed < 0)
-        	speed = 0;
+        if(speed < 0) {
+        	speed -= deltaV; // decrease speed
+        	speed = speed >= 0 ? 0 : speed;
+        } else {
+        	speed += deltaV; // decrease speed
+        	speed = speed < 0 ? 0 : speed;
+    	}
     }
 //
 //    void decelerate(float& speed, const float mass, const float timeStep) {
