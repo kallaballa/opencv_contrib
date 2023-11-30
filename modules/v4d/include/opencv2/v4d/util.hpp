@@ -71,6 +71,7 @@ class CV_EXPORTS Global {
     inline static size_t next_worker_idx_ = 0;
 	inline static std::mutex sharedMtx_;
 	inline static std::map<size_t, std::mutex*> shared_;
+	inline static std::map<std::thread::id, size_t> thread_worker_id_;
 	typedef typename std::map<size_t, std::mutex*>::iterator Iterator;
 public:
 	template <typename T>
@@ -211,7 +212,13 @@ public:
 	CV_EXPORTS static size_t next_worker_idx() {
 	    static std::mutex mtx;
 	    std::unique_lock<std::mutex> lock(mtx);
+	    thread_worker_id_[std::this_thread::get_id()] = next_worker_idx_;
 		return next_worker_idx_++;
+	}
+
+	CV_EXPORTS static size_t worker_id() {
+		CV_Assert(!is_main());
+		return thread_worker_id_[std::this_thread::get_id()];
 	}
 
 	template<typename T>
@@ -446,8 +453,8 @@ CV_EXPORTS void gl_check_error(const std::filesystem::path& file, unsigned int l
 #define GL_CHECK(expr)                            \
     expr;
 #endif
-CV_EXPORTS void initShader(unsigned int handles[3], const char* vShader, const char* fShader, const char* outputAttributeName);
-
+CV_EXPORTS void init_shaders(unsigned int handles[3], const char* vShader, const char* fShader, const char* outputAttributeName);
+CV_EXPORTS void init_fragment_shader(unsigned int handles[2], const char* fshader);
 /*!
  * Returns the OpenGL vendor string
  * @return a string object with the OpenGL vendor information

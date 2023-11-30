@@ -99,7 +99,7 @@ void FrameBufferContext::loadShader(const size_t& index) {
 )";
 
     unsigned int handles[3];
-    cv::v4d::initShader(handles, vert.c_str(), frag.c_str(), "fragColor");
+    cv::v4d::init_shaders(handles, vert.c_str(), frag.c_str(), "fragColor");
     shader_program_hdls_[index] = handles[0];
 }
 
@@ -230,8 +230,8 @@ void FrameBufferContext::init() {
     context_ = CLExecContext_t::getCurrent();
 
     setup();
-    if(isRoot() && !parent_) {
-    	event::init(glfwWindow_);
+    if(Global::is_main() && !parent_) {
+    	event::init<cv::Point2f>();
 
 //    glfwSetWindowUserPointer(getGLFWWindow(), getV4D().get());
 ////    glfwSetDropCallback(getGLFWWindow(), [](GLFWwindow* glfwWin, int count, const char** filenames) {

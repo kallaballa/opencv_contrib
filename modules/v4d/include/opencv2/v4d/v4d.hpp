@@ -77,7 +77,7 @@ public:
 	constexpr static auto or_ = [](const bool& a, const bool& b) { return a || b; };
 
 	explicit Plan(const cv::Rect& vp) : sz_(cv::Size(vp.width, vp.height)), vp_(vp){};
-	explicit Plan(const cv::Size& sz) : sz_(sz), vp_(0, 0, sz.width, sz.height){};
+
 	virtual ~Plan() {};
 
 	virtual void gui(cv::Ptr<V4D> window) { CV_UNUSED(window); };
@@ -551,8 +551,8 @@ public:
      */
     CV_EXPORTS void copyFrom(const cv::UMat& arr);
 
-	template<typename Tplan>
-	void run(cv::Ptr<Tplan> plan, int32_t workers = -1) {
+    template<typename Tplan, typename ... Args>
+	void run(cv::Ptr<Tplan> plan, int32_t workers, Args ... args) {
 		plan_ = std::static_pointer_cast<Plan>(plan);
 
 		static Resequence reseq;
@@ -592,12 +592,12 @@ public:
 				std::vector<cv::Ptr<Tplan>> plans;
 				//make sure all Plans are constructed before starting the workers
 				for (size_t i = 0; i < workers; ++i) {
-					plans.push_back(new Tplan(plan->size()));
+					plans.push_back(new Tplan(plan->viewport(), args...));
 				}
 				for (size_t i = 0; i < workers; ++i) {
 					threads.push_back(
 						new std::thread(
-							[this, i, src, sink, plans] {
+							[this, i, src, sink, plans, args...] {
 								cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_SILENT);
 								cv::Ptr<cv::v4d::V4D> worker = V4D::make(*this, this->title() + "-worker-" + std::to_string(i));
 								if (src) {
@@ -607,7 +607,7 @@ public:
 									worker->setSink(sink);
 								}
 								cv::Ptr<Tplan> newPlan = plans[i];
-								worker->run(newPlan, 0);
+								worker->run(newPlan, 0, args...);
 							}
 						)
 					);
@@ -645,6 +645,7 @@ public:
 		}
 
 		try {
+			std::mutex pollMtx;
 			if(Global::is_main()) {
 				do {
 					//refresh-rate depends on swap interval (1) for sync
@@ -659,12 +660,17 @@ public:
 					reseq.notify();
 					uint64_t seq;
 					{
-						std::unique_lock<std::mutex> lock(seqMtx);
+						std::lock_guard<std::mutex> lock(seqMtx);
 						seq = Global::next_run_cnt();
 					}
 
 					this->runGraph();
 					reseq.waitFor(seq);
+					{
+						std::lock_guard<std::mutex> lock(pollMtx);
+						event::poll();
+
+					}
 				} while(keepRunning() && this->display());
 			}
 		} catch(std::exception& ex) {

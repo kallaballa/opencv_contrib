@@ -116,7 +116,7 @@ private:
 		//Contrast factor skin
 		float skinContrast_ = 0.7f;
 		//Show input and output side by side
-		bool sideBySide_ = false;
+		bool sideBySide_ = true;
 		//Scale the video to the window size
 		bool stretch_ = true;
 	} params_;
@@ -240,7 +240,7 @@ public:
 		detector_ = cv::FaceDetectorYN::create("modules/v4d/assets/models/face_detection_yunet_2023mar.onnx", "", downSize_, 0.9, 0.3, 5000, cv::dnn::DNN_BACKEND_OPENCV, cv::dnn::DNN_TARGET_OPENCL);
 		int diag = hypot(double(size().width), double(size().height));
 		params_.blurSkinKernelSize_ = std::max(int(diag / 2000 % 2 == 0 ? diag / 2000 + 1 : diag / 2000), 1);
-
+		frameOut_.create(size(), CV_8UC3);
 		window->setStretching(params_.stretch_);
 		window->plain([](cv::Ptr<cv::face::Facemark>& facemark){
 			facemark->loadModel("modules/v4d/assets/models/lbfmodel.yaml");
@@ -387,13 +387,13 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-	cv::Ptr<BeautyDemoPlan> plan = new BeautyDemoPlan(cv::Size(1920, 1080));
+	cv::Ptr<BeautyDemoPlan> plan = new BeautyDemoPlan(cv::Rect(0, 0, 1920, 1080));
     cv::Ptr<V4D> window = V4D::make(plan->size(), "Beautification Demo", ALL);
     auto src = makeCaptureSource(window, argv[1]);
     auto sink = makeWriterSink(window, "beauty-demo.mkv", src->fps(), plan->size());
     window->setSource(src);
     window->setSink(sink);
-    window->run(plan);
+    window->run(plan, 0);
 
     return 0;
 }

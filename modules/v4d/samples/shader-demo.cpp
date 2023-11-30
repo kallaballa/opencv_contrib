@@ -190,7 +190,7 @@ private:
             mandelbrot();
         })";
         unsigned int handles[3];
-        cv::v4d::initShader(handles, vert.c_str(), frag.c_str(), "fragColor");
+        cv::v4d::init_shaders(handles, vert.c_str(), frag.c_str(), "fragColor");
         return handles[0];
     }
 

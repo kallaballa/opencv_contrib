@@ -86,7 +86,52 @@ void gl_check_error(const std::filesystem::path& file, unsigned int line, const 
     }
 }
 
-void initShader(unsigned int handles[3], const char* vShader, const char* fShader, const char* outputAttributeName) {
+void init_fragment_shader(unsigned int handles[2], const char* fshader) {
+    struct Shader {
+        GLenum type;
+        const char* source;
+    } s = { GL_FRAGMENT_SHADER, fshader };
+
+    handles[0] = glCreateProgram();
+
+	;
+	handles[1] = glCreateShader(s.type);
+	glShaderSource(handles[1] , 1, (const GLchar**) &s.source, NULL);
+	glCompileShader(handles[1] );
+
+	GLint compiled;
+	glGetShaderiv(handles[1] , GL_COMPILE_STATUS, &compiled);
+	if (!compiled) {
+		std::cerr << " failed to compile:" << std::endl;
+		GLint logSize;
+		glGetShaderiv(handles[1], GL_INFO_LOG_LENGTH, &logSize);
+		char* logMsg = new char[logSize];
+		glGetShaderInfoLog(handles[1] , logSize, NULL, logMsg);
+		std::cerr << logMsg << std::endl;
+		delete[] logMsg;
+
+		exit (EXIT_FAILURE);
+	}
+	glAttachShader(handles[0], handles[1]);
+
+    /* link  and error check */
+    glLinkProgram(handles[0]);
+
+    GLint linked;
+    glGetProgramiv(handles[0], GL_LINK_STATUS, &linked);
+    if (!linked) {
+        std::cerr << "Shader program failed to link" << std::endl;
+        GLint logSize;
+        glGetProgramiv(handles[0], GL_INFO_LOG_LENGTH, &logSize);
+        char* logMsg = new char[logSize];
+        glGetProgramInfoLog(handles[0], logSize, NULL, logMsg);
+        delete[] logMsg;
+
+        exit (EXIT_FAILURE);
+    }
+}
+
+void init_shaders(unsigned int handles[3], const char* vShader, const char* fShader, const char* outputAttributeName) {
     struct Shader {
         GLenum type;
         const char* source;
@@ -110,7 +155,7 @@ void initShader(unsigned int handles[3], const char* vShader, const char* fShade
             glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logSize);
             char* logMsg = new char[logSize];
             glGetShaderInfoLog(shader, logSize, NULL, logMsg);
-            std::cerr << logMsg << std::endl;
+            std::cerr << shaders[i].source << std::endl <<  logMsg << std::endl;
             delete[] logMsg;
 
             exit (EXIT_FAILURE);

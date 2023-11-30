@@ -5,42 +5,99 @@
 
 
 #include "../include/opencv2/v4d/scene.hpp"
+#include "../third/PerlinNoise/PerlinNoise.hpp"
 #include <iostream>
 #include <assimp/postprocess.h>
 #include <opencv2/calib3d.hpp>
 #include <functional>
+#include <vector>
+#include <cmath>
+#include <random>
 
 namespace cv {
 namespace v4d {
-namespace gl {
+namespace import {
 
-#include <opencv2/core.hpp>
+static BoundingBox calculateBoundingBox(const aiMesh* m) {
+	cv::Vec3f min;
+	cv::Vec3f max;
+    for (unsigned int i = 0; i < m->mNumVertices; ++i) {
+        aiVector3D vertex = m->mVertices[i];
+        if (i == 0) {
+            min = max = cv::Vec3f(vertex.x, vertex.y, vertex.z);
+        } else {
+            min[0] = std::min(min[0], vertex.x);
+            min[1] = std::min(min[1], vertex.y);
+            min[2] = std::min(min[2], vertex.z);
 
-cv::Vec3f cross(const cv::Vec3f& v1, const cv::Vec3f& v2) {
-    return cv::Vec3f(v1[1] * v2[2] - v1[2] * v2[1],
-                     v1[2] * v2[0] - v1[0] * v2[2],
-                     v1[0] * v2[1] - v1[1] * v2[0]);
+            max[0] = std::max(max[0], vertex.x);
+            max[1] = std::max(max[1], vertex.y);
+            max[2] = std::max(max[2], vertex.z);
+        }
+    }
+    cv::Vec3f center = (min + max) / 2.0f;
+    cv::Vec3f size = max - min;
+    cv::Vec3f span(std::max(center[0] - min[0], max[0] - center[0]),
+    		std::max(center[1] - min[1], max[1] - center[1]),
+			std::max(center[2] - min[2], max[2] - center[2]));
+
+    cerr << "min: " << min << endl;
+    cerr << "max: " << max << endl;
+    cerr << "center: " << center << endl;
+    cerr << "size: " << size << endl;
+    cerr << "span: " << span << endl;
+    return {min, max, center, size, span};
 }
 
-void releaseAssimpScene(const aiScene* scene) {
-    if (scene) {
-        for (unsigned int i = 0; i < scene->mNumMeshes; ++i) {
-            delete[] scene->mMeshes[i]->mVertices;
-            delete[] scene->mMeshes[i]->mNormals;
-            for (unsigned int j = 0; j < scene->mMeshes[i]->mNumFaces; ++j) {
-                delete[] scene->mMeshes[i]->mFaces[j].mIndices;
-            }
-            delete[] scene->mMeshes[i]->mFaces;
-            delete scene->mMeshes[i];
-        }
+static float calculateAutoScale(BoundingBox bbox) {
+	float maxDimension = std::max(bbox.span_[0], std::max(bbox.span_[1], bbox.span_[2]));
+	cerr << "scale: " << 1.0f	/maxDimension << endl;
+    return 0.1f / (maxDimension * 2.0);
+}
 
-        delete[] scene->mMeshes;
-        delete scene->mRootNode;
-        delete scene;
+static void recurse_node(const aiNode* node, const aiScene* scene, cv::Mat_<float>& allVertices) {
+    for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+        const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+
+        for (unsigned int j = 0; j < mesh->mNumVertices; ++j) {
+            aiVector3D aiVertex = mesh->mVertices[j];
+            cv::Mat_<float> vertex = (cv::Mat_<float>(1, 3) << aiVertex.x, aiVertex.y, aiVertex.z);
+            allVertices.push_back(vertex);
+        }
+    }
+
+    for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+        recurse_node(node->mChildren[i], scene, allVertices);
     }
 }
 
-aiScene* createAssimpScene(std::vector<cv::Point3f>& vertices) {
+static void recurse_node(const aiNode* node, const aiScene* scene, std::vector<cv::Point3f>& allVertices) {
+    for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
+        const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+
+        for (unsigned int j = 0; j < mesh->mNumVertices; ++j) {
+            aiVector3D aiVertex = mesh->mVertices[j];
+            cv::Point3f vertex(aiVertex.x, aiVertex.y, aiVertex.z);
+            allVertices.push_back(vertex);
+        }
+    }
+
+    for (unsigned int i = 0; i < node->mNumChildren; ++i) {
+        recurse_node(node->mChildren[i], scene, allVertices);
+    }
+}
+
+AssimpScene::AssimpScene(const std::string filename) {
+    scene_ = importer_.ReadFile(filename, aiProcess_Triangulate | aiProcess_GenNormals);
+
+    if (!scene_ || (scene_->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene_->mRootNode) {
+        throw new std::runtime_error("Unable to load scene: " + filename);
+    }
+	bbox_ = calculateBoundingBox(scene_->mMeshes[0]);
+	autoScale_= calculateAutoScale(bbox_);
+}
+
+AssimpScene::AssimpScene(std::vector<cv::Point3f>& vertices) {
     if (vertices.size() % 3 != 0) {
     	vertices.resize(vertices.size() / 3);
     }
@@ -92,23 +149,65 @@ aiScene* createAssimpScene(std::vector<cv::Point3f>& vertices) {
     scene->mRootNode = new aiNode();
     scene->mRootNode->mMeshes = new unsigned int[1]{0};
     scene->mRootNode->mNumMeshes = 1;
-
-    return scene;
+	bbox_ = calculateBoundingBox(mesh);
+	autoScale_= calculateAutoScale(bbox_);
+	scene_ = scene;
 }
 
-cv::Vec3f rotate3D(const cv::Vec3f& point, const cv::Vec3f& center, const cv::Vec3f& rotation)
+
+
+AssimpScene::~AssimpScene() {
+    if (scene_) {
+        for (unsigned int i = 0; i < scene_->mNumMeshes; ++i) {
+            delete[] scene_->mMeshes[i]->mVertices;
+            delete[] scene_->mMeshes[i]->mNormals;
+            for (unsigned int j = 0; j < scene_->mMeshes[i]->mNumFaces; ++j) {
+                delete[] scene_->mMeshes[i]->mFaces[j].mIndices;
+            }
+            delete[] scene_->mMeshes[i]->mFaces;
+            delete scene_->mMeshes[i];
+        }
+
+        delete[] scene_->mMeshes;
+        delete scene_->mRootNode;
+        delete scene_;
+    }
+}
+
+BoundingBox AssimpScene::boundingBox() {
+	return bbox_;
+}
+
+float AssimpScene::autoScale() {
+	return autoScale_;
+}
+
+const aiScene* AssimpScene::scene() const {
+	return scene_;
+}
+
+cv::Mat_<float> AssimpScene::verticesAsMat() {
+	cv::Mat_<float> allVertices;
+	recurse_node(scene_->mRootNode, scene_, allVertices);
+	return allVertices;
+}
+
+std::vector<cv::Point3f> AssimpScene::verticesAsVector() {
+	std::vector<cv::Point3f> allVertices;
+	import::recurse_node(scene_->mRootNode, scene_, allVertices);
+	return allVertices;
+}
+} // namespace assimp
+
+namespace gl {
+
+cv::Vec3f rotate3D(const cv::Vec3f& point, const cv::Vec3f& center, const cv::Vec2f& rotation)
 {
-    // Convert rotation vector to rotation matrix
     cv::Matx33f rotationMatrix;
-    cv::Rodrigues(rotation, rotationMatrix);
+    cv::Rodrigues(cv::Vec3f(rotation[0], rotation[1], 0.0f), rotationMatrix);
 
-    // Subtract center from point
     cv::Vec3f translatedPoint = point - center;
-
-    // Rotate the point using the rotation matrix
     cv::Vec3f rotatedPoint = rotationMatrix * translatedPoint;
-
-    // Translate the point back
     rotatedPoint += center;
 
     return rotatedPoint;
@@ -188,40 +287,8 @@ cv::Matx44f modelView(const cv::Vec3f& translation, const cv::Vec3f& rotationVec
     return translateMat * rotXMat * rotYMat * rotZMat * scaleMat;
 }
 
-
-static void calculateBoundingBox(const aiMesh* mesh, cv::Vec3f& min, cv::Vec3f& max) {
-    for (unsigned int i = 0; i < mesh->mNumVertices; ++i) {
-        aiVector3D vertex = mesh->mVertices[i];
-        if (i == 0) {
-            min = max = cv::Vec3f(vertex.x, vertex.y, vertex.z);
-        } else {
-            min[0] = std::min(min[0], vertex.x);
-            min[1] = std::min(min[1], vertex.y);
-            min[2] = std::min(min[2], vertex.z);
-
-            max[0] = std::max(max[0], vertex.x);
-            max[1] = std::max(max[1], vertex.y);
-            max[2] = std::max(max[2], vertex.z);
-        }
-    }
-}
-
-static void calculateBoundingBoxInfo(const aiMesh* mesh, cv::Vec3f& center, cv::Vec3f& size) {
-    cv::Vec3f min, max;
-    calculateBoundingBox(mesh, min, max);
-    center = (min + max) / 2.0f;
-    size = max - min;
-}
-
-static float calculateAutoScale(const aiMesh* mesh) {
-    cv::Vec3f center, size;
-    calculateBoundingBoxInfo(mesh, center, size);
-
-    float maxDimension = std::max(size[0], std::max(size[1], size[2]));
-    return 1.0f / maxDimension;
-}
-
-static void drawMesh(aiMesh* mesh, Scene::RenderMode mode) {
+namespace detail {
+static void draw_mesh(aiMesh* mesh, Scene::RenderMode mode) {
     // Generate and bind VAO
     GLuint VAO;
     glGenVertexArrays(1, &VAO);
@@ -236,6 +303,14 @@ static void drawMesh(aiMesh* mesh, Scene::RenderMode mode) {
     // Specify vertex attributes
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
+
+    GLuint VBO2;
+    glGenBuffers(1, &VBO2);
+    glBindBuffer(GL_ARRAY_BUFFER, VBO2);
+    glBufferData(GL_ARRAY_BUFFER, mesh->mNumVertices * 3 * sizeof(float), mesh->mNormals, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(1);
 
     // Load index data, if present
     if (mesh->HasFaces()) {
@@ -303,113 +378,286 @@ static void drawMesh(aiMesh* mesh, Scene::RenderMode mode) {
     // Cleanup
     glDeleteVertexArrays(1, &VAO);
     glDeleteBuffers(1, &VBO);
+    glDeleteBuffers(1, &VBO2);
+}
+
+static void draw_grid(std::vector<float> gridVertices) {
+	GLuint gridVBO, gridVAO;
+
+	// Generate and bind the VAO
+	glGenVertexArrays(1, &gridVAO);
+	glBindVertexArray(gridVAO);
+
+	// Generate and bind the VBO
+	glGenBuffers(1, &gridVBO);
+	glBindBuffer(GL_ARRAY_BUFFER, gridVBO);
+
+	// Load the grid vertices into the VBO
+	glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(float), gridVertices.data(), GL_STATIC_DRAW);
+
+	// Set the vertex attribute pointers
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
+
+	// Unbind the VAO and VBO
+	glBindBuffer(GL_ARRAY_BUFFER, 0);
+	glBindVertexArray(0);
+
+	// Bind the grid VAO
+	glBindVertexArray(gridVAO);
+
+	// Draw the grid
+	glDrawArrays(GL_LINES, 0, gridVertices.size() / 3);
+
+	// Unbind the grid VAO
+	glBindVertexArray(0);
+
+	// Cleanup
+    glDeleteVertexArrays(1, &gridVAO);
+    glDeleteBuffers(1, &gridVBO);
+}
+
+static void draw_quad()
+{
+    static float quadVertices[] = {
+        // positions        // texture Coords
+        -1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
+        -1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+         1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
+         1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+    };
+    // setup quad VAO
+    static unsigned int quadVAO = 0;
+    static unsigned int quadVBO;
+    if (quadVAO == 0)
+    {
+        glGenVertexArrays(1, &quadVAO);
+        glGenBuffers(1, &quadVBO);
+        glBindVertexArray(quadVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float)));
+    }
+    glBindVertexArray(quadVAO);
+    glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+    glBindVertexArray(0);
 }
 
 // Function to recursively draw a node and its children
-static void drawNode(aiNode* node, const aiScene* scene, Scene::RenderMode mode) {
+static void draw_node(aiNode* node, const aiScene* scene, Scene::RenderMode mode) {
     // Draw all meshes at this node
     for(unsigned int i = 0; i < node->mNumMeshes; i++) {
         aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
-        drawMesh(mesh, mode);
+        draw_mesh(mesh, mode);
     }
 
     // Recurse for all children
     for(unsigned int i = 0; i < node->mNumChildren; i++) {
-        drawNode(node->mChildren[i], scene, mode);
+        draw_node(node->mChildren[i], scene, mode);
     }
 }
 
 // Function to draw a model
-static void drawModel(const aiScene* scene, Scene::RenderMode mode) {
+static void draw_model(const cv::v4d::import::AssimpScene& assimp, Scene::RenderMode mode) {
     // Draw the root node
-    drawNode(scene->mRootNode, scene, mode);
+    draw_node(assimp.scene()->mRootNode, assimp.scene(), mode);
 }
 
-static void applyModelView(cv::Mat_<float>& points, const cv::Matx44f& transformation) {
-    // Ensure the input points matrix has the correct dimensions (3 columns for x, y, z)
-    CV_Assert(points.cols == 3);
+static void make_grid_vertices(std::vector<float> gridVertices, const float gridDimension = 1.0f, const float gridStep = 0.1f) {
+	const size_t numLines = (int)(2.0f * gridDimension / gridStep) + 1;
+	gridVertices.resize(numLines * 12);
 
-    // Construct the 4x4 transformation matrix with scaling
+	// Generate the grid vertices
+	for (int i = 0; i < numLines; ++i) {
+		float pos = -gridDimension + i * gridStep;
 
+		// Horizontal line (x varies, y is constant)
+		gridVertices[i*12 + 0] = -gridDimension;
+		gridVertices[i*12 + 1] = 0.0f;
+		gridVertices[i*12 + 2] = pos;
+		gridVertices[i*12 + 3] = gridDimension;
+		gridVertices[i*12 + 4] = 0.0f;
+		gridVertices[i*12 + 5] = pos;
 
-    // Convert points to homogeneous coordinates (add a column of ones)
-    cv::hconcat(points, cv::Mat::ones(points.rows, 1, CV_32F), points);
+		// Vertical line (y varies, x is constant)
+		gridVertices[i*12 + 6] = pos;
+		gridVertices[i*12 + 7] = 0.0f;
+		gridVertices[i*12 + 8] = -gridDimension;
+		gridVertices[i*12 + 9] = pos;
+		gridVertices[i*12 + 10] = 0.0f;
+		gridVertices[i*12 + 11] = gridDimension;
 
-    // Transpose the points matrix for multiplication
-    cv::Mat pointsTransposed = points.t();
-
-    // Apply the transformation
-    cv::Mat transformedPoints = transformation * pointsTransposed;
-
-    // Transpose back to the original orientation
-    transformedPoints = transformedPoints.t();
-
-    // Extract the transformed 3D points (excluding the fourth homogeneous coordinate)
-    points = transformedPoints(cv::Rect(0, 0, 3, transformedPoints.rows)).clone();
+	}
 }
 
-static void applyModelView(std::vector<cv::Point3f>& points, const cv::Matx44f& transformation) {
-    // Ensure the input points vector is not empty
-    if (points.empty()) {
-        std::cerr << "Error: Input points vector is empty.\n";
-        return;
+
+cv::Mat generate3DPerlinNoise(int width, int height, int depth, const siv::PerlinNoise& noiseGenerator) {
+	int sizes[3] = {height, width, depth};
+	cv::Mat noiseImage = cv::Mat::zeros(3, sizes, CV_32FC1);
+    for (int z = 0; z < depth; ++z) {
+        for (int y = 0; y < height; ++y) {
+            for (int x = 0; x < width; ++x) {
+                float noiseValue = noiseGenerator.octave3D(float(x) /width,  float(y) / height, float(z) / depth, 16.0, 6.0);
+                noiseImage.at<float>(y, x, z) = noiseValue;
+            }
+        }
     }
-
-    // Apply the model-view transformation to each point
-    for (auto& point : points) {
-        // Convert the point to a column vector
-        cv::Mat pointMat = (cv::Mat_<float>(3, 1) << point.x, point.y, point.z);
-
-        pointMat = transformation * pointMat;
-
-        // Update the point with the transformed values
-        point = cv::Point3f(pointMat.at<float>(0, 0), pointMat.at<float>(1, 0), pointMat.at<float>(2, 0));
-    }
+    cv::normalize(noiseImage, noiseImage, 0.0f, 1.0f, cv::NORM_MINMAX);
+    return noiseImage;
 }
 
-static void processNode(const aiNode* node, const aiScene* scene, cv::Mat_<float>& allVertices) {
-    // Process all meshes in the current node
-    for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
-        const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
 
-        // Process all vertices in the current mesh
-        for (unsigned int j = 0; j < mesh->mNumVertices; ++j) {
-            aiVector3D aiVertex = mesh->mVertices[j];
-            cv::Mat_<float> vertex = (cv::Mat_<float>(1, 3) << aiVertex.x, aiVertex.y, aiVertex.z);
-            allVertices.push_back(vertex);
+void make_3d_texture(Mat& textureData, int width, int height, int depth) {
+	const siv::PerlinNoise::seed_type seed = 123456u;
+	const siv::PerlinNoise generator(seed);
+	textureData = generate3DPerlinNoise(width, height, depth, generator);
+}
+
+/*
+void initVoxels() {
+    // Calculate the number of voxels needed to fill the room
+    int numVoxelsX = ROOM_SIZE_X / VOXEL_SIZE;
+    int numVoxelsY = ROOM_SIZE_Y / VOXEL_SIZE;
+    int numVoxelsZ = ROOM_SIZE_Z / VOXEL_SIZE;
+
+    // Resize the vector to accommodate the 3D grid voxels
+    gridVoxels_.resize(numVoxelsX * numVoxelsY * numVoxelsZ * 12 * 3 * 6);  // 12 triangles per voxel, 3 vertices per triangle, 3 coordinates and 3 color values per vertex
+
+    // Generate the grid voxels
+    int index = 0;
+    for (int i = 0; i < numVoxelsX; ++i) {
+        for (int j = 0; j < numVoxelsY; ++j) {
+            for (int k = 0; k < numVoxelsZ; ++k) {
+                float posX = i * VOXEL_SIZE;
+                float posY = j * VOXEL_SIZE;
+                float posZ = k * VOXEL_SIZE;
+
+                // Define the 8 corners of the voxel
+                float corners[8][3] = {
+                    {posX, posY, posZ},
+                    {posX + VOXEL_SIZE, posY, posZ},
+                    {posX + VOXEL_SIZE, posY + VOXEL_SIZE, posZ},
+                    {posX, posY + VOXEL_SIZE, posZ},
+                    {posX, posY, posZ + VOXEL_SIZE},
+                    {posX + VOXEL_SIZE, posY, posZ + VOXEL_SIZE},
+                    {posX + VOXEL_SIZE, posY + VOXEL_SIZE, posZ + VOXEL_SIZE},
+                    {posX, posY + VOXEL_SIZE, posZ + VOXEL_SIZE}
+                };
+
+                // Define the color for the voxel (you can change this to whatever you want)
+                float color[4] = {1.0f, 0.5f, 0.0f};  // RGB color
+
+                // Define the 12 triangles of the voxel
+                int triangles[12][3] = {
+                    {0, 1, 2}, {0, 2, 3},  // bottom face
+                    {4, 5, 6}, {4, 6, 7},  // top face
+                    {0, 1, 5}, {0, 5, 4},  // front face
+                    {2, 3, 7}, {2, 7, 6},  // back face
+                    {0, 3, 7}, {0, 7, 4},  // left face
+                    {1, 2, 6}, {1, 6, 5}   // right face
+                };
+
+                // Store the triangles and colors in the gridVoxels_ vector
+                for (int t = 0; t < 12; ++t) {
+                    for (int v = 0; v < 3; ++v) {
+                        for (int c = 0; c < 3; ++c) {
+                            gridVoxels_[index++] = corners[triangles[t][v]][c];
+                        }
+                        for (int c = 0; c < 3; ++c) {
+                            gridVoxels_[index++] = color[c];
+                        }
+                    }
+                }
+            }
         }
     }
 
-    // Recursively process child nodes
-    for (unsigned int i = 0; i < node->mNumChildren; ++i) {
-        processNode(node->mChildren[i], scene, allVertices);
-    }
+    // Create buffers/arrays
+    glGenVertexArrays(1, &voxelsVAO);
+    glGenBuffers(1, &voxelsVBO);
+
+    // Bind the Vertex Array Object first, then bind and set vertex buffer(s), and then configure vertex attributes(s).
+    glBindVertexArray(voxelsVAO);
+
+    glBindBuffer(GL_ARRAY_BUFFER, voxelsVBO);
+    glBufferData(GL_ARRAY_BUFFER, gridVoxels_.size() * sizeof(float), &gridVoxels_[0], GL_STATIC_DRAW);
+
+    // Position attribute
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+    glEnableVertexAttribArray(0);
+
+    // Color attribute
+    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)(3 * sizeof(float)));
+    glEnableVertexAttribArray(1);
+
+    // Unbind the VAO (it's always a good thing to unbind any buffer/array to prevent strange bugs)
+    glBindVertexArray(0);
 }
 
-static void processNode(const aiNode* node, const aiScene* scene, std::vector<cv::Point3f>& allVertices) {
-    // Process all meshes in the current node
-    for (unsigned int i = 0; i < node->mNumMeshes; ++i) {
-        const aiMesh* mesh = scene->mMeshes[node->mMeshes[i]];
+void drawVoxels() {
+    // Bind the VAO
+    glBindVertexArray(voxelsVAO);
 
-        // Process all vertices in the current mesh
-        for (unsigned int j = 0; j < mesh->mNumVertices; ++j) {
-            aiVector3D aiVertex = mesh->mVertices[j];
-            cv::Point3f vertex(aiVertex.x, aiVertex.y, aiVertex.z);
-            allVertices.push_back(vertex);
-        }
-    }
+    // Draw the voxels
+    glDrawArrays(GL_TRIANGLES, 0, gridVoxels_.size() / 3);
 
-    // Recursively process child nodes
-    for (unsigned int i = 0; i < node->mNumChildren; ++i) {
-        processNode(node->mChildren[i], scene, allVertices);
-    }
+    // Unbind the VAO
+    glBindVertexArray(0);
+}
+*/
 }
 
-Scene::Scene() {
+void Scene::creatVolumeTexture(Mat& textureData) {
+		glGenTextures(1, &volumeTexture_);
+	    glBindTexture(GL_TEXTURE_3D, volumeTexture_);
+	    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+	    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+	    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	    glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32F, textureData.size[0], textureData.size[1], textureData.size[2]);
+	    glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, textureData.size[0], textureData.size[1], textureData.size[2], GL_RED, GL_FLOAT, textureData.data);
+}
+
+void Scene::createSceneObjects() {
+	glGenFramebuffers(1, &sceneFBO_);
+	glBindFramebuffer(GL_FRAMEBUFFER, sceneFBO_);
+	glGenTextures(1, &sceneTexture_);
+	glBindTexture(GL_TEXTURE_2D, sceneTexture_);
+    GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, viewport_.width, viewport_.height, 0, GL_RGBA, GL_FLOAT, NULL));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+    GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneTexture_, 0));
+    glGenTextures(1, &sharedDepthTexture_);
+    glBindTexture(GL_TEXTURE_2D, sharedDepthTexture_);
+  //  glBindTexture(GL_TEXTURE_2D, hdrDepthTexture_);
+
+    // Set texture parameters
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    // Allocate storage for the texture data
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT24, viewport_.width, viewport_.height, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
+
+    // Attach the texture to your framebuffer
+    GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, sharedDepthTexture_, 0));
+	assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+}
+
+Scene::Scene(const cv::Rect& viewport) : viewport_(viewport) {
+	detail::make_grid_vertices(gridVertices_);
+	detail::make_3d_texture(volume3DData_, viewport.width / 8.0, viewport.height / 8.0, viewport.height / 8.0);
 }
 
 Scene::~Scene() {
 }
+
 
 void Scene::reset() {
 	if(shaderHandles_[0] > 0)
@@ -418,61 +666,117 @@ void Scene::reset() {
 		glDeleteShader(shaderHandles_[1]);
 	if(shaderHandles_[2] > 0)
 		glDeleteShader(shaderHandles_[2]);
-	//FIXME how to cleanup a scene?
-//	releaseAssimpScene(scene_);
+	if(assimp_)
+		delete assimp_;
+	assimp_ = nullptr;
 }
 
 bool Scene::load(const std::vector<Point3f>& points) {
 	reset();
+	createSceneObjects();
+	creatVolumeTexture(volume3DData_);
 	std::vector<Point3f> copy = points;
-    scene_ = createAssimpScene(copy);
-    cv::v4d::initShader(shaderHandles_, vertexShaderSource_.c_str(), fragmentShaderSource_.c_str(), "fragColor");
-    calculateBoundingBoxInfo(scene_->mMeshes[0], autoCenter_, size_);
-    autoScale_ = calculateAutoScale(scene_->mMeshes[0]);
+    assimp_ = new cv::v4d::import::AssimpScene(copy);
+    cv::v4d::init_shaders(shaderHandles_, modelVertexSource_.c_str(), modelFragmentSource_.c_str(), "fragColor");
+    cv::v4d::init_shaders(hdrHandles_, hdrVertexSource.c_str(), hdrFragmentSource_.c_str(), "fragColor");
+    cv::v4d::init_shaders(volumeHandles_, volumeVertexSource_.c_str(), volumeFragmentSource2_.c_str(), "fragColor");
     return true;
 }
 
 
 bool Scene::load(const std::string& filename) {
 	reset();
-    scene_ = importer_.ReadFile(filename, aiProcess_Triangulate | aiProcess_GenNormals);
-
-    if (!scene_ || (scene_->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene_->mRootNode) {
-        return false;
-    }
-
-
-    cv::v4d::initShader(shaderHandles_, vertexShaderSource_.c_str(), fragmentShaderSource_.c_str(), "fragColor");
-    calculateBoundingBoxInfo(scene_->mMeshes[0], autoCenter_, size_);
-    autoScale_ = calculateAutoScale(scene_->mMeshes[0]);
+	createSceneObjects();
+	creatVolumeTexture(volume3DData_);
+    assimp_ = new cv::v4d::import::AssimpScene(filename);
+    cv::v4d::init_shaders(shaderHandles_, modelVertexSource_.c_str(), modelFragmentSource_.c_str(), "fragColor");
+    cv::v4d::init_shaders(hdrHandles_, hdrVertexSource.c_str(), hdrFragmentSource_.c_str(), "fragColor");
+    cv::v4d::init_shaders(volumeHandles_, volumeVertexSource_.c_str(), volumeFragmentSource2_.c_str(), "fragColor");
     return true;
 }
 
-cv::Mat_<float> Scene::pointCloudAsMat() {
-	cv::Mat_<float> allVertices;
-	processNode(scene_->mRootNode, scene_, allVertices);
-	return allVertices;
-}
+void Scene::render(const cv::Vec3f& cameraPosition, const cv::Matx33f& cameraRotation, const cv::Matx44f& projection, const cv::Matx44f& view, const cv::Matx44f& modelView) {
+	cerr << cameraRotation << endl;
+	cerr << cameraPosition << endl;
+	GLint currentFBO;
+	GLint currentTexture;
+	GLint currentRenderBuffer;
+	GL_CHECK(glGetIntegerv(GL_FRAMEBUFFER_BINDING, &currentFBO));
+	GL_CHECK(glGetIntegerv(GL_TEXTURE_BINDING_2D, &currentTexture));
+	GL_CHECK(glGetIntegerv(GL_RENDERBUFFER_BINDING, &currentRenderBuffer));
+	GL_CHECK(glViewport(viewport_.x, viewport_.y, viewport_.width, viewport_.height));
+	GL_CHECK(glDepthMask(GL_TRUE));
+	GL_CHECK(glEnable(GL_DEPTH_TEST));
+	GL_CHECK(glEnable(GL_BLEND));
+	GL_CHECK(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA))
+    GL_CHECK(glEnable(GL_VERTEX_PROGRAM_POINT_SIZE));
+	GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, sceneFBO_));
+	GL_CHECK(glActiveTexture(GL_TEXTURE0));
+	GL_CHECK(glBindTexture(GL_TEXTURE_2D, sceneTexture_));
+	GL_CHECK(glActiveTexture(GL_TEXTURE1));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, sharedDepthTexture_));
+	GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneTexture_, 0));
+	GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, sharedDepthTexture_, 0));
+	assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    GL_CHECK(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
+	GL_CHECK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
-std::vector<cv::Point3f> Scene::pointCloudAsVector() {
-	std::vector<cv::Point3f> allVertices;
-	processNode(scene_->mRootNode, scene_, allVertices);
-	return allVertices;
-}
 
-void Scene::render(const cv::Rect& viewport, const cv::Matx44f& projection, const cv::Matx44f& view, const cv::Matx44f& modelView) {
-	glViewport(viewport.x, viewport.y, viewport.width, viewport.height);
-	glEnable(GL_DEPTH_TEST);
-	glEnable(GL_VERTEX_PROGRAM_POINT_SIZE);
-	glUniformMatrix4fv(glGetUniformLocation(shaderHandles_[0], "projection"), 1, GL_FALSE, projection.val);
-	glUniformMatrix4fv(glGetUniformLocation(shaderHandles_[0], "view"), 1, GL_FALSE, view.val);
-	glUniform3fv(glGetUniformLocation(shaderHandles_[0], "lightPos"), 1, lightPos_.val);
-	glUniform3fv(glGetUniformLocation(shaderHandles_[0], "viewPos"), 1, viewPos_.val);
-	glUniform1i(glGetUniformLocation(shaderHandles_[0], "renderMode"), mode_);
-	glUniformMatrix4fv(glGetUniformLocation(shaderHandles_[0], "model"), 1, GL_FALSE, modelView.val);
-    glUseProgram(shaderHandles_[0]);
+    GL_CHECK(glUseProgram(shaderHandles_[0]));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(shaderHandles_[0], "projection"), 1, GL_FALSE, projection.val));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(shaderHandles_[0], "view"), 1, GL_FALSE, view.val));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(shaderHandles_[0], "model"), 1, GL_FALSE, modelView.val));
+	GL_CHECK(glUniform3fv(glGetUniformLocation(shaderHandles_[0], "lightPos"), 1, lightPos_.val));
+	GL_CHECK(glUniform3fv(glGetUniformLocation(shaderHandles_[0], "viewPos"), 1, cameraPosition.val));
+	GL_CHECK(glUniform1i(glGetUniformLocation(shaderHandles_[0], "renderMode"), mode_));
 
-	drawModel(scene_, mode_);
+
+//	detail::draw_grid(gridVertices_);
+    detail::draw_model(*assimp_, mode_);
+
+    GL_CHECK(glBindVertexArray(0));
+    GL_CHECK(glActiveTexture(GL_TEXTURE2));
+    GL_CHECK(glBindTexture(GL_TEXTURE_3D, volumeTexture_));
+
+    GL_CHECK(glUseProgram(volumeHandles_[0]));
+    GL_CHECK(glUniform1i(glGetUniformLocation(volumeHandles_[0], "noiseTex"), 2));
+    GL_CHECK(glUniform3fv(glGetUniformLocation(volumeHandles_[0], "camPos"), 1, cameraPosition.val));
+    GL_CHECK(glUniformMatrix3fv(glGetUniformLocation(volumeHandles_[0], "camRot"), 1, GL_FALSE, cameraRotation.val));
+    GL_CHECK(glUniform1f(glGetUniformLocation(volumeHandles_[0], "time"), Global::frame_cnt()));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(volumeHandles_[0], "invPersMatrix"), 1, GL_FALSE, (view * projection).inv().val));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(volumeHandles_[0], "view"), 1, GL_FALSE, view.val));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(volumeHandles_[0], "model"), 1, GL_FALSE, modelView.val));
+
+
+	detail::draw_quad();
+
+
+    GL_CHECK(glDepthMask (GL_FALSE));
+    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, currentFBO));
+    GL_CHECK(glActiveTexture(GL_TEXTURE0));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, currentTexture));
+    GL_CHECK(glActiveTexture(GL_TEXTURE1));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, sceneTexture_));
+    GL_CHECK(glActiveTexture(GL_TEXTURE2));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, sharedDepthTexture_));
+
+	assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+
+	GL_CHECK(glUseProgram(hdrHandles_[0]));
+	GL_CHECK(glUniform1i(glGetUniformLocation(hdrHandles_[0], "hdrBuffer"), 1));
+	GL_CHECK(glUniform1i(glGetUniformLocation(hdrHandles_[0], "depthBuffer"), 2));
+	GL_CHECK(glUniform3fv(glGetUniformLocation(hdrHandles_[0], "cameraPosition"), 1, cameraPosition.val));
+	detail::draw_quad();
+
+	GL_CHECK(glActiveTexture(GL_TEXTURE1));
+	GL_CHECK(glBindTexture(GL_TEXTURE_2D, 0));
+	GL_CHECK(glActiveTexture(GL_TEXTURE2));
+	GL_CHECK(glBindTexture(GL_TEXTURE_2D, 0));
+
+    GL_CHECK(glBindRenderbuffer(GL_RENDERBUFFER, currentRenderBuffer));
+    glBindVertexArray(0);
+
+
 }
 
 } /* namespace gl */

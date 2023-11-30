@@ -467,6 +467,6 @@ int main(int argc, char **argv) {
 	window->setSource(src);
 	window->setSink(sink);
 
-	window->run(plan, 5);
+	window->run(plan, 3);
     return 0;
 }
