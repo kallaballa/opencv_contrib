@@ -494,7 +494,7 @@ static void make_grid_vertices(std::vector<float> gridVertices, const float grid
 }
 
 
-cv::Mat generate3DPerlinNoise(int width, int height, int depth, const siv::PerlinNoise& noiseGenerator) {
+cv::Mat generate_3d_perlin_noise(int width, int height, int depth, const siv::PerlinNoise& noiseGenerator) {
 	int sizes[3] = {height, width, depth};
 	cv::Mat noiseImage = cv::Mat::zeros(3, sizes, CV_32FC1);
     for (int z = 0; z < depth; ++z) {
@@ -509,11 +509,30 @@ cv::Mat generate3DPerlinNoise(int width, int height, int depth, const siv::Perli
     return noiseImage;
 }
 
+cv::Mat generate_2d_perlin_noise(int width, int height, const siv::PerlinNoise& noiseGenerator) {
+	cv::Mat noiseImage = cv::Mat::zeros(height, width, CV_32FC4);
+	for (int y = 0; y < height; ++y) {
+		for (int x = 0; x < width; ++x) {
+			for (int c = 0; c < 4; ++c) {
+				noiseImage.at<float>(y, x + c) = noiseGenerator.octave2D(float(x) /width,  float(y) / height, 16.0, 6.0);
+			}
+		}
+	}
+    cv::normalize(noiseImage, noiseImage, 0.0f, 0.1f, cv::NORM_MINMAX);
+    return noiseImage;
+}
 
-void make_3d_texture(Mat& textureData, int width, int height, int depth) {
+
+void make_3d_perlin_texture(Mat& textureData, int width, int height, int depth) {
 	const siv::PerlinNoise::seed_type seed = 123456u;
 	const siv::PerlinNoise generator(seed);
-	textureData = generate3DPerlinNoise(width, height, depth, generator);
+	textureData = generate_3d_perlin_noise(width, height, depth, generator);
+}
+
+void make_2d_perlin_texture(Mat& textureData, int width, int height) {
+	const siv::PerlinNoise::seed_type seed = 123456u;
+	const siv::PerlinNoise generator(seed);
+	textureData = generate_2d_perlin_noise(width, height, generator);
 }
 
 /*
@@ -610,16 +629,26 @@ void drawVoxels() {
 */
 }
 
+void Scene::creatSkinTexture(Mat& textureData) {
+	glGenTextures(1, &skinTexture_);
+	glBindTexture(GL_TEXTURE_2D, skinTexture_);
+	GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+	GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+	GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+	glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, textureData.size[0], textureData.size[1]);
+	GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, viewport_.width, viewport_.height, 0, GL_RGBA, GL_FLOAT, NULL));
+}
+
 void Scene::creatVolumeTexture(Mat& textureData) {
-		glGenTextures(1, &volumeTexture_);
-	    glBindTexture(GL_TEXTURE_3D, volumeTexture_);
-	    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-	    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-	    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
-	    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-	    glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-	    glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32F, textureData.size[0], textureData.size[1], textureData.size[2]);
-	    glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, textureData.size[0], textureData.size[1], textureData.size[2], GL_RED, GL_FLOAT, textureData.data);
+	glGenTextures(1, &volumeTexture_);
+	glBindTexture(GL_TEXTURE_3D, volumeTexture_);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_BORDER);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexStorage3D(GL_TEXTURE_3D, 1, GL_R32F, textureData.size[0], textureData.size[1], textureData.size[2]);
+	glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, textureData.size[0], textureData.size[1], textureData.size[2], GL_RED, GL_FLOAT, textureData.data);
 }
 
 void Scene::createSceneObjects() {
@@ -628,13 +657,12 @@ void Scene::createSceneObjects() {
 	glGenTextures(1, &sceneTexture_);
 	glBindTexture(GL_TEXTURE_2D, sceneTexture_);
     GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
-    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, viewport_.width, viewport_.height, 0, GL_RGBA, GL_FLOAT, NULL));
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, viewport_.width, viewport_.height, 0, GL_RGBA, GL_FLOAT, NULL));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
     GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneTexture_, 0));
     glGenTextures(1, &sharedDepthTexture_);
     glBindTexture(GL_TEXTURE_2D, sharedDepthTexture_);
-  //  glBindTexture(GL_TEXTURE_2D, hdrDepthTexture_);
 
     // Set texture parameters
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
@@ -650,9 +678,23 @@ void Scene::createSceneObjects() {
 	assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
 }
 
+void Scene::createNebulaLightingObjects() {
+	glGenFramebuffers(1, &nebulaLightingFBO_);
+	glBindFramebuffer(GL_FRAMEBUFFER, nebulaLightingFBO_);
+	glGenTextures(1, &nebulaLightingTexture_);
+	glBindTexture(GL_TEXTURE_2D, nebulaLightingTexture_);
+    GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+    GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, viewport_.width, viewport_.height, 0, GL_RGBA, GL_FLOAT, NULL));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+    GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, nebulaLightingTexture_, 0));
+	assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+}
+
 Scene::Scene(const cv::Rect& viewport) : viewport_(viewport) {
 	detail::make_grid_vertices(gridVertices_);
-	detail::make_3d_texture(volume3DData_, viewport.width / 8.0, viewport.height / 8.0, viewport.height / 8.0);
+	detail::make_3d_perlin_texture(volume3DData_, viewport.width / 8.0, viewport.height / 8.0, viewport.height / 8.0);
+//	detail::make_2d_perlin_texture(skin2DData_, viewport.width, viewport.height);
 }
 
 Scene::~Scene() {
@@ -660,12 +702,12 @@ Scene::~Scene() {
 
 
 void Scene::reset() {
-	if(shaderHandles_[0] > 0)
-		glDeleteProgram(shaderHandles_[0]);
-	if(shaderHandles_[1] > 0)
-		glDeleteShader(shaderHandles_[1]);
-	if(shaderHandles_[2] > 0)
-		glDeleteShader(shaderHandles_[2]);
+	if(modelLightingHandles_[0] > 0)
+		glDeleteProgram(modelLightingHandles_[0]);
+	if(modelLightingHandles_[1] > 0)
+		glDeleteShader(modelLightingHandles_[1]);
+	if(modelLightingHandles_[2] > 0)
+		glDeleteShader(modelLightingHandles_[2]);
 	if(assimp_)
 		delete assimp_;
 	assimp_ = nullptr;
@@ -674,24 +716,31 @@ void Scene::reset() {
 bool Scene::load(const std::vector<Point3f>& points) {
 	reset();
 	createSceneObjects();
+//	creatSkinTexture(skin2DData_);
 	creatVolumeTexture(volume3DData_);
+	createNebulaLightingObjects();
 	std::vector<Point3f> copy = points;
     assimp_ = new cv::v4d::import::AssimpScene(copy);
-    cv::v4d::init_shaders(shaderHandles_, modelVertexSource_.c_str(), modelFragmentSource_.c_str(), "fragColor");
-    cv::v4d::init_shaders(hdrHandles_, hdrVertexSource.c_str(), hdrFragmentSource_.c_str(), "fragColor");
-    cv::v4d::init_shaders(volumeHandles_, volumeVertexSource_.c_str(), volumeFragmentSource2_.c_str(), "fragColor");
+    cv::v4d::init_shaders(modelLightingHandles_, modelVertexSource_.c_str(), lightingFragmentSource_.c_str(), "FragColor");
+    cv::v4d::init_shaders(nebulaHandles_, volumeVertexSource_.c_str(), nebulaFragmentSource_.c_str(), "FragColor");
+    cv::v4d::init_shaders(nebulaLightingHandles_, depthVertexSource_.c_str(), lightingFragmentSource_.c_str(), "FragColor");
+    cv::v4d::init_shaders(hdrHandles_, textureVertexSource.c_str(), hdrFragmentSource_.c_str(), "FragColor");
     return true;
 }
 
 
 bool Scene::load(const std::string& filename) {
 	reset();
-	createSceneObjects();
+//	creatSkinTexture(skin2DData_);
 	creatVolumeTexture(volume3DData_);
+	createSceneObjects();
+	createNebulaLightingObjects();
     assimp_ = new cv::v4d::import::AssimpScene(filename);
-    cv::v4d::init_shaders(shaderHandles_, modelVertexSource_.c_str(), modelFragmentSource_.c_str(), "fragColor");
-    cv::v4d::init_shaders(hdrHandles_, hdrVertexSource.c_str(), hdrFragmentSource_.c_str(), "fragColor");
-    cv::v4d::init_shaders(volumeHandles_, volumeVertexSource_.c_str(), volumeFragmentSource2_.c_str(), "fragColor");
+    cv::v4d::init_shaders(modelLightingHandles_, modelVertexSource_.c_str(), lightingFragmentSource_.c_str(), "FragColor");
+    cv::v4d::init_shaders(nebulaHandles_, volumeVertexSource_.c_str(), nebulaFragmentSource_.c_str(), "FragColor");
+    cv::v4d::init_shaders(nebulaLightingHandles_, depthVertexSource_.c_str(), lightingFragmentSource_.c_str(), "FragColor");
+    cv::v4d::init_shaders(hdrHandles_, textureVertexSource.c_str(), hdrFragmentSource_.c_str(), "FragColor");
+
     return true;
 }
 
@@ -715,48 +764,72 @@ void Scene::render(const cv::Vec3f& cameraPosition, const cv::Matx33f& cameraRot
 	GL_CHECK(glBindTexture(GL_TEXTURE_2D, sceneTexture_));
 	GL_CHECK(glActiveTexture(GL_TEXTURE1));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, sharedDepthTexture_));
-	GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneTexture_, 0));
+    GL_CHECK(glBindVertexArray(0));
+    GL_CHECK(glActiveTexture(GL_TEXTURE2));
+    GL_CHECK(glBindTexture(GL_TEXTURE_3D, volumeTexture_));
+//    GL_CHECK(glActiveTexture(GL_TEXTURE3));
+//    GL_CHECK(glBindTexture(GL_TEXTURE_2D, skinTexture_));
+    GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneTexture_, 0));
 	GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, sharedDepthTexture_, 0));
 	assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
     GL_CHECK(glClearColor(0.0f, 0.0f, 0.0f, 1.0f));
 	GL_CHECK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT));
 
+    GL_CHECK(glUseProgram(modelLightingHandles_[0]));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(modelLightingHandles_[0], "projection"), 1, GL_FALSE, projection.val));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(modelLightingHandles_[0], "view"), 1, GL_FALSE, view.val));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(modelLightingHandles_[0], "model"), 1, GL_FALSE, modelView.val));
+	GL_CHECK(glUniform3fv(glGetUniformLocation(modelLightingHandles_[0], "viewPos"), 1, cameraPosition.val));
+	GL_CHECK(glUniform1i(glGetUniformLocation(modelLightingHandles_[0], "renderMode"), mode_));
+	GL_CHECK(glUniform1i(glGetUniformLocation(modelLightingHandles_[0], "passThrough"), 0));
+	cv::Vec3f baseColor(0.3, 0.3, 1.0);
+	GL_CHECK(glUniform3fv(glGetUniformLocation(modelLightingHandles_[0], "plainColor"), 1, baseColor.val));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(modelLightingHandles_[0], "invProjView"), 1, GL_FALSE, (view * projection).inv().val));
+	detail::draw_grid(gridVertices_);
+	detail::draw_model(*assimp_, mode_);
+	GL_CHECK(glBindVertexArray(0));
 
-    GL_CHECK(glUseProgram(shaderHandles_[0]));
-	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(shaderHandles_[0], "projection"), 1, GL_FALSE, projection.val));
-	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(shaderHandles_[0], "view"), 1, GL_FALSE, view.val));
-	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(shaderHandles_[0], "model"), 1, GL_FALSE, modelView.val));
-	GL_CHECK(glUniform3fv(glGetUniformLocation(shaderHandles_[0], "lightPos"), 1, lightPos_.val));
-	GL_CHECK(glUniform3fv(glGetUniformLocation(shaderHandles_[0], "viewPos"), 1, cameraPosition.val));
-	GL_CHECK(glUniform1i(glGetUniformLocation(shaderHandles_[0], "renderMode"), mode_));
-
-
-//	detail::draw_grid(gridVertices_);
-    detail::draw_model(*assimp_, mode_);
-
-    GL_CHECK(glBindVertexArray(0));
-    GL_CHECK(glActiveTexture(GL_TEXTURE2));
-    GL_CHECK(glBindTexture(GL_TEXTURE_3D, volumeTexture_));
-
-    GL_CHECK(glUseProgram(volumeHandles_[0]));
-    GL_CHECK(glUniform1i(glGetUniformLocation(volumeHandles_[0], "noiseTex"), 2));
-    GL_CHECK(glUniform3fv(glGetUniformLocation(volumeHandles_[0], "camPos"), 1, cameraPosition.val));
-    GL_CHECK(glUniformMatrix3fv(glGetUniformLocation(volumeHandles_[0], "camRot"), 1, GL_FALSE, cameraRotation.val));
-    GL_CHECK(glUniform1f(glGetUniformLocation(volumeHandles_[0], "time"), Global::frame_cnt()));
-	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(volumeHandles_[0], "invPersMatrix"), 1, GL_FALSE, (view * projection).inv().val));
-	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(volumeHandles_[0], "view"), 1, GL_FALSE, view.val));
-	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(volumeHandles_[0], "model"), 1, GL_FALSE, modelView.val));
-
-
+	GL_CHECK(glUseProgram(nebulaHandles_[0]));
+    GL_CHECK(glUniform1i(glGetUniformLocation(nebulaHandles_[0], "noiseTex"), 2));
+    GL_CHECK(glUniform3fv(glGetUniformLocation(nebulaHandles_[0], "camPos"), 1, cameraPosition.val));
+    GL_CHECK(glUniformMatrix3fv(glGetUniformLocation(nebulaHandles_[0], "camRot"), 1, GL_FALSE, cameraRotation.val));
+    GL_CHECK(glUniform1f(glGetUniformLocation(nebulaHandles_[0], "time"), Global::frame_cnt()));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaHandles_[0], "invPersMatrix"), 1, GL_FALSE, (view * projection).inv().val));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaHandles_[0], "view"), 1, GL_FALSE, view.val));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaHandles_[0], "model"), 1, GL_FALSE, modelView.val));
 	detail::draw_quad();
+	GL_CHECK(glBindVertexArray(0));
 
+//	GL_CHECK(glDepthMask (GL_FALSE));
+	GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, nebulaLightingFBO_));
+    GL_CHECK(glActiveTexture(GL_TEXTURE0));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, nebulaLightingTexture_));
+    GL_CHECK(glActiveTexture(GL_TEXTURE1));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, sceneTexture_));
+    GL_CHECK(glActiveTexture(GL_TEXTURE2));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, sharedDepthTexture_));
 
-    GL_CHECK(glDepthMask (GL_FALSE));
-    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, currentFBO));
+	assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+
+	GL_CHECK(glUseProgram(nebulaLightingHandles_[0]));
+	GL_CHECK(glUniform1i(glGetUniformLocation(nebulaLightingHandles_[0], "hdrBuffer"), 1));
+	GL_CHECK(glUniform1i(glGetUniformLocation(nebulaLightingHandles_[0], "depthBuffer"), 2));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaLightingHandles_[0], "invView"), 1, GL_FALSE, view.inv().val));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaLightingHandles_[0], "invProjection"), 1, GL_FALSE, projection.inv().val));
+	GL_CHECK(glUniform3fv(glGetUniformLocation(nebulaLightingHandles_[0], "viewPos"), 1, cameraPosition.val));
+	GL_CHECK(glUniform1i(glGetUniformLocation(nebulaLightingHandles_[0], "renderMode"), mode_));
+	GL_CHECK(glUniform1i(glGetUniformLocation(nebulaLightingHandles_[0], "passThrough"), 1));
+	GL_CHECK(glUniform3fv(glGetUniformLocation(nebulaLightingHandles_[0], "plainColor"), 1, cv::Vec3f(0.0, 0.0, 0.0).val));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaLightingHandles_[0], "invProjView"), 1, GL_FALSE, (view * projection).inv().val));
+	detail::draw_quad();
+	glBindVertexArray(0);
+
+		GL_CHECK(glDepthMask (GL_FALSE));
+	GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, currentFBO));
     GL_CHECK(glActiveTexture(GL_TEXTURE0));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, currentTexture));
     GL_CHECK(glActiveTexture(GL_TEXTURE1));
-    GL_CHECK(glBindTexture(GL_TEXTURE_2D, sceneTexture_));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, nebulaLightingTexture_));
     GL_CHECK(glActiveTexture(GL_TEXTURE2));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, sharedDepthTexture_));
 
@@ -765,16 +838,16 @@ void Scene::render(const cv::Vec3f& cameraPosition, const cv::Matx33f& cameraRot
 	GL_CHECK(glUseProgram(hdrHandles_[0]));
 	GL_CHECK(glUniform1i(glGetUniformLocation(hdrHandles_[0], "hdrBuffer"), 1));
 	GL_CHECK(glUniform1i(glGetUniformLocation(hdrHandles_[0], "depthBuffer"), 2));
-	GL_CHECK(glUniform3fv(glGetUniformLocation(hdrHandles_[0], "cameraPosition"), 1, cameraPosition.val));
+	GL_CHECK(glUniform1i(glGetUniformLocation(hdrHandles_[0], "passThrough"), 0));
 	detail::draw_quad();
-
+	    glBindVertexArray(0);
 	GL_CHECK(glActiveTexture(GL_TEXTURE1));
 	GL_CHECK(glBindTexture(GL_TEXTURE_2D, 0));
 	GL_CHECK(glActiveTexture(GL_TEXTURE2));
 	GL_CHECK(glBindTexture(GL_TEXTURE_2D, 0));
 
     GL_CHECK(glBindRenderbuffer(GL_RENDERBUFFER, currentRenderBuffer));
-    glBindVertexArray(0);
+
 
 
 }

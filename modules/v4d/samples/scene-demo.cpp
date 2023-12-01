@@ -530,18 +530,18 @@ public:
 				scene.render(transform.position_, transform.cameraRotation_, transform.projection_, transform.view_, transform.model_);
 			}, scene_, transform_, params_);
 		}
+		window->write();
 		window->endbranch(always_);
-	    window->write();
 	}
-
 };
 
 
 int main(int argc, char** argv) {
 	CV_Assert(argc == 2);
 	string filename = argv[1];
-	cv::Ptr<SceneDemoPlan> plan = new SceneDemoPlan(cv::Rect(0,0, 1280, 720), filename);
+	cv::Ptr<SceneDemoPlan> plan = new SceneDemoPlan(cv::Rect(0,0, 1920, 1080), filename);
 	cv::Ptr<V4D> window = V4D::make(plan->size(), "Scene Demo", IMGUI);
+	window->setFullscreen(true);
     auto sink = makeWriterSink(window, "scene-demo.mkv", 60, plan->size());
     window->setSink(sink);
     window->run(plan, 0, filename);
