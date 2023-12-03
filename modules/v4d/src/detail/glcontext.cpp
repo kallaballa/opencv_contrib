@@ -19,9 +19,12 @@ void GLContext::execute(std::function<void()> fn) {
 //		fbCtx()->copyFrom(tmp);
 //	}
 	{
-		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
+		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER, 0);
 		GL_CHECK(glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
 		fn();
+		GL_CHECK(glBindFramebuffer(GL_READ_FRAMEBUFFER, 0));
+		fbCtx()->blitFrameBufferToFrameBuffer(cv::Rect(0, 0, fbCtx()->size().width, fbCtx()->size().height), fbCtx()->size(), fbCtx()->getFramebufferID(), false, false);
+		fbCtx()->makeNoneCurrent();
 	}
 //	if(!fbCtx()->hasParent()) {
 //		UMat tmp;

@@ -479,7 +479,7 @@ void FrameBufferContext::copyFrom(const cv::UMat& src) {
 }
 
 void FrameBufferContext::copyToRootWindow() {
-	GLScope scope(self_, GL_READ_FRAMEBUFFER);
+    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, frameBufferID_));
 	GL_CHECK(glReadBuffer(GL_COLOR_ATTACHMENT0));
 
 	GL_CHECK(glActiveTexture(GL_TEXTURE0));
@@ -540,22 +540,12 @@ cv::UMat& FrameBufferContext::fb() {
 	return framebuffer_;
 }
 
-void FrameBufferContext::begin(GLenum framebufferTarget) {
+void FrameBufferContext::begin(GLenum framebufferTarget, GLuint frameBufferID) {
     this->makeCurrent();
-    GL_CHECK(glBindFramebuffer(framebufferTarget, frameBufferID_));
-    GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
-    GL_CHECK(glBindRenderbuffer(GL_RENDERBUFFER, renderBufferID_));
-    GL_CHECK(
-            glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, size().width, size().height));
-    GL_CHECK(
-            glFramebufferRenderbuffer(framebufferTarget, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, renderBufferID_));
-    GL_CHECK(
-            glFramebufferTexture2D(framebufferTarget, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureID_, 0));
-    assert(glCheckFramebufferStatus(framebufferTarget) == GL_FRAMEBUFFER_COMPLETE);
+    GL_CHECK(glBindFramebuffer(framebufferTarget, frameBufferID));
 }
 
 void FrameBufferContext::end() {
-    this->makeNoneCurrent();
 }
 
 void FrameBufferContext::download(cv::UMat& m) {

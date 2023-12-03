@@ -288,67 +288,72 @@ cv::Matx44f modelView(const cv::Vec3f& translation, const cv::Vec3f& rotationVec
 }
 
 namespace detail {
+constexpr static GLuint NO_OBJECT = std::numeric_limits<GLuint>::max();
 static void draw_mesh(aiMesh* mesh, Scene::RenderMode mode) {
-    // Generate and bind VAO
-    GLuint VAO;
-    glGenVertexArrays(1, &VAO);
-    glBindVertexArray(VAO);
+    static GLuint VAO = NO_OBJECT;
+    if(VAO == NO_OBJECT) {
+    	glGenVertexArrays(1, &VAO);
+    }
+	glBindVertexArray(VAO);
 
-    // Load vertex data
-    GLuint VBO;
-    glGenBuffers(1, &VBO);
+    static GLuint VBO = NO_OBJECT;
+    if(VBO == NO_OBJECT) {
+    	glGenBuffers(1, &VBO);
+    }
+
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, mesh->mNumVertices * 3 * sizeof(float), mesh->mVertices, GL_STATIC_DRAW);
+	glBufferData(GL_ARRAY_BUFFER, mesh->mNumVertices * 3 * sizeof(float), mesh->mVertices, GL_STATIC_DRAW);
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(0);
 
-    // Specify vertex attributes
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(0);
+	static GLuint VBO2 = NO_OBJECT;
+	if(VBO2 == NO_OBJECT) {
+    	glGenBuffers(1, &VBO2);
+    }
+	glBindBuffer(GL_ARRAY_BUFFER, VBO2);
+	glBufferData(GL_ARRAY_BUFFER, mesh->mNumVertices * 3 * sizeof(float), mesh->mNormals, GL_STATIC_DRAW);
+	glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+	glEnableVertexAttribArray(1);
 
-    GLuint VBO2;
-    glGenBuffers(1, &VBO2);
-    glBindBuffer(GL_ARRAY_BUFFER, VBO2);
-    glBufferData(GL_ARRAY_BUFFER, mesh->mNumVertices * 3 * sizeof(float), mesh->mNormals, GL_STATIC_DRAW);
-
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1);
-
-    // Load index data, if present
     if (mesh->HasFaces()) {
         std::vector<unsigned int> indices;
-        for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
-            aiFace face = mesh->mFaces[i];
-            for (unsigned int j = 0; j < face.mNumIndices; j++)
-                indices.push_back(face.mIndices[j]);
-        }
-
+		for (unsigned int i = 0; i < mesh->mNumFaces; i++) {
+			aiFace face = mesh->mFaces[i];
+			for (unsigned int j = 0; j < face.mNumIndices; j++)
+				indices.push_back(face.mIndices[j]);
+		}
         if (mode != Scene::RenderMode::DEFAULT) {
-            // Duplicate vertices for wireframe rendering or point rendering
+            static GLuint EBO = NO_OBJECT;
             std::vector<unsigned int> modifiedIndices;
-            for (size_t i = 0; i < indices.size(); i += 3) {
-                if (mode == Scene::RenderMode::WIREFRAME) {
-                    // Duplicate vertices for wireframe rendering
-                    modifiedIndices.push_back(indices[i]);
-                    modifiedIndices.push_back(indices[i + 1]);
 
-                    modifiedIndices.push_back(indices[i + 1]);
-                    modifiedIndices.push_back(indices[i + 2]);
+			// Duplicate vertices for wireframe rendering or point rendering
+			for (size_t i = 0; i < indices.size(); i += 3) {
+				if (mode == Scene::RenderMode::WIREFRAME) {
+					// Duplicate vertices for wireframe rendering
+					modifiedIndices.push_back(indices[i]);
+					modifiedIndices.push_back(indices[i + 1]);
 
-                    modifiedIndices.push_back(indices[i + 2]);
-                    modifiedIndices.push_back(indices[i]);
-                }
+					modifiedIndices.push_back(indices[i + 1]);
+					modifiedIndices.push_back(indices[i + 2]);
 
-                if (mode == Scene::RenderMode::POINTCLOUD) {
-                    // Duplicate vertices for point rendering
-                    modifiedIndices.push_back(indices[i]);
-                    modifiedIndices.push_back(indices[i + 1]);
-                    modifiedIndices.push_back(indices[i + 2]);
-                }
-            }
+					modifiedIndices.push_back(indices[i + 2]);
+					modifiedIndices.push_back(indices[i]);
+				}
 
-            GLuint EBO;
-            glGenBuffers(1, &EBO);
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, modifiedIndices.size() * sizeof(unsigned int), &modifiedIndices[0], GL_STATIC_DRAW);
+				if (mode == Scene::RenderMode::POINTCLOUD) {
+
+					// Duplicate vertices for point rendering
+					modifiedIndices.push_back(indices[i]);
+					modifiedIndices.push_back(indices[i + 1]);
+					modifiedIndices.push_back(indices[i + 2]);
+				}
+			}
+			if(EBO == NO_OBJECT) {
+				glGenBuffers(1, &EBO);
+			}
+
+        	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+        	glBufferData(GL_ELEMENT_ARRAY_BUFFER, modifiedIndices.size() * sizeof(unsigned int), &modifiedIndices[0], GL_STATIC_DRAW);
 
             // Draw as lines or points
             if (mode == Scene::RenderMode::WIREFRAME) {
@@ -356,29 +361,20 @@ static void draw_mesh(aiMesh* mesh, Scene::RenderMode mode) {
             } else if (mode == Scene::RenderMode::POINTCLOUD) {
                 glDrawElements(GL_POINTS, modifiedIndices.size(), GL_UNSIGNED_INT, 0);
             }
-
-            // Cleanup
-            glDeleteBuffers(1, &EBO);
         } else {
-            GLuint EBO;
-            glGenBuffers(1, &EBO);
-            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-            glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), &indices[0], GL_STATIC_DRAW);
+            static GLuint EBO2 = NO_OBJECT;
+            if(EBO2 == NO_OBJECT) {
+            	glGenBuffers(1, &EBO2);
+            }
+        	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO2);
+        	glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices.size() * sizeof(unsigned int), &indices[0], GL_STATIC_DRAW);
 
-            // Draw as triangles
             glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, 0);
-
-            // Cleanup
-            glDeleteBuffers(1, &EBO);
         }
     } else {
         glDrawArrays(GL_TRIANGLES, 0, mesh->mNumVertices);
     }
-
-    // Cleanup
-    glDeleteVertexArrays(1, &VAO);
-    glDeleteBuffers(1, &VBO);
-    glDeleteBuffers(1, &VBO2);
+    glBindVertexArray(0);
 }
 
 static void draw_grid(std::vector<float> gridVertices) {
@@ -470,11 +466,9 @@ static void make_grid_vertices(std::vector<float> gridVertices, const float grid
 	const size_t numLines = (int)(2.0f * gridDimension / gridStep) + 1;
 	gridVertices.resize(numLines * 12);
 
-	// Generate the grid vertices
 	for (int i = 0; i < numLines; ++i) {
 		float pos = -gridDimension + i * gridStep;
 
-		// Horizontal line (x varies, y is constant)
 		gridVertices[i*12 + 0] = -gridDimension;
 		gridVertices[i*12 + 1] = 0.0f;
 		gridVertices[i*12 + 2] = pos;
@@ -482,14 +476,12 @@ static void make_grid_vertices(std::vector<float> gridVertices, const float grid
 		gridVertices[i*12 + 4] = 0.0f;
 		gridVertices[i*12 + 5] = pos;
 
-		// Vertical line (y varies, x is constant)
 		gridVertices[i*12 + 6] = pos;
 		gridVertices[i*12 + 7] = 0.0f;
 		gridVertices[i*12 + 8] = -gridDimension;
 		gridVertices[i*12 + 9] = pos;
 		gridVertices[i*12 + 10] = 0.0f;
 		gridVertices[i*12 + 11] = gridDimension;
-
 	}
 }
 
@@ -510,15 +502,14 @@ cv::Mat generate_3d_perlin_noise(int width, int height, int depth, const siv::Pe
 }
 
 cv::Mat generate_2d_perlin_noise(int width, int height, const siv::PerlinNoise& noiseGenerator) {
-	cv::Mat noiseImage = cv::Mat::zeros(height, width, CV_32FC4);
+	cv::Mat noiseImage = cv::Mat::zeros(height, width, CV_32FC3);
 	for (int y = 0; y < height; ++y) {
 		for (int x = 0; x < width; ++x) {
-			for (int c = 0; c < 4; ++c) {
-				noiseImage.at<float>(y, x + c) = noiseGenerator.octave2D(float(x) /width,  float(y) / height, 16.0, 6.0);
-			}
+			float v = noiseGenerator.octave2D(float(x) /width,  float(y) / height, 4.0, 1.0);
+			noiseImage.at<Vec3f>(y, x) = Vec3f(v, v, v);
 		}
 	}
-    cv::normalize(noiseImage, noiseImage, 0.0f, 0.1f, cv::NORM_MINMAX);
+    cv::normalize(noiseImage, noiseImage, 0.0f, 1.0f, cv::NORM_MINMAX);
     return noiseImage;
 }
 
@@ -635,8 +626,7 @@ void Scene::creatSkinTexture(Mat& textureData) {
 	GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
 	GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
 	GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
-	glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, textureData.size[0], textureData.size[1]);
-	GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, viewport_.width, viewport_.height, 0, GL_RGBA, GL_FLOAT, NULL));
+	GL_CHECK(glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB32F, textureData.cols, textureData.rows, 0, GL_RGB, GL_FLOAT, textureData.data));
 }
 
 void Scene::creatVolumeTexture(Mat& textureData) {
@@ -694,7 +684,7 @@ void Scene::createNebulaLightingObjects() {
 Scene::Scene(const cv::Rect& viewport) : viewport_(viewport) {
 	detail::make_grid_vertices(gridVertices_);
 	detail::make_3d_perlin_texture(volume3DData_, viewport.width / 8.0, viewport.height / 8.0, viewport.height / 8.0);
-//	detail::make_2d_perlin_texture(skin2DData_, viewport.width, viewport.height);
+	detail::make_2d_perlin_texture(skin2DData_, viewport.width / 16.0, viewport.height / 16.0);
 }
 
 Scene::~Scene() {
@@ -716,7 +706,7 @@ void Scene::reset() {
 bool Scene::load(const std::vector<Point3f>& points) {
 	reset();
 	createSceneObjects();
-//	creatSkinTexture(skin2DData_);
+	creatSkinTexture(skin2DData_);
 	creatVolumeTexture(volume3DData_);
 	createNebulaLightingObjects();
 	std::vector<Point3f> copy = points;
@@ -731,7 +721,7 @@ bool Scene::load(const std::vector<Point3f>& points) {
 
 bool Scene::load(const std::string& filename) {
 	reset();
-//	creatSkinTexture(skin2DData_);
+	creatSkinTexture(skin2DData_);
 	creatVolumeTexture(volume3DData_);
 	createSceneObjects();
 	createNebulaLightingObjects();
@@ -744,15 +734,9 @@ bool Scene::load(const std::string& filename) {
     return true;
 }
 
-void Scene::render(const cv::Vec3f& cameraPosition, const cv::Matx33f& cameraRotation, const cv::Matx44f& projection, const cv::Matx44f& view, const cv::Matx44f& modelView) {
+void Scene::render(const cv::Vec3f& cameraPosition, const cv::Vec3f& cameraDirection, const cv::Matx33f& cameraRotation, const cv::Matx44f& projection, const cv::Matx44f& view, const cv::Matx44f& modelView) {
 	cerr << cameraRotation << endl;
 	cerr << cameraPosition << endl;
-	GLint currentFBO;
-	GLint currentTexture;
-	GLint currentRenderBuffer;
-	GL_CHECK(glGetIntegerv(GL_FRAMEBUFFER_BINDING, &currentFBO));
-	GL_CHECK(glGetIntegerv(GL_TEXTURE_BINDING_2D, &currentTexture));
-	GL_CHECK(glGetIntegerv(GL_RENDERBUFFER_BINDING, &currentRenderBuffer));
 	GL_CHECK(glViewport(viewport_.x, viewport_.y, viewport_.width, viewport_.height));
 	GL_CHECK(glDepthMask(GL_TRUE));
 	GL_CHECK(glEnable(GL_DEPTH_TEST));
@@ -767,8 +751,8 @@ void Scene::render(const cv::Vec3f& cameraPosition, const cv::Matx33f& cameraRot
     GL_CHECK(glBindVertexArray(0));
     GL_CHECK(glActiveTexture(GL_TEXTURE2));
     GL_CHECK(glBindTexture(GL_TEXTURE_3D, volumeTexture_));
-//    GL_CHECK(glActiveTexture(GL_TEXTURE3));
-//    GL_CHECK(glBindTexture(GL_TEXTURE_2D, skinTexture_));
+    GL_CHECK(glActiveTexture(GL_TEXTURE3));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, skinTexture_));
     GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, sceneTexture_, 0));
 	GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, sharedDepthTexture_, 0));
 	assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
@@ -782,23 +766,19 @@ void Scene::render(const cv::Vec3f& cameraPosition, const cv::Matx33f& cameraRot
 	GL_CHECK(glUniform3fv(glGetUniformLocation(modelLightingHandles_[0], "viewPos"), 1, cameraPosition.val));
 	GL_CHECK(glUniform1i(glGetUniformLocation(modelLightingHandles_[0], "renderMode"), mode_));
 	GL_CHECK(glUniform1i(glGetUniformLocation(modelLightingHandles_[0], "passThrough"), 0));
-	cv::Vec3f baseColor(0.3, 0.3, 1.0);
-	GL_CHECK(glUniform3fv(glGetUniformLocation(modelLightingHandles_[0], "plainColor"), 1, baseColor.val));
+//	cv::Vec3f baseColor(0.3, 0.3, 1.0);
+//	GL_CHECK(glUniform3fv(glGetUniformLocation(modelLightingHandles_[0], "plainColor"), 1, baseColor.val));
+	GL_CHECK(glUniform1i(glGetUniformLocation(modelLightingHandles_[0], "hdrBuffer"), 3));
 	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(modelLightingHandles_[0], "invProjView"), 1, GL_FALSE, (view * projection).inv().val));
-	detail::draw_grid(gridVertices_);
+
 	detail::draw_model(*assimp_, mode_);
-	GL_CHECK(glBindVertexArray(0));
+	detail::draw_grid(gridVertices_);
 
 	GL_CHECK(glUseProgram(nebulaHandles_[0]));
-    GL_CHECK(glUniform1i(glGetUniformLocation(nebulaHandles_[0], "noiseTex"), 2));
-    GL_CHECK(glUniform3fv(glGetUniformLocation(nebulaHandles_[0], "camPos"), 1, cameraPosition.val));
-    GL_CHECK(glUniformMatrix3fv(glGetUniformLocation(nebulaHandles_[0], "camRot"), 1, GL_FALSE, cameraRotation.val));
-    GL_CHECK(glUniform1f(glGetUniformLocation(nebulaHandles_[0], "time"), Global::frame_cnt()));
-	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaHandles_[0], "invPersMatrix"), 1, GL_FALSE, (view * projection).inv().val));
-	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaHandles_[0], "view"), 1, GL_FALSE, view.val));
-	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaHandles_[0], "model"), 1, GL_FALSE, modelView.val));
+    GL_CHECK(glUniform1i(glGetUniformLocation(nebulaHandles_[0], "noise3DBuffer"), 2));
+    GL_CHECK(glUniform3fv(glGetUniformLocation(nebulaHandles_[0], "viewPos"), 1, cameraPosition.val));
+	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaHandles_[0], "invProjView"), 1, GL_FALSE, (view * projection).inv().val));
 	detail::draw_quad();
-	GL_CHECK(glBindVertexArray(0));
 
 //	GL_CHECK(glDepthMask (GL_FALSE));
 	GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, nebulaLightingFBO_));
@@ -814,42 +794,24 @@ void Scene::render(const cv::Vec3f& cameraPosition, const cv::Matx33f& cameraRot
 	GL_CHECK(glUseProgram(nebulaLightingHandles_[0]));
 	GL_CHECK(glUniform1i(glGetUniformLocation(nebulaLightingHandles_[0], "hdrBuffer"), 1));
 	GL_CHECK(glUniform1i(glGetUniformLocation(nebulaLightingHandles_[0], "depthBuffer"), 2));
-	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaLightingHandles_[0], "invView"), 1, GL_FALSE, view.inv().val));
 	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaLightingHandles_[0], "invProjection"), 1, GL_FALSE, projection.inv().val));
 	GL_CHECK(glUniform3fv(glGetUniformLocation(nebulaLightingHandles_[0], "viewPos"), 1, cameraPosition.val));
+	GL_CHECK(glUniform3fv(glGetUniformLocation(nebulaLightingHandles_[0], "viewDir"), 1, cameraDirection.val));
 	GL_CHECK(glUniform1i(glGetUniformLocation(nebulaLightingHandles_[0], "renderMode"), mode_));
-	GL_CHECK(glUniform1i(glGetUniformLocation(nebulaLightingHandles_[0], "passThrough"), 1));
+	GL_CHECK(glUniform1i(glGetUniformLocation(nebulaLightingHandles_[0], "passThrough"), 0));
 	GL_CHECK(glUniform3fv(glGetUniformLocation(nebulaLightingHandles_[0], "plainColor"), 1, cv::Vec3f(0.0, 0.0, 0.0).val));
-	GL_CHECK(glUniformMatrix4fv(glGetUniformLocation(nebulaLightingHandles_[0], "invProjView"), 1, GL_FALSE, (view * projection).inv().val));
 	detail::draw_quad();
-	glBindVertexArray(0);
 
-		GL_CHECK(glDepthMask (GL_FALSE));
-	GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, currentFBO));
+	GL_CHECK(glDepthMask (GL_FALSE));
+	GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
     GL_CHECK(glActiveTexture(GL_TEXTURE0));
-    GL_CHECK(glBindTexture(GL_TEXTURE_2D, currentTexture));
-    GL_CHECK(glActiveTexture(GL_TEXTURE1));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, nebulaLightingTexture_));
-    GL_CHECK(glActiveTexture(GL_TEXTURE2));
-    GL_CHECK(glBindTexture(GL_TEXTURE_2D, sharedDepthTexture_));
-
 	assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
 
 	GL_CHECK(glUseProgram(hdrHandles_[0]));
-	GL_CHECK(glUniform1i(glGetUniformLocation(hdrHandles_[0], "hdrBuffer"), 1));
-	GL_CHECK(glUniform1i(glGetUniformLocation(hdrHandles_[0], "depthBuffer"), 2));
+	GL_CHECK(glUniform1i(glGetUniformLocation(hdrHandles_[0], "hdrBuffer"), 0));
 	GL_CHECK(glUniform1i(glGetUniformLocation(hdrHandles_[0], "passThrough"), 0));
 	detail::draw_quad();
-	    glBindVertexArray(0);
-	GL_CHECK(glActiveTexture(GL_TEXTURE1));
-	GL_CHECK(glBindTexture(GL_TEXTURE_2D, 0));
-	GL_CHECK(glActiveTexture(GL_TEXTURE2));
-	GL_CHECK(glBindTexture(GL_TEXTURE_2D, 0));
-
-    GL_CHECK(glBindRenderbuffer(GL_RENDERBUFFER, currentRenderBuffer));
-
-
-
 }
 
 } /* namespace gl */

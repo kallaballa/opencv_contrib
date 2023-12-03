@@ -97,7 +97,7 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     GLuint frameBufferID_ = 0;
     GLuint textureID_ = 0;
     GLuint renderBufferID_ = 0;
-    GLint viewport_[4];
+    cv::Rect viewport_;
     cl_mem clImage_ = nullptr;
     CLExecContext_t context_;
     const cv::Size framebufferSize_;
@@ -197,9 +197,11 @@ public:
          * Setup OpenGL states.
          * @param ctx The corresponding #FrameBufferContext.
          */
-        CV_EXPORTS GLScope(cv::Ptr<FrameBufferContext> ctx, GLenum framebufferTarget = GL_FRAMEBUFFER) :
-                ctx_(ctx) {
-            ctx_->begin(framebufferTarget);
+        CV_EXPORTS GLScope(cv::Ptr<FrameBufferContext> ctx, GLenum framebufferTarget = GL_FRAMEBUFFER, GLint frameBufferID = -1) :
+			ctx_(ctx) {
+        	if(frameBufferID == -1)
+				frameBufferID = ctx->frameBufferID_;
+            ctx_->begin(framebufferTarget, frameBufferID);
         }
         /*!
          * Tear-down OpenGL states.
@@ -311,7 +313,7 @@ private:
     /*!
      * Setup OpenGL states.
      */
-    CV_EXPORTS void begin(GLenum framebufferTarget);
+    CV_EXPORTS void begin(GLenum framebufferTarget, GLuint frameBufferID);
     /*!
      * Tear-down OpenGL states.
      */

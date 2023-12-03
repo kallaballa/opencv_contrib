@@ -400,6 +400,7 @@ private:
 
 	inline static struct Transform {
 		cv::Vec3d position_;
+		cv::Vec3d direction_;
 		cv::Matx33f cameraRotation_;
 		cv::Vec3d rotation_;
 		cv::Vec3d center_;
@@ -527,7 +528,7 @@ public:
 		window->branch(always_); {
 			window->gl([](gl::Scene& scene, Transform& transform, Params& params){
 				scene.setMode(params.renderMode_);
-				scene.render(transform.position_, transform.cameraRotation_, transform.projection_, transform.view_, transform.model_);
+				scene.render(transform.position_, transform.direction_, transform.cameraRotation_, transform.projection_, transform.view_, transform.model_);
 			}, scene_, transform_, params_);
 		}
 		window->write();

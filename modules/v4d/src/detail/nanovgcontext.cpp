@@ -40,6 +40,9 @@ void NanoVGContext::execute(std::function<void()> fn) {
             NanoVGContext::Scope nvgScope(*this);
             cv::v4d::nvg::detail::NVG::initializeContext(context_);
             fn();
+    		GL_CHECK(glBindFramebuffer(GL_READ_FRAMEBUFFER, 0));
+    		fbCtx()->blitFrameBufferToFrameBuffer(cv::Rect(0, 0, fbCtx()->size().width, fbCtx()->size().height), fbCtx()->size(), fbCtx()->getFramebufferID(), false, false);
+    		fbCtx()->makeNoneCurrent();
         }
 
 //        if (!fbCtx()->hasParent()) {
