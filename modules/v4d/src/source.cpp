@@ -4,9 +4,56 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include "opencv2/v4d/source.hpp"
+#include "opencv2/v4d/v4d.hpp"
 
 namespace cv {
 namespace v4d {
+
+cv::Ptr<Source> Source::makeVaSource(cv::Ptr<V4D> window, const string& inputFilename, const int vaDeviceIndex) {
+    cv::Ptr<cv::VideoCapture> capture = new cv::VideoCapture(inputFilename, cv::CAP_FFMPEG, {
+            cv::CAP_PROP_HW_DEVICE, vaDeviceIndex, cv::CAP_PROP_HW_ACCELERATION,
+            cv::VIDEO_ACCELERATION_VAAPI, cv::CAP_PROP_HW_ACCELERATION_USE_OPENCL, 1 });
+    float fps = capture->get(cv::CAP_PROP_FPS);
+    cerr << "Using a VA source" << endl;
+
+    window->sourceCtx()->copyContext();
+
+    return new Source([=](cv::UMat& frame) {
+        (*capture) >> frame;
+        return !frame.empty();
+    }, fps);
+}
+
+cv::Ptr<Source> Source::makeAnyHWSource(const string& inputFilename) {
+    cv::Ptr<cv::VideoCapture> capture = new cv::VideoCapture(inputFilename, cv::CAP_FFMPEG, {
+            cv::CAP_PROP_HW_ACCELERATION, cv::VIDEO_ACCELERATION_ANY });
+    float fps = capture->get(cv::CAP_PROP_FPS);
+
+    return new Source([=](cv::UMat& frame) {
+        (*capture) >> frame;
+        return !frame.empty();
+    }, fps);
+}
+
+cv::Ptr<Source> Source::make(cv::Ptr<V4D> window, const string& inputFilename) {
+    if (isIntelVaSupported()) {
+        return makeVaSource(window, inputFilename, 0);
+    } else {
+        try {
+            return makeAnyHWSource(inputFilename);
+        } catch(...) {
+            cerr << "Failed creating hardware source" << endl;
+        }
+    }
+
+    cv::Ptr<cv::VideoCapture> capture = new cv::VideoCapture(inputFilename, cv::CAP_FFMPEG);
+    float fps = capture->get(cv::CAP_PROP_FPS);
+
+    return new Source([=](cv::UMat& frame) {
+        (*capture) >> frame;
+        return !frame.empty();
+    }, fps);
+}
 
 Source::Source(std::function<bool(cv::UMat&)> generator, float fps) :
         generator_(generator), fps_(fps) {

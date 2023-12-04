@@ -10,10 +10,14 @@
 #include <opencv2/core/cvdef.h>
 #include <opencv2/core/mat.hpp>
 #include <mutex>
+#include <string>
+
+using std::string;
 
 namespace cv {
 namespace v4d {
 
+class V4D;
 /*!
  * A Source object represents a way to provide data to V4D by using
  * a generator functor.
@@ -66,6 +70,11 @@ public:
      * @return A pair containing the frame count and the frame generated.
      */
     CV_EXPORTS std::pair<uint64_t, cv::UMat> operator()();
+
+    static cv::Ptr<Source> make(cv::Ptr<V4D> window, const string& inputFilename);
+private:
+    static cv::Ptr<Source> makeVaSource(cv::Ptr<V4D> window, const string& inputFilename, const int vaDeviceIndex);
+    static cv::Ptr<Source> makeAnyHWSource(const string& inputFilename);
 };
 
 } /* namespace v4d */

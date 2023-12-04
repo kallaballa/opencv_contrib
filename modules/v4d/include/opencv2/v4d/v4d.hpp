@@ -17,6 +17,7 @@
 #include "detail/imguicontext.hpp"
 #include "detail/timetracker.hpp"
 #include "detail/glcontext.hpp"
+#include "detail/extcontext.hpp"
 #include "detail/sourcecontext.hpp"
 #include "detail/sinkcontext.hpp"
 #include "detail/resequence.hpp"
@@ -148,8 +149,18 @@ const string make_id(const string& name, Tfn&& fn, Args&& ... args) {
 using namespace cv::v4d::detail;
 
 class CV_EXPORTS V4D {
-	friend class detail::FrameBufferContext;
-    friend class HTML5Capture;
+    friend class detail::FrameBufferContext;
+    friend class detail::SourceContext;
+    friend class detail::SinkContext;
+    friend class detail::NanoVGContext;
+    friend class detail::ImGuiContextImpl;
+    friend class detail::OnceContext;
+    friend class detail::PlainContext;
+    friend class detail::GLContext;
+    friend class detail::ExtContext;
+    friend class Source;
+    friend class Sink;
+
     int32_t workerIdx_ = -1;
     cv::Ptr<V4D> self_;
     cv::Ptr<Plan> plan_;
@@ -169,6 +180,7 @@ class CV_EXPORTS V4D {
     cv::Ptr<PlainContext> plainContext_ = nullptr;
     std::mutex glCtxMtx_;
     std::map<int32_t,cv::Ptr<GLContext>> glContexts_;
+    std::map<int32_t,cv::Ptr<ExtContext>> extContexts_;
     bool closed_ = false;
     cv::Ptr<Source> source_;
     cv::Ptr<Sink> sink_;
@@ -177,7 +189,7 @@ class CV_EXPORTS V4D {
     std::function<bool(int key, int scancode, int action, int modifiers)> keyEventCb_;
     std::function<void(int button, int action, int modifiers)> mouseEventCb_;
     cv::Point2f mousePos_;
-    uint64_t frameCnt_ = 0;
+    uint64_t seqNr_ = 0;
     bool showFPS_ = true;
     bool printFPS_ = false;
     bool showTracking_ = true;
@@ -346,6 +358,30 @@ public:
 		emit_access<std::true_type, cv::UMat, Args...>(id, false, &fbCtx()->fb());
 		std::function<void((const int32_t&,Args...))> functor(fn);
 		add_transaction<decltype(functor),const int32_t&>(false, glCtx(idx),id, std::forward<decltype(functor)>(functor), glCtx(idx)->getIndex(), std::forward<Args>(args)...);
+    }
+
+    template <typename Tfn, typename ... Args>
+    typename std::enable_if<std::is_invocable_v<Tfn, Args...>, void>::type
+    ext(Tfn fn, Args&& ... args) {
+    	init_context_call(fn, args...);
+        const string id = make_id("ext", fn, args...);
+		emit_access<std::true_type, cv::UMat, Args...>(id, true, &fbCtx()->fb());
+		(emit_access<std::true_type, std::remove_reference_t<Args>, Args...>(id, std::is_const_v<std::remove_reference_t<Args>>, &args),...);
+		emit_access<std::true_type, cv::UMat, Args...>(id, false, &fbCtx()->fb());
+		std::function functor(fn);
+		add_transaction(false, extCtx(-1), id, std::forward<decltype(functor)>(fn), std::forward<Args>(args)...);
+    }
+
+    template <typename Tfn, typename ... Args>
+    void ext(int32_t idx, Tfn fn, Args&& ... args) {
+        init_context_call(fn, args...);
+
+        const string id = make_id("ext" + std::to_string(idx), fn, args...);
+		emit_access<std::true_type, cv::UMat, Args...>(id, true, &fbCtx()->fb());
+		(emit_access<std::true_type, std::remove_reference_t<Args>, Args...>(id, std::is_const_v<std::remove_reference_t<Args>>, &args),...);
+		emit_access<std::true_type, cv::UMat, Args...>(id, false, &fbCtx()->fb());
+		std::function<void((const int32_t&,Args...))> functor(fn);
+		add_transaction<decltype(functor),const int32_t&>(false, extCtx(idx),id, std::forward<decltype(functor)>(functor), extCtx(idx)->getIndex(), std::forward<Args>(args)...);
     }
 
     template <typename Tfn>
@@ -711,15 +747,15 @@ public:
      */
     CV_EXPORTS void setSource(cv::Ptr<Source> src);
     CV_EXPORTS cv::Ptr<Source> getSource();
-    CV_EXPORTS bool hasSource();
+    CV_EXPORTS bool hasSource() const;
 
     /*!
-     * Set the current #cv::viz::Sink object. Usually created using #makeWriterSink().
+     * Set the current #cv::viz::Sink object. Usually created using #Sink::make().
      * @param sink A #cv::viz::Sink object.
      */
     CV_EXPORTS void setSink(cv::Ptr<Sink> sink);
     CV_EXPORTS cv::Ptr<Sink> getSink();
-    CV_EXPORTS bool hasSink();
+    CV_EXPORTS bool hasSink() const;
     /*!
      * Get the window position.
      * @return The window position.
@@ -802,21 +838,6 @@ public:
      */
     CV_EXPORTS bool isStretching();
     /*!
-     * Determine if th V4D object is marked as focused.
-     * @return true if the V4D object is marked as focused.
-     */
-    CV_EXPORTS bool isFocused();
-    /*!
-     * Mark the V4D object as focused.
-     * @param s if true mark as focused.
-     */
-    CV_EXPORTS void setFocused(bool f);
-    /*!
-     * Everytime a frame is displayed this count is incremented-
-     * @return the current frame count-
-     */
-    CV_EXPORTS const uint64_t& frameCount() const;
-    /*!
      * Determine if the window is closed.
      * @return true if the window is closed.
      */
@@ -826,49 +847,47 @@ public:
      */
     CV_EXPORTS void close();
     /*!
-     * Display the framebuffer in the native window by blitting.
-     * @return false if the window is closed.
-     */
-    CV_EXPORTS bool display();
-    /*!
      * Print basic system information to stderr.
      */
     CV_EXPORTS void printSystemInfo();
-
-    CV_EXPORTS GLFWwindow* getGLFWWindow() const;
-
-    CV_EXPORTS cv::Ptr<FrameBufferContext> fbCtx() const;
-    CV_EXPORTS cv::Ptr<SourceContext> sourceCtx();
-    CV_EXPORTS cv::Ptr<SinkContext> sinkCtx();
-    CV_EXPORTS cv::Ptr<NanoVGContext> nvgCtx();
-    CV_EXPORTS cv::Ptr<OnceContext> onceCtx();
-    CV_EXPORTS cv::Ptr<PlainContext> plainCtx();
-    CV_EXPORTS cv::Ptr<ImGuiContextImpl> imguiCtx();
-    CV_EXPORTS cv::Ptr<GLContext> glCtx(int32_t idx = 0);
-
-    CV_EXPORTS bool hasFbCtx();
-    CV_EXPORTS bool hasSourceCtx();
-    CV_EXPORTS bool hasSinkCtx();
-    CV_EXPORTS bool hasNvgCtx();
-    CV_EXPORTS bool hasOnceCtx();
-    CV_EXPORTS bool hasParallelCtx();
-    CV_EXPORTS bool hasImguiCtx();
-    CV_EXPORTS bool hasGlCtx(uint32_t idx = 0);
-    CV_EXPORTS size_t numGlCtx();
 private:
     V4D(const V4D& v4d, const string& title);
     V4D(const cv::Size& size, const cv::Size& fbsize,
             const string& title, AllocateFlags flags, bool offscreen, bool debug, int samples);
 
-    cv::Point2f getMousePosition();
-    void setMousePosition(const cv::Point2f& pt);
-
     void swapContextBuffers();
+    bool display();
 protected:
     AllocateFlags flags();
     cv::Ptr<V4D> self();
-    void fence();
-    bool wait(uint64_t timeout = 0);
+
+    cv::Ptr<FrameBufferContext> fbCtx() const;
+    cv::Ptr<SourceContext> sourceCtx();
+    cv::Ptr<SinkContext> sinkCtx();
+    cv::Ptr<NanoVGContext> nvgCtx();
+    cv::Ptr<OnceContext> onceCtx();
+    cv::Ptr<PlainContext> plainCtx();
+    cv::Ptr<ImGuiContextImpl> imguiCtx();
+    cv::Ptr<GLContext> glCtx(int32_t idx = 0);
+    cv::Ptr<ExtContext> extCtx(int32_t idx = 0);
+
+    bool hasFbCtx();
+    bool hasSourceCtx();
+    bool hasSinkCtx();
+    bool hasNvgCtx();
+    bool hasOnceCtx();
+    bool hasParallelCtx();
+    bool hasImguiCtx();
+    bool hasGlCtx(uint32_t idx = 0);
+    bool hasExtCtx(uint32_t idx = 0);
+    size_t numGlCtx();
+    size_t numExtCtx();
+
+    cv::Ptr<Plan> plan();
+    GLFWwindow* getGLFWWindow() const;
+    bool isFocused();
+    void setFocused(bool f);
+    const uint64_t& sequenceNumber();
 };
 }
 } /* namespace cv */

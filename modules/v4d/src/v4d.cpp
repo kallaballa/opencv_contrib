@@ -92,14 +92,6 @@ std::string V4D::title() const {
     return fbCtx()->title_;
 }
 
-cv::Point2f V4D::getMousePosition() {
-    return mousePos_;
-}
-
-void V4D::setMousePosition(const cv::Point2f& pt) {
-    mousePos_ = pt;
-}
-
 cv::Ptr<FrameBufferContext> V4D::fbCtx() const {
     assert(mainFbContext_ != nullptr);
     return mainFbContext_;
@@ -146,6 +138,17 @@ cv::Ptr<GLContext> V4D::glCtx(int32_t idx) {
     }
 }
 
+cv::Ptr<ExtContext> V4D::extCtx(int32_t idx) {
+    auto it = extContexts_.find(idx);
+    if(it != extContexts_.end())
+        return (*it).second;
+    else {
+        cv::Ptr<ExtContext> ctx = new ExtContext(idx, mainFbContext_);
+        extContexts_.insert({idx, ctx});
+        return ctx;
+    }
+}
+
 bool V4D::hasFbCtx() {
     return mainFbContext_ != nullptr;
 }
@@ -178,7 +181,15 @@ bool V4D::hasGlCtx(uint32_t idx) {
     return glContexts_.find(idx) != glContexts_.end();
 }
 
+bool V4D::hasExtCtx(uint32_t idx) {
+    return glContexts_.find(idx) != glContexts_.end();
+}
+
 size_t V4D::numGlCtx() {
+    return std::max(off_t(0), off_t(glContexts_.size()) - 1);
+}
+
+size_t V4D::numExtCtx() {
     return std::max(off_t(0), off_t(glContexts_.size()) - 1);
 }
 
@@ -197,7 +208,7 @@ cv::Ptr<Source> V4D::getSource() {
     return source_;
 }
 
-bool V4D::hasSource() {
+bool V4D::hasSource() const {
     return source_ != nullptr;
 }
 
@@ -233,7 +244,7 @@ cv::Ptr<Sink> V4D::getSink() {
     return sink_;
 }
 
-bool V4D::hasSink() {
+bool V4D::hasSink() const {
     return sink_ != nullptr;
 }
 
@@ -329,6 +340,9 @@ bool V4D::isStretching() {
     return stretching_;
 }
 
+cv::Ptr<Plan> V4D::plan() {
+	return plan_;
+}
 void V4D::setFocused(bool f) {
     focused_ = f;
 }
@@ -392,31 +406,30 @@ bool V4D::display() {
 			imguiCtx()->render(getShowFPS());
 
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
+		GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+		GL_CHECK(glViewport(0, 0, size().width, size().height));
+		GL_CHECK(glClearColor(0,0,0,1));
+		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
 	} else {
 		fbCtx()->copyToRootWindow();
 	}
 
 	result = !glfwWindowShouldClose(getGLFWWindow());
 
-//FIXME doesn't have any effect
-//	GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
-//#if !defined(OPENCV_V4D_USE_ES3)
-//	GL_CHECK(glDrawBuffer(GL_BACK));
-//#endif
-//	GL_CHECK(glViewport(0, 0, size().width, size().height));
-//	GL_CHECK(glClearColor(1,0,0,255));
-//	GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
-
-    if (frameCnt_ == (std::numeric_limits<uint64_t>().max() - 1))
-        frameCnt_ = 0;
+    if (seqNr_ == (std::numeric_limits<uint64_t>().max() - 1))
+        seqNr_ = 0;
     else
-        ++frameCnt_;
+        ++seqNr_;
 
     return result;
 }
 
-const uint64_t& V4D::frameCount() const {
-    return frameCnt_;
+const uint64_t& V4D::sequenceNumber() {
+	if(hasSource()){
+		return sourceCtx()->sequenceNumber();
+	}
+
+	return seqNr_;
 }
 
 bool V4D::isClosed() {

@@ -39,7 +39,7 @@ public:
      */
     virtual void execute(std::function<void()> fn) override;
 
-    uint64_t sequenceNumber();
+    const uint64_t& sequenceNumber() const;
 
     /*FIXME only public till https://github.com/opencv/opencv/pull/22780 is resolved.
      * required for manual initialization of VideoCapture/VideoWriter

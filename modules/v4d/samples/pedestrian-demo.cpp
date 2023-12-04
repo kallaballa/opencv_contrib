@@ -46,7 +46,6 @@ private:
 		cv::TrackerKCF::Params params_;
 		//KCF tracker used instead of continous detection
 		cv::Ptr<cv::Tracker> tracker_;
-		bool trackerInitialized_ = false;
 		//If tracking fails re-detect
 		bool redetect_ = true;
 		//Descriptor used for pedestrian detection
@@ -55,8 +54,8 @@ private:
 
     inline static cv::Rect tracked_ = cv::Rect(0,0,1,1);
 
-	constexpr static auto doRedect_ = [](const Detection& detection){ return !detection.trackerInitialized_ || detection.redetect_; };
-	constexpr static auto dontRedect_ = [](const Detection& detection){ return detection.trackerInitialized_ && !detection.redetect_; };
+	constexpr static auto doRedect_ = [](const Detection& detection){ return detection.redetect_; };
+	constexpr static auto dontRedect_ = [](const Detection& detection){ return !detection.redetect_; };
 
 	//adapted from cv::dnn_objdetect::InferBbox
 	static inline bool pair_comparator(std::pair<double, size_t> l1, std::pair<double, size_t> l2) {
@@ -137,9 +136,6 @@ public:
     	Global::registerShared(tracked_);
     }
 
-    PedestrianDemoPlan(const cv::Size& sz) : PedestrianDemoPlan(cv::Rect(0,0,sz.width, sz.height)) {
-    }
-
     void setup(cv::Ptr<V4D> window) override {
     	int w = size().width;
     	int h = size().height;
@@ -199,16 +195,18 @@ public:
 						if (keep[i]) {
 							Global::Scope scope(tracked);
 							//only track the first pedestrian found
-							tracked = detection.locations_[i];
+							tracked.x = (detection.locations_[i].x + tracked.x) / 2.0;
+							tracked.y = (detection.locations_[i].y + tracked.y) / 2.0;
+							tracked.width = (detection.locations_[i].width + tracked.width) / 2.0;
+							tracked.height = (detection.locations_[i].height + tracked.height) / 2.0;
 							break;
 						}
 					}
 
-					if(!detection.trackerInitialized_) {
+					{
 						Global::Scope scope(tracked);
 						//initialize the tracker once
 						detection.tracker_->init(videoFrameDownGrey, tracked);
-						detection.trackerInitialized_ = true;
 					}
 				}
 			}, videoFrameDownGrey_, detection_, tracked_, cache_);
@@ -217,19 +215,17 @@ public:
 
 		window->branch(dontRedect_, detection_);
 		{
-			window->plain([](cv::UMat& videoFrameDownGrey, Detection& detection, const uint64_t& frameCnt, cv::Rect& tracked, Cache& cache){
+			window->plain([](cv::UMat& videoFrameDownGrey, Detection& detection, cv::Rect& tracked, Cache& cache) {
 				Global::Scope scope(tracked);
-				cv::Rect oldTracked = tracked;
-				if((cache.fps_ == 0 || frameCnt % cache.fps_ == 0) || !detection.tracker_->update(videoFrameDownGrey, tracked)) {
-					cache.fps_ = uint64_t(std::ceil(Global::fps()));
-					//detection failed - re-detect
+				cv::Rect newTracked;
+				if(!detection.tracker_->update(videoFrameDownGrey, newTracked)) {
 					detection.redetect_ = true;
 				}
-				tracked.x = (oldTracked.x + tracked.x) / 2.0;
-				tracked.y = (oldTracked.y + tracked.y) / 2.0;
-				tracked.width = (oldTracked.width + tracked.width) / 2.0;
-				tracked.height = (oldTracked.height+ tracked.height) / 2.0;
-			}, videoFrameDownGrey_, detection_, window->frameCount(), tracked_, cache_);
+				tracked.x = (newTracked.x + tracked.x) / 2.0;
+				tracked.y = (newTracked.y + tracked.y) / 2.0;
+				tracked.width = (newTracked.width + tracked.width) / 2.0;
+				tracked.height = (newTracked.height+ tracked.height) / 2.0;
+			}, videoFrameDownGrey_, detection_, tracked_, cache_);
 		}
 		window->endbranch(dontRedect_, detection_);
 
@@ -276,17 +272,17 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    cv::Ptr<PedestrianDemoPlan> plan = new PedestrianDemoPlan(cv::Size(1280, 720));
+    cv::Ptr<PedestrianDemoPlan> plan = new PedestrianDemoPlan(cv::Rect(0, 0, 1280, 720));
     cv::Ptr<V4D> window = V4D::make(plan->size(), "Pedestrian Demo", ALL);
 
     window->printSystemInfo();
 
-    auto src = makeCaptureSource(window, argv[1]);
-    auto sink = makeWriterSink(window, "pedestrian-demo.mkv", src->fps(), plan->size());
+    auto src = Source::make(window, argv[1]);
+    auto sink = Sink::make(window, "pedestrian-demo.mkv", src->fps(), plan->size());
     window->setSource(src);
     window->setSink(sink);
 
-    window->run(plan);
+    window->run(plan, 0);
 
     return 0;
 }

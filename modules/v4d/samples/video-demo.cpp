@@ -193,6 +193,10 @@ public:
 		}, vao_, shader_, uniform_transform_);
 	}
 	void infer(cv::Ptr<V4D> window) override {
+		window->gl([]() {
+			glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		});
+
 		window->capture();
 
 		window->gl([](GLuint& vao, GLuint& shader, GLuint& uniformTrans) {
@@ -214,15 +218,15 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-	cv::Ptr<VideoDemoPlan> plan = new VideoDemoPlan(cv::Size(1280,720));
+	cv::Ptr<VideoDemoPlan> plan = new VideoDemoPlan(cv::Rect(0,0,1280,720));
     cv::Ptr<V4D> window = V4D::make(plan->size(), "Video Demo", NONE);
 
-    auto src = makeCaptureSource(window, argv[1]);
-    auto sink = makeWriterSink(window, "video-demo.mkv", src->fps(), plan->size());
+    auto src = Source::make(window, argv[1]);
+    auto sink = Sink::make(window, "video-demo.mkv", src->fps(), plan->size());
     window->setSource(src);
     window->setSink(sink);
 
-    window->run(plan);
+    window->run(plan, 0);
 
     return 0;
 }

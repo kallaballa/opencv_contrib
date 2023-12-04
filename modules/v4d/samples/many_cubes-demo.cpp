@@ -257,13 +257,13 @@ public:
 };
 
 int main() {
-	cv::Ptr<ManyCubesDemoPlan> plan = new ManyCubesDemoPlan(cv::Size(1280, 720));
+	cv::Ptr<ManyCubesDemoPlan> plan = new ManyCubesDemoPlan(cv::Rect(0, 0, 1280, 720));
     cv::Ptr<V4D> window = V4D::make(plan->size(), "Many Cubes Demo", IMGUI);
 
     //Creates a writer sink (which might be hardware accelerated)
-    auto sink = makeWriterSink(window, "many_cubes-demo.mkv", 60, plan->size());
+    auto sink = Sink::make(window, "many_cubes-demo.mkv", 60, plan->size());
     window->setSink(sink);
-    window->run(plan, 1);
+    window->run(plan, 0);
 
     return 0;
 }

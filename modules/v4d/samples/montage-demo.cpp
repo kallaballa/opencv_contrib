@@ -63,7 +63,7 @@ class MontageDemoPlan : public Plan {
 
 	cv::Size_<float> scale_;
 public:
-	MontageDemoPlan(const cv::Size& sz) : Plan(sz) {
+	MontageDemoPlan(const cv::Rect& vp) : Plan(vp) {
 		CV_Assert(plans_.size() == frames_.results_.size() &&  plans_.size() == size_t(tiling_.width * tiling_.height));
 		scale_ = cv::Size_<float>(float(size().width) / tileSz_.width, float(size().height) / tileSz_.height);
 	}
@@ -75,7 +75,6 @@ public:
 	}
 
 	virtual void infer(cv::Ptr<V4D> window) override {
-		window->nvgCtx()->setScale(scale_);
 		window->capture();
 		window->setDisableIO(true);
 		window->fb([](cv::UMat& framebuffer, const cv::Size& tileSize, cv::UMat& captured){
@@ -122,13 +121,13 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-	cv::Ptr<MontageDemoPlan> plan = new MontageDemoPlan(cv::Size(1920, 1080));
+	cv::Ptr<MontageDemoPlan> plan = new MontageDemoPlan(cv::Rect(0, 0, 1920, 1080));
     cv::Ptr<V4D> window = V4D::make(plan->size(), "Montage Demo", ALL);
     //Creates a source from a file or a device
-    auto src = makeCaptureSource(window, argv[1]);
+    auto src = Source::make(window, argv[1]);
     window->setSource(src);
     //Creates a writer sink (which might be hardware accelerated)
-    auto sink = makeWriterSink(window, "montage-demo.mkv", 60, plan->size());
+    auto sink = Sink::make(window, "montage-demo.mkv", 60, plan->size());
     window->setSink(sink);
     window->run(plan, atoi(argv[2]));
 

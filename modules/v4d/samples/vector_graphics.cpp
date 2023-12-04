@@ -102,8 +102,8 @@ public:
 };
 
 int main() {
-    Ptr<VectorGraphicsPlan> plan = new VectorGraphicsPlan(cv::Size(960, 960));
+    Ptr<VectorGraphicsPlan> plan = new VectorGraphicsPlan(cv::Rect(0,0, 960, 960));
 	Ptr<V4D> window = V4D::make(plan->size(), "Vector Graphics");
-    window->run(plan);
+    window->run(plan, 0);
 }
 

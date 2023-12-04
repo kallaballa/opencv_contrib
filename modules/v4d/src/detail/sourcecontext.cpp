@@ -52,7 +52,7 @@ void SourceContext::execute(std::function<void()> fn) {
     }
 }
 
-uint64_t SourceContext::sequenceNumber() {
+const uint64_t& SourceContext::sequenceNumber() const {
 	return currentSeqNr_;
 }
 

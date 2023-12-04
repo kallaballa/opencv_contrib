@@ -26,26 +26,7 @@ class V4D;
 namespace detail {
 #ifdef HAVE_OPENCL
 typedef cv::ocl::OpenCLExecutionContext CLExecContext_t;
-class CLExecScope_t
-{
-    CLExecContext_t ctx_;
-public:
-    inline CLExecScope_t(const CLExecContext_t& ctx)
-    {
-        if(ctx.empty())
-            return;
-        ctx_ = CLExecContext_t::getCurrentRef();
-        ctx.bind();
-    }
-
-    inline ~CLExecScope_t()
-    {
-        if (!ctx_.empty())
-        {
-            ctx_.bind();
-        }
-    }
-};
+typedef cv::ocl::OpenCLExecutionContextScope CLExecScope_t;
 #else
 struct CLExecContext_t {
 	bool empty() {
@@ -78,6 +59,7 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     friend class SourceContext;
     friend class SinkContext;
     friend class GLContext;
+    friend class ExtContext;
     friend class NanoVGContext;
     friend class ImGuiContextImpl;
     friend class cv::v4d::V4D;
@@ -105,36 +87,7 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     GLFWwindow* rootWindow_;
     cv::Ptr<FrameBufferContext> parent_;
     bool isRoot_ = true;
-
-    //data and handles for webgl copying
-    std::map<size_t, GLint> texture_hdls_;
-    std::map<size_t, GLint> resolution_hdls_;
-
-    std::map<size_t, GLuint> shader_program_hdls_;
-
-    //gl object maps
-    std::map<size_t, GLuint> copyVaos, copyVbos, copyEbos;
-
-    // vertex position, color
-    const float copyVertices[12] = {
-    //    x      y      z
-    -1.0f, -1.0f, -0.0f,
-    1.0f, 1.0f, -0.0f,
-    -1.0f, 1.0f, -0.0f,
-    1.0f, -1.0f, -0.0f };
-
-    const unsigned int copyIndices[6] = {
-    //  2---,1
-    //  | .' |
-    //  0'---3
-            0, 1, 2, 0, 3, 1 };
-
-    std::map<size_t, GLuint> copyFramebuffers_;
-    std::map<size_t, GLuint> copyTextures_;
     int index_;
-
-    void* currentSyncObject_ = 0;
-    static bool firstSync_;
 public:
     /*!
      * Acquires and releases the framebuffer from and to OpenGL.
@@ -288,8 +241,6 @@ public:
     void blitFrameBufferToFrameBuffer(const cv::Rect& srcViewport, const cv::Size& targetFbSize,
             GLuint targetFramebufferID = 0, bool stretch = true, bool flipY = false);
 protected:
-    void fence();
-    bool wait(const uint64_t& timeout = 0);
     CLExecContext_t& getCLExecContext();
     cv::Ptr<V4D> getV4D();
     int getIndex();
@@ -306,8 +257,6 @@ protected:
 
     GLFWwindow* getGLFWWindow() const;
 private:
-    void loadBuffers(const size_t& index);
-    void loadShader(const size_t& index);
     void init();
     CV_EXPORTS cv::UMat& fb();
     /*!
@@ -342,6 +291,7 @@ private:
     void fromGLTexture2D(const cv::ogl::Texture2D& texture, cv::UMat& u);
 
     cv::UMat framebuffer_;
+    GLint currentFBOTarget_;
     /*!
      * The texture bound to the OpenGL framebuffer.
      */

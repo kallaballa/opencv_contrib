@@ -13,29 +13,14 @@ GLContext::GLContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext) 
 }
 
 void GLContext::execute(std::function<void()> fn) {
-//	if(!fbCtx()->hasParent()) {
-//		UMat tmp;
-//		mainFbContext_->copyTo(tmp);
-//		fbCtx()->copyFrom(tmp);
-//	}
-	{
-		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER, 0);
-		GL_CHECK(glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
+		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
 		fn();
-		GL_CHECK(glBindFramebuffer(GL_READ_FRAMEBUFFER, 0));
-		fbCtx()->blitFrameBufferToFrameBuffer(cv::Rect(0, 0, fbCtx()->size().width, fbCtx()->size().height), fbCtx()->size(), fbCtx()->getFramebufferID(), false, false);
-		fbCtx()->makeNoneCurrent();
-	}
-//	if(!fbCtx()->hasParent()) {
-//		UMat tmp;
-//		fbCtx()->copyTo(tmp);
-//		mainFbContext_->copyFrom(tmp);
-//	}
 }
 
 const int32_t& GLContext::getIndex() const {
 	return idx_;
 }
+
 cv::Ptr<FrameBufferContext> GLContext::fbCtx() {
     return glFbContext_;
 }

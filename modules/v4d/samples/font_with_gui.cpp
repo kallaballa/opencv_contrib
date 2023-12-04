@@ -14,7 +14,7 @@ class FontWithGuiPlan: public Plan {
 	//The text
 	string hw_ = "hello world";
 public:
-	FontWithGuiPlan(const cv::Size& sz) : Plan(sz) {
+	FontWithGuiPlan(const cv::Rect& vp) : Plan(vp) {
 		params_.set(SIZE, 40.0f);
 		params_.set(COLOR, cv::Scalar_<float>(1.0f, 0.0f, 0.0f, 1.0f));
 	}
@@ -46,8 +46,8 @@ public:
 };
 
 int main() {
-	Ptr<FontWithGuiPlan> plan = new FontWithGuiPlan(cv::Size(960,960));
+	Ptr<FontWithGuiPlan> plan = new FontWithGuiPlan(cv::Rect(0, 0, 960,960));
     Ptr<V4D> window = V4D::make(plan->size(), "Font Rendering with GUI");
-	window->run(plan);
+	window->run(plan, 0);
 }
 

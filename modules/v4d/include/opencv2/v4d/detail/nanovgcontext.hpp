@@ -19,7 +19,6 @@ class CV_EXPORTS NanoVGContext : public V4DContext {
 	cv::Ptr<FrameBufferContext> mainFbContext_;
 	cv::Ptr<FrameBufferContext> nvgFbContext_;
     NVGcontext* context_;
-    cv::Size_<float> scale_ = {1.0f, 1.0f};
 public:
     /*!
      * Makes sure #NanoVGContext::begin and #NanoVGContext::end are both called
@@ -61,7 +60,6 @@ public:
      */
     virtual void execute(std::function<void()> fn) override;
 
-    void setScale(const cv::Size_<float>& scale);
     cv::Ptr<FrameBufferContext> fbCtx();
 private:
     /*!

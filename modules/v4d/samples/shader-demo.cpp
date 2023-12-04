@@ -263,9 +263,6 @@ public:
 		Global::registerShared(params_);
 	}
 
-	ShaderDemoPlan(const cv::Size& sz) : ShaderDemoPlan(cv::Rect(0,0,sz.width, sz.height)) {
-	}
-
     void gui(cv::Ptr<V4D> window) override {
         window->imgui([](cv::Ptr<V4D> win, ImGuiContext* ctx, Params& params) {
             CV_UNUSED(win);
@@ -334,15 +331,15 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    cv::Ptr<ShaderDemoPlan> plan = new ShaderDemoPlan(cv::Size(1280, 720));
+    cv::Ptr<ShaderDemoPlan> plan = new ShaderDemoPlan(cv::Rect(0, 0, 1280, 720));
 	cv::Ptr<V4D> window = V4D::make(plan->size(), "Mandelbrot Shader Demo", IMGUI);
 
-	auto src = makeCaptureSource(window, argv[1]);
-	auto sink = makeWriterSink(window, "shader-demo.mkv", src->fps(), plan->size());
+	auto src = Source::make(window, argv[1]);
+	auto sink = Sink::make(window, "shader-demo.mkv", src->fps(), plan->size());
 	window->setSource(src);
 	window->setSink(sink);
 
-	window->run(plan);
+	window->run(plan, 0);
 
 	return 0;
 }

@@ -180,16 +180,16 @@ int main(int argc, char **argv) {
         exit(1);
 	}
 
-    cv::Ptr<NanoVGDemoPlan> plan = new NanoVGDemoPlan(cv::Size(1280, 960));
+    cv::Ptr<NanoVGDemoPlan> plan = new NanoVGDemoPlan(cv::Rect(0, 0, 1280, 960));
     cv::Ptr<V4D> window = V4D::make(plan->size(), "NanoVG Demo", NANOVG);
     window->printSystemInfo();
 
-    auto src = makeCaptureSource(window, argv[1]);
-    auto sink = makeWriterSink(window, "nanovg-demo.mkv", src->fps(), plan->size());
+    auto src = Source::make(window, argv[1]);
+    auto sink = Sink::make(window, "nanovg-demo.mkv", src->fps(), plan->size());
     window->setSource(src);
     window->setSink(sink);
 
-    window->run(plan);
+    window->run(plan, 0);
 
     return 0;
 }

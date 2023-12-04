@@ -24,7 +24,7 @@ void SinkContext::execute(std::function<void()> fn) {
     }
 	auto v4d = mainFbContext_->getV4D();
 	if(v4d->hasSink()) {
-		v4d->getSink()->operator ()(v4d->sourceCtx()->sequenceNumber(), sinkBuffer());
+		v4d->getSink()->operator ()(v4d->sequenceNumber(), sinkBuffer());
 	}
 }
 

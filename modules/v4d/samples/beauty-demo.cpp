@@ -389,8 +389,8 @@ int main(int argc, char **argv) {
 
 	cv::Ptr<BeautyDemoPlan> plan = new BeautyDemoPlan(cv::Rect(0, 0, 1920, 1080));
     cv::Ptr<V4D> window = V4D::make(plan->size(), "Beautification Demo", ALL);
-    auto src = makeCaptureSource(window, argv[1]);
-    auto sink = makeWriterSink(window, "beauty-demo.mkv", src->fps(), plan->size());
+    auto src = Source::make(window, argv[1]);
+    auto sink = Sink::make(window, "beauty-demo.mkv", src->fps(), plan->size());
     window->setSource(src);
     window->setSink(sink);
     window->run(plan, 0);

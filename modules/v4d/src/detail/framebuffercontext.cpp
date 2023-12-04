@@ -15,6 +15,8 @@
 #include <iostream>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#include "../../third/imgui/backends/imgui_impl_glfw.h"
+
 using std::cerr;
 using std::cout;
 using std::endl;
@@ -30,8 +32,6 @@ static void glfw_error_callback(int error, const char* description) {
 #endif
 }
 
-bool FrameBufferContext::firstSync_ = true;
-
 int frameBufferContextCnt = 0;
 
 FrameBufferContext::FrameBufferContext(V4D& v4d, const string& title, cv::Ptr<FrameBufferContext> other) :
@@ -44,6 +44,7 @@ FrameBufferContext::FrameBufferContext(V4D& v4d, const cv::Size& framebufferSize
                 minor), samples_(samples), debug_(debug), isVisible_(offscreen), viewport_(0, 0, framebufferSize.width, framebufferSize.height), framebufferSize_(framebufferSize), hasParent_(false), rootWindow_(rootWindow), parent_(parent), framebuffer_(), isRoot_(root) {
     init();
     index_ = ++frameBufferContextCnt;
+    currentFBOTarget_ = frameBufferID_;
 }
 
 FrameBufferContext::~FrameBufferContext() {
@@ -56,71 +57,6 @@ GLuint FrameBufferContext::getFramebufferID() {
 
 GLuint FrameBufferContext::getTextureID() {
     return textureID_;
-}
-
-
-void FrameBufferContext::loadShader(const size_t& index) {
-#if !defined(OPENCV_V4D_USE_ES3)
-    const string shaderVersion = "330";
-#else
-    const string shaderVersion = "300 es";
-#endif
-
-    const string vert =
-            "    #version " + shaderVersion
-                    + R"(
-    layout (location = 0) in vec3 aPos;
-    
-    void main()
-    {
-        gl_Position = vec4(aPos, 1.0);
-    }
-)";
-
-    const string frag =
-            "    #version " + shaderVersion
-                    + R"(
-    precision mediump float;
-    out vec4 FragColor;
-    
-    uniform sampler2D texture0;
-    uniform vec2 resolution;
-
-    void main()
-    {      
-        //translate screen coordinates to texture coordinates and flip the y-axis.   
-        vec4 texPos = gl_FragCoord / vec4(resolution.x, resolution.y * -1.0f, 1.0, 1.0);
-        vec4 texColor0 = texture(texture0, texPos.xy);
-        if(texColor0.a == 0.0)
-            discard;
-        else
-            FragColor = texColor0;
-    }
-)";
-
-    unsigned int handles[3];
-    cv::v4d::init_shaders(handles, vert.c_str(), frag.c_str(), "fragColor");
-    shader_program_hdls_[index] = handles[0];
-}
-
-void FrameBufferContext::loadBuffers(const size_t& index) {
-    glGenVertexArrays(1, &copyVaos[index]);
-    glBindVertexArray(copyVaos[index]);
-
-    glGenBuffers(1, &copyVbos[index]);
-    glGenBuffers(1, &copyEbos[index]);
-
-    glBindBuffer(GL_ARRAY_BUFFER, copyVbos[index]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(copyVertices), copyVertices, GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, copyEbos[index]);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(copyIndices), copyIndices, GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*) 0);
-    glEnableVertexAttribArray(0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
 }
 
 void FrameBufferContext::init() {
@@ -223,15 +159,26 @@ void FrameBufferContext::init() {
     	CV_LOG_WARNING(nullptr, "CL-GL sharing failed with unknown error");
         clglSharing_ = false;
     }
-//#else
-//    clglSharing_ = false;
-//#endif
 
     context_ = CLExecContext_t::getCurrent();
 
     setup();
     if(Global::is_main() && !parent_) {
-    	event::init<cv::Point2f>();
+    	event::init<cv::Point2f>(
+    			[](GLFWwindow *window, int key, int scancode, int action, int mods){
+					ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+					return ImGui::GetIO().WantCaptureKeyboard;
+    			}, [](GLFWwindow *window, int button, int action, int mods) {
+					ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+					return ImGui::GetIO().WantCaptureMouse;
+    			}, [](GLFWwindow *window, double xoffset, double yoffset) {
+    				ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
+    				return false;
+    			}, [](GLFWwindow *window, double xpos, double ypos) {
+    				ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
+    				return false;
+    			}
+    	);
 
 //    glfwSetWindowUserPointer(getGLFWWindow(), getV4D().get());
 ////    glfwSetDropCallback(getGLFWWindow(), [](GLFWwindow* glfwWin, int count, const char** filenames) {
@@ -479,6 +426,7 @@ void FrameBufferContext::copyFrom(const cv::UMat& src) {
 }
 
 void FrameBufferContext::copyToRootWindow() {
+	this->makeCurrent();
     GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, frameBufferID_));
 	GL_CHECK(glReadBuffer(GL_COLOR_ATTACHMENT0));
 
@@ -541,11 +489,23 @@ cv::UMat& FrameBufferContext::fb() {
 }
 
 void FrameBufferContext::begin(GLenum framebufferTarget, GLuint frameBufferID) {
-    this->makeCurrent();
+    currentFBOTarget_ = frameBufferID;
+	this->makeCurrent();
     GL_CHECK(glBindFramebuffer(framebufferTarget, frameBufferID));
 }
 
 void FrameBufferContext::end() {
+	if(currentFBOTarget_ != getFramebufferID()) {
+		GL_CHECK(glBindFramebuffer(GL_READ_FRAMEBUFFER, currentFBOTarget_));
+		GLint dims[4] = {0};
+		glGetIntegerv(GL_VIEWPORT, dims);
+		GLint fbX = dims[0];
+		GLint fbY = dims[1];
+		GLint fbWidth = dims[2];
+		GLint fbHeight = dims[3];
+
+		blitFrameBufferToFrameBuffer(cv::Rect(fbX, fbY, fbWidth, fbHeight), size(), getFramebufferID(), false, false);
+	}
 }
 
 void FrameBufferContext::download(cv::UMat& m) {
@@ -579,12 +539,12 @@ void FrameBufferContext::acquireFromGL(cv::UMat& m) {
     {
         download(m);
     }
-    //FIXME
+
     cv::flip(m, m, 0);
 }
 
 void FrameBufferContext::releaseToGL(cv::UMat& m) {
-    //FIXME
+
     cv::flip(m, m, 0);
 #ifdef HAVE_OPENCL
     if (cv::ocl::useOpenCL() && clglSharing_) {
@@ -709,32 +669,6 @@ bool FrameBufferContext::hasParent() {
 
 bool FrameBufferContext::hasRootWindow() {
     return rootWindow_ != nullptr;
-}
-
-void FrameBufferContext::fence() {
-    CV_Assert(currentSyncObject_ == 0);
-    currentSyncObject_ = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
-    CV_Assert(currentSyncObject_ != 0);
-}
-
-bool FrameBufferContext::wait(const uint64_t& timeout) {
-    if(firstSync_) {
-        currentSyncObject_ = 0;
-        firstSync_ = false;
-        return true;
-    }
-    CV_Assert(currentSyncObject_ != 0);
-    GLuint ret = glClientWaitSync(static_cast<GLsync>(currentSyncObject_),
-    GL_SYNC_FLUSH_COMMANDS_BIT, timeout);
-    GL_CHECK();
-    CV_Assert(GL_WAIT_FAILED != ret);
-    if(GL_CONDITION_SATISFIED == ret || GL_ALREADY_SIGNALED == ret) {
-        currentSyncObject_ = 0;
-        return true;
-    } else {
-        currentSyncObject_ = 0;
-        return false;
-    }
 }
 }
 }

@@ -7,8 +7,7 @@ class FontRenderingPlan: public Plan {
 	//The text to render
 	string hw_ = "Hello World";
 public:
-	FontRenderingPlan(const cv::Size& sz) : Plan(sz) {
-	}
+	using Plan::Plan;
 
 	void infer(Ptr<V4D> win) override {
 		//Render the text at the center of the screen. Note that you can load you own fonts.
@@ -26,8 +25,8 @@ public:
 };
 
 int main() {
-	cv::Ptr<FontRenderingPlan> plan = new FontRenderingPlan(cv::Size(960,960));
+	cv::Ptr<FontRenderingPlan> plan = new FontRenderingPlan(cv::Rect(0, 0, 960, 960));
 	cv::Ptr<V4D> window = V4D::make(plan->size(), "Font Rendering");
-	window->run(plan);
+	window->run(plan, 0);
 }
 

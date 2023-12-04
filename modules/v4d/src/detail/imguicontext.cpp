@@ -92,7 +92,6 @@ void ImGuiContextImpl::render(bool showFPS) {
 		renderCallback_(context_);
 	ImGui::Render();
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-	mainFbContext_->makeNoneCurrent();
 }
 }
 }

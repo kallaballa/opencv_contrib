@@ -7,9 +7,7 @@ class VideoEditingPlan : public Plan {
 	cv::UMat frame_;
 	const string hv_ = "Hello Video!";
 public:
-	VideoEditingPlan(const cv::Size& sz) : Plan(sz) {
-	}
-
+	using Plan::Plan;
 	void infer(Ptr<V4D> win) override {
 		//Capture video from the source
 		win->capture();
@@ -35,19 +33,19 @@ int main(int argc, char** argv) {
         cerr << "Usage: video_editing <input-video-file> <output-video-file>" << endl;
         exit(1);
     }
-    Ptr<VideoEditingPlan> plan = new VideoEditingPlan(cv::Size(960,960));
+    Ptr<VideoEditingPlan> plan = new VideoEditingPlan(cv::Rect(0, 0, 960,960));
     Ptr<V4D> window = V4D::make(plan->size(), "Video Editing");
 
     //Make the video source
-    auto src = makeCaptureSource(window, argv[1]);
+    auto src = Source::make(window, argv[1]);
 
     //Make the video sink
-    auto sink = makeWriterSink(window, argv[2], src->fps(), plan->size());
+    auto sink = Sink::make(window, argv[2], src->fps(), plan->size());
 
     //Attach source and sink
     window->setSource(src);
     window->setSink(sink);
 
-    window->run(plan);
+    window->run(plan, 0);
 }
 

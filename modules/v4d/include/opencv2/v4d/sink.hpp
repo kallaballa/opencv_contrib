@@ -11,10 +11,13 @@
 #include <opencv2/core/cvdef.h>
 #include <opencv2/core/mat.hpp>
 #include <mutex>
+#include <string>
 
+using std::string;
 namespace cv {
 namespace v4d {
 
+class V4D;
 /*!
  * A Sink object represents a way to write data produced by V4D (e.g. a video-file).
  */
@@ -53,6 +56,13 @@ public:
      * @param frame The frame to pass to the consumer. (e.g. VideoWriter)
      */
     CV_EXPORTS void operator()(const uint64_t& seq, const cv::UMat& frame);
+
+
+    static cv::Ptr<Sink> make(cv::Ptr<V4D> window, const string& outputFilename, const float fps, const cv::Size& frameSize);
+    static cv::Ptr<Sink> make(cv::Ptr<V4D> window, const string& outputFilename, const float fps,const cv::Size& frameSize, int fourcc);
+private:
+    static cv::Ptr<Sink> makeVaSink(cv::Ptr<V4D> window, const string& outputFilename, const int fourcc, const float fps, const cv::Size& frameSize, const int vaDeviceIndex);
+    static cv::Ptr<Sink> makeAnyHWSink(const string& outputFilename, const int fourcc, const float fps, const cv::Size& frameSize);
 };
 
 } /* namespace v4d */

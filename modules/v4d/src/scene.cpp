@@ -91,7 +91,7 @@ AssimpScene::AssimpScene(const std::string filename) {
     scene_ = importer_.ReadFile(filename, aiProcess_Triangulate | aiProcess_GenNormals);
 
     if (!scene_ || (scene_->mFlags & AI_SCENE_FLAGS_INCOMPLETE) || !scene_->mRootNode) {
-        throw new std::runtime_error("Unable to load scene: " + filename);
+        throw std::runtime_error("Unable to load scene: " + filename);
     }
 	bbox_ = calculateBoundingBox(scene_->mMeshes[0]);
 	autoScale_= calculateAutoScale(bbox_);
@@ -735,8 +735,6 @@ bool Scene::load(const std::string& filename) {
 }
 
 void Scene::render(const cv::Vec3f& cameraPosition, const cv::Vec3f& cameraDirection, const cv::Matx33f& cameraRotation, const cv::Matx44f& projection, const cv::Matx44f& view, const cv::Matx44f& modelView) {
-	cerr << cameraRotation << endl;
-	cerr << cameraPosition << endl;
 	GL_CHECK(glViewport(viewport_.x, viewport_.y, viewport_.width, viewport_.height));
 	GL_CHECK(glDepthMask(GL_TRUE));
 	GL_CHECK(glEnable(GL_DEPTH_TEST));

@@ -28,36 +28,22 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext) :
 }
 
 void NanoVGContext::execute(std::function<void()> fn) {
-//        if (!fbCtx()->hasParent()) {
-//            UMat tmp;
-//            mainFbContext_->copyTo(tmp);
-//            fbCtx()->copyFrom(tmp);
-//        }
-
         {
             FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
             glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
             NanoVGContext::Scope nvgScope(*this);
             cv::v4d::nvg::detail::NVG::initializeContext(context_);
             fn();
-    		GL_CHECK(glBindFramebuffer(GL_READ_FRAMEBUFFER, 0));
-    		fbCtx()->blitFrameBufferToFrameBuffer(cv::Rect(0, 0, fbCtx()->size().width, fbCtx()->size().height), fbCtx()->size(), fbCtx()->getFramebufferID(), false, false);
-    		fbCtx()->makeNoneCurrent();
         }
-
-//        if (!fbCtx()->hasParent()) {
-//            UMat tmp;
-//            fbCtx()->copyTo(tmp);
-//            mainFbContext_->copyFrom(tmp);
-//        }
 }
 
 
 void NanoVGContext::begin() {
     float w = fbCtx()->size().width;
     float h = fbCtx()->size().height;
-    float ws = w / scale_.width;
-    float hs = h / scale_.height;
+    cv::Rect vp = fbCtx()->getV4D()->plan()->viewport();
+    float ws = w / vp.width;
+    float hs = h / vp.height;
     float r = fbCtx()->pixelRatioX();
     CV_UNUSED(ws);
     CV_UNUSED(hs);
@@ -71,10 +57,6 @@ void NanoVGContext::end() {
 
     nvgEndFrame(context_);
     nvgRestore(context_);
-}
-
-void NanoVGContext::setScale(const cv::Size_<float>& scale) {
-	scale_ = scale;
 }
 
 cv::Ptr<FrameBufferContext> NanoVGContext::fbCtx() {

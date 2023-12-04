@@ -214,14 +214,10 @@ public:
 	}
 
 	void infer(cv::Ptr<V4D> window) override {
-		window->gl([](){
-			//Clear the background
-			glClearColor(0.2f, 0.24f, 0.4f, 1.0f);
-			glClear(GL_COLOR_BUFFER_BIT);
-		});
-
 		//Render using multiple OpenGL contexts
 		window->gl([](GLuint& v, GLuint& sp, GLuint& ut){
+			glClearColor(0.2f, 0.24f, 0.4f, 1.0f);
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 			render_scene(v, sp, ut);
 		}, vao_, shaderProgram_, uniformTransform_);
 
@@ -236,13 +232,13 @@ public:
 };
 
 int main() {
-	cv::Ptr<CubeDemoPlan> plan = new CubeDemoPlan(cv::Size(1280, 720));
+	cv::Ptr<CubeDemoPlan> plan = new CubeDemoPlan(cv::Rect(0, 0, 1280, 720));
     cv::Ptr<V4D> window = V4D::make(plan->size(), "Cube Demo", ALL);
 
     //Creates a writer sink (which might be hardware accelerated)
-    auto sink = makeWriterSink(window, "cube-demo.mkv", 60, plan->size());
+    auto sink = Sink::make(window, "cube-demo.mkv", 60, plan->size());
     window->setSink(sink);
-    window->run(plan);
+    window->run(plan, 0);
 
     return 0;
 }

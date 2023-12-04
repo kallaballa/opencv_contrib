@@ -7,9 +7,7 @@ using namespace cv::v4d;
 class CustomSourceAndSinkPlan : public Plan {
 	string hr_ = "Hello Rainbow!";
 public:
-	CustomSourceAndSinkPlan(const cv::Size& sz) : Plan(sz) {
-	}
-
+	using Plan::Plan;
 	void infer(cv::Ptr<V4D> win) override {
 		win->capture();
 
@@ -29,7 +27,7 @@ public:
 };
 
 int main() {
-	Ptr<CustomSourceAndSinkPlan> plan = new CustomSourceAndSinkPlan(cv::Size(960, 960));
+	Ptr<CustomSourceAndSinkPlan> plan = new CustomSourceAndSinkPlan(cv::Rect(0, 0, 960, 960));
     Ptr<V4D> window = V4D::make(plan->size(), "Custom Source/Sink");
 
 	//Make a source that generates rainbow frames.
@@ -57,6 +55,6 @@ int main() {
 	window->setSource(src);
 	window->setSink(sink);
 
-	window->run(plan);
+	window->run(plan, 0);
 }
 

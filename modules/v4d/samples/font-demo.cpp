@@ -61,14 +61,11 @@ class FontDemoPlan : public Plan {
 public:
 	using Plan::Plan;
 
-	FontDemoPlan(const cv::Size& sz) : FontDemoPlan(cv::Rect(0, 0, sz.width, sz.height)) {
+	FontDemoPlan(const cv::Rect& vp) : Plan(vp) {
 		Global::registerShared(params_);
 		Global::registerShared(textVars_);
 		Global::registerShared(tm_);
 		Global::registerShared(stars_);
-	}
-
-	FontDemoPlan(const cv::Rect& vp) : Plan(vp) {
 	}
 
 	void gui(cv::Ptr<V4D> window) override {
@@ -233,11 +230,11 @@ FontDemoPlan::Params FontDemoPlan::params_;
 FontDemoPlan::TextVars FontDemoPlan::textVars_;
 
 int main() {
-	cv::Ptr<FontDemoPlan> plan = new FontDemoPlan(cv::Size(1280, 720));
+	cv::Ptr<FontDemoPlan> plan = new FontDemoPlan(cv::Rect(0, 0, 1280, 720));
 	cv::Ptr<V4D> window = V4D::make(plan->size(), "Font Demo", ALL);
 
-	auto sink = makeWriterSink(window, "font-demo.mkv", 60, plan->size());
+	auto sink = Sink::make(window, "font-demo.mkv", 60, plan->size());
 	window->setSink(sink);
-	window->run(plan);
+	window->run(plan, 0);
     return 0;
 }

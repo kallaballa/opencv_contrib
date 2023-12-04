@@ -1049,7 +1049,6 @@ static void init(
 	glfwSetKeyCallback(win,
 			[](GLFWwindow *window, int key, int scancode, int action,
 					int mods) {
-//				ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
 				if (!detail::keyboardCallback || detail::keyboardCallback(window, key, scancode, action, mods)) {
 					if (key != GLFW_KEY_UNKNOWN) {
 						Keyboard::Key v4d_key = detail::v4d_key(key);
@@ -1062,9 +1061,6 @@ static void init(
 
 	glfwSetMouseButtonCallback(win,
 			[](GLFWwindow *window, int button, int action, int mods) {
-//				ImGui_ImplGlfw_MouseButtonCallback(window, button, action,
-//						mods);
-
 				if (!detail::mouseButtonCallback || detail::mouseButtonCallback(window, button, action, mods)) {
 					if (button != GLFW_MOUSE_BUTTON_LAST) {
 						typename Mouse<Tpoint>::Button mouseButton = detail::v4d_mouse_button<Tpoint>(button);
@@ -1080,8 +1076,6 @@ static void init(
 			});
 	glfwSetScrollCallback(win,
 			[](GLFWwindow *window, double xoffset, double yoffset) {
-		//				ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
-
 			if (!detail::scrollCallback || detail::scrollCallback(window, xoffset, yoffset)) {
 					Tpoint offset(xoffset, yoffset);
 					double x, y;
@@ -1095,7 +1089,7 @@ static void init(
 	glfwSetCursorPosCallback(win,
 			[](GLFWwindow *window, double xpos, double ypos) {
 				static Tpoint prevMousePos;
-//				ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
+
 				if (!detail::cursorPosCallback || detail::cursorPosCallback(window, xpos, ypos)) {
 					double x, y;
 					glfwGetCursorPos(window, &x, &y);

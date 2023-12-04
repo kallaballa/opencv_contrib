@@ -489,47 +489,6 @@ CV_EXPORTS bool keepRunning();
 
 CV_EXPORTS void requestFinish();
 
-/*!
- * Creates an Intel VAAPI enabled VideoWriter sink object to use in conjunction with #V4D::setSink().
- * Usually you would call #makeWriterSink() and let it automatically decide if VAAPI is available.
- * @param outputFilename The filename to write the video to.
- * @param fourcc    The fourcc code of the codec to use.
- * @param fps       The fps of the target video.
- * @param frameSize The frame size of the target video.
- * @param vaDeviceIndex The VAAPI device index to use.
- * @return A VAAPI enabled sink object.
- */
-CV_EXPORTS cv::Ptr<Sink> makeVaSink(cv::Ptr<V4D> window, const string& outputFilename, const int fourcc, const float fps,
-        const cv::Size& frameSize, const int vaDeviceIndex);
-/*!
- * Creates an Intel VAAPI enabled VideoCapture source object to use in conjunction with #V4D::setSource().
- * Usually you would call #makeCaptureSource() and let it automatically decide if VAAPI is available.
- * @param inputFilename The file to read from.
- * @param vaDeviceIndex The VAAPI device index to use.
- * @return A VAAPI enabled source object.
- */
-CV_EXPORTS cv::Ptr<Source> makeVaSource(cv::Ptr<V4D> window, const string& inputFilename, const int vaDeviceIndex);
-/*!
- * Creates a VideoWriter sink object to use in conjunction with #V4D::setSink().
- * This function automatically determines if Intel VAAPI is available and enables it if so.
- * @param outputFilename The filename to write the video to.
- * @param fourcc    The fourcc code of the codec to use.
- * @param fps       The fps of the target video.
- * @param frameSize The frame size of the target video.
-  * @return A (optionally VAAPI enabled) VideoWriter sink object.
- */
-CV_EXPORTS cv::Ptr<Sink> makeWriterSink(cv::Ptr<V4D> window, const string& outputFilename, const float fps,
-        const cv::Size& frameSize);
-CV_EXPORTS cv::Ptr<Sink> makeWriterSink(cv::Ptr<V4D> window, const string& outputFilename, const float fps,
-        const cv::Size& frameSize, const int fourcc);
-/*!
- * Creates a VideoCapture source object to use in conjunction with #V4D::setSource().
- * This function automatically determines if Intel VAAPI is available and enables it if so.
- * @param inputFilename The file to read from.
- * @return A (optionally VAAPI enabled) VideoCapture enabled source object.
- */
-CV_EXPORTS cv::Ptr<Source> makeCaptureSource(cv::Ptr<V4D> window, const string& inputFilename);
-
 void resizePreserveAspectRatio(const cv::UMat& src, cv::UMat& output, const cv::Size& dstSize, const cv::Scalar& bgcolor = {0,0,0,255});
 
 }
