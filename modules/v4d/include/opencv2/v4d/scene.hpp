@@ -218,7 +218,7 @@ private:
 		uniform sampler2D hdrBuffer;
 		uniform int passThrough;
 		out vec4 FragColor;
-		const float gamma = 2.2;
+		const float gamma = 2.8;
 
 		void main()
 		{

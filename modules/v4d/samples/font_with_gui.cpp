@@ -20,10 +20,9 @@ public:
 	}
 
 	void gui(Ptr<V4D> window) override {
-		window->imgui([](Ptr<V4D> win, ImGuiContext* ctx, Params& params) {
+		window->imgui([](Ptr<V4D> win, Params& params) {
 			CV_UNUSED(win);
 			using namespace ImGui;
-			SetCurrentContext(ctx);
 			Begin("Settings");
 			SliderFloat("Font Size", params.ptr<float>(SIZE), 1.0f, 100.0f);
 			ColorPicker4("Text Color", params.ptr<cv::Scalar_<float>>(COLOR)->val);

@@ -421,11 +421,12 @@ public:
 	}
 
 	void setup(cv::Ptr<V4D> window) override {
-		window->ext([](const cv::Rect& viewport, gl::Scene& scene, const string& filename) {
+		window->ext([](gl::Scene& scene, const string& filename) {
 			CV_Assert(scene.load(filename));
-		}, viewport(), scene_, filename_);
-
-		window->once([](const cv::Rect& viewport, const gl::Scene& scene, Transform& transform) {
+		}, scene_, filename_);
+		window->branch(BranchType::ONCE, always_);
+		{
+		window->plain([](const cv::Rect& viewport, const gl::Scene& scene, Transform& transform) {
 			double scale = scene.autoScale();
 			//initial center of scene deduced from bounding box
 			transform.center_ = scene.autoCenter();
@@ -437,6 +438,8 @@ public:
 		    //gl::modelView works analogous to glm::modelView
 		    transform.model_ = gl::modelView(transform.translate_, transform.rotation_, transform.scale_);
 		}, viewport(), scene_, transform_);
+		}
+		window->endbranch(BranchType::ONCE, always_);
 	}
 
 
@@ -542,7 +545,7 @@ int main(int argc, char** argv) {
 	CV_Assert(argc == 2);
 	string filename = argv[1];
 	cv::Ptr<SceneDemoPlan> plan = new SceneDemoPlan(cv::Rect(0,0, 1920, 1080), filename);
-	cv::Ptr<V4D> window = V4D::make(plan->size(), "Scene Demo", IMGUI);
+	cv::Ptr<V4D> window = V4D::make(plan->size(), "Scene Demo", AllocateFlags::IMGUI);
 	window->setFullscreen(true);
     auto sink = Sink::make(window, "scene-demo.mkv", 60, plan->size());
     window->setSink(sink);

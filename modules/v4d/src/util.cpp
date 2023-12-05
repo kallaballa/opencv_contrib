@@ -61,10 +61,11 @@ size_t cnz(const cv::UMat& m) {
 CV_EXPORTS void copy_shared(const cv::UMat& src, cv::UMat& dst) {
 	if(dst.empty())
 		dst.create(src.size(), src.type());
-	src.copyTo(dst.getMat(cv::ACCESS_WRITE));
+	Mat m = dst.getMat(cv::ACCESS_WRITE);
+	src.copyTo(m);
 }
 
-cv::Scalar colorConvert(const cv::Scalar& src, cv::ColorConversionCodes code) {
+CV_EXPORTS cv::Scalar colorConvert(const cv::Scalar& src, cv::ColorConversionCodes code) {
     cv::Mat tmpIn(1, 1, CV_8UC3);
     cv::Mat tmpOut(1, 1, CV_8UC3);
 

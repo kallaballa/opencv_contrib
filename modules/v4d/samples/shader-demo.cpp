@@ -264,10 +264,9 @@ public:
 	}
 
     void gui(cv::Ptr<V4D> window) override {
-        window->imgui([](cv::Ptr<V4D> win, ImGuiContext* ctx, Params& params) {
+        window->imgui([](cv::Ptr<V4D> win, Params& params) {
             CV_UNUSED(win);
             using namespace ImGui;
-            SetCurrentContext(ctx);
             Begin("Fractal");
             Text("Navigation");
             SliderInt("Iterations", &params.maxIterations_, 3, 100000);
@@ -332,7 +331,7 @@ int main(int argc, char** argv) {
     }
 
     cv::Ptr<ShaderDemoPlan> plan = new ShaderDemoPlan(cv::Rect(0, 0, 1280, 720));
-	cv::Ptr<V4D> window = V4D::make(plan->size(), "Mandelbrot Shader Demo", IMGUI);
+	cv::Ptr<V4D> window = V4D::make(plan->size(), "Mandelbrot Shader Demo", AllocateFlags::IMGUI);
 
 	auto src = Source::make(window, argv[1]);
 	auto sink = Sink::make(window, "shader-demo.mkv", src->fps(), plan->size());

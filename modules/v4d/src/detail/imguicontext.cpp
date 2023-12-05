@@ -4,12 +4,14 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include "opencv2/v4d/v4d.hpp"
+#include "opencv2/v4d/detail/imguicontext.hpp"
+
 #if defined(OPENCV_V4D_USE_ES3) || defined(EMSCRIPTEN)
 #   define IMGUI_IMPL_OPENGL_ES3
 #endif
 
 #define IMGUI_IMPL_OPENGL_LOADER_CUSTOM
-
+#include "imgui.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 
@@ -21,7 +23,6 @@ ImGuiContextImpl::ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext) :
 	FrameBufferContext::GLScope glScope(mainFbContext_, GL_FRAMEBUFFER);
 	IMGUI_CHECKVERSION();
 	context_ = ImGui::CreateContext();
-	ImGui::SetCurrentContext(context_);
 
 	ImGuiIO& io = ImGui::GetIO();
 	(void)io;
@@ -30,7 +31,7 @@ ImGuiContextImpl::ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext) :
 	ImGui::StyleColorsDark();
 
 	ImGui_ImplGlfw_InitForOpenGL(mainFbContext_->getGLFWWindow(), false);
-	ImGui_ImplGlfw_SetCallbacksChainForAllWindows(true);
+//	ImGui_ImplGlfw_SetCallbacksChainForAllWindows(true);
 #if !defined(OPENCV_V4D_USE_ES3)
 	ImGui_ImplOpenGL3_Init("#version 330");
 #else
@@ -38,17 +39,20 @@ ImGuiContextImpl::ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext) :
 #endif
 }
 
-void ImGuiContextImpl::build(std::function<void(ImGuiContext*)> fn) {
-    renderCallback_ = fn;
+ImGuiContext* ImGuiContextImpl::getContext() {
+	return context_;
 }
 
-void ImGuiContextImpl::makeCurrent() {
-    ImGui::SetCurrentContext(context_);
+void ImGuiContextImpl::setContext(ImGuiContext* ctx) {
+	context_ = ctx;
+}
+
+void ImGuiContextImpl::build(std::function<void()> fn) {
+    renderCallback_ = fn;
 }
 
 void ImGuiContextImpl::render(bool showFPS) {
 	mainFbContext_->makeCurrent();
-	ImGui::SetCurrentContext(context_);
 
 	GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
 #if !defined(OPENCV_V4D_USE_ES3)
@@ -89,7 +93,7 @@ void ImGuiContextImpl::render(bool showFPS) {
 		ImGui::PopStyleColor(1);
 	}
 	if (renderCallback_)
-		renderCallback_(context_);
+		renderCallback_();
 	ImGui::Render();
 	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }

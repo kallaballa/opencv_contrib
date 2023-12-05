@@ -43,18 +43,18 @@ int v4d_beauty_main(int argc, char **argv);
 class MontageDemoPlan : public Plan {
 	const cv::Size tiling_  = cv::Size(3, 3);
 	const cv::Size tileSz_ = cv::Size(640, 360);
-	const cv::Rect viewport_ = cv::Rect(0, 720, 640, 360);
+	const cv::Rect tileViewport_ = cv::Rect(0, 720, 640, 360);
 
 	std::vector<Plan*> plans_ = {
-		new CubeDemoPlan(viewport_),
-		new ManyCubesDemoPlan(viewport_),
-		new VideoDemoPlan(viewport_),
-		new NanoVGDemoPlan(viewport_),
-		new ShaderDemoPlan(viewport_),
-		new FontDemoPlan(viewport_),
-		new PedestrianDemoPlan(viewport_),
-		new BeautyDemoPlan(viewport_),
-		new OptflowDemoPlan(viewport_)
+		new CubeDemoPlan(tileViewport_),
+		new ManyCubesDemoPlan(tileViewport_),
+		new VideoDemoPlan(tileViewport_),
+		new NanoVGDemoPlan(tileViewport_),
+		new ShaderDemoPlan(tileViewport_),
+		new FontDemoPlan(tileViewport_),
+		new PedestrianDemoPlan(tileViewport_),
+		new BeautyDemoPlan(tileViewport_),
+		new OptflowDemoPlan(tileViewport_)
 	};
 	struct Frames {
 		std::vector<cv::UMat> results_ = std::vector<cv::UMat>(9);
@@ -68,13 +68,16 @@ public:
 	}
 
 	virtual void setup(cv::Ptr<V4D> window) override {
-		window->setFramebufferViewport(viewport_);
+		window->setFramebufferViewport(tileViewport_);
 		for(auto* plan : plans_) {
+			window->setPrefix(std::to_string((size_t)plan));
 			plan->setup(window);
 		}
 	}
 
 	virtual void infer(cv::Ptr<V4D> window) override {
+		window->setFramebufferViewport(tileViewport_);
+		window->setPrefix("");
 		window->capture();
 		window->setDisableIO(true);
 		window->fb([](cv::UMat& framebuffer, const cv::Size& tileSize, cv::UMat& captured){
@@ -86,14 +89,18 @@ public:
 			auto* plan = plans_[i];
 			window->fb([](cv::UMat& framebuffer, const cv::Size& tileSize, const cv::UMat& captured){
 				framebuffer = cv::Scalar::all(0);
-				captured.copyTo(framebuffer(cv::Rect(0, tileSize.height * 2, tileSize.width, tileSize.height)));
+				captured.copyTo(framebuffer);
 			}, tileSz_, frames_.captured);
+			window->setPrefix(std::to_string((size_t)plan));
 			plan->infer(window);
+			window->setPrefix("");
 			window->fb([](const cv::UMat& framebuffer, cv::UMat& result){
 				framebuffer.copyTo(result);
 			}, frames_.results_[i]);
 		}
 
+		cerr << viewport() << endl;
+		window->setFramebufferViewport(viewport());
 		window->fb([](cv::UMat& framebuffer, const cv::Size& tileSz, const Frames& frames){
 			int w = tileSz.width;
 			int h = tileSz.height;
@@ -101,15 +108,17 @@ public:
 
 			for(size_t x = 0; x < 3; ++x)
 				for(size_t y = 0; y < 3; ++y)
-					frames.results_[x * 3 + y](cv::Rect(0, h * 2, w, h)).copyTo(framebuffer(cv::Rect(w * x, h * y, w, h)));
+					frames.results_[x * 3 + y].copyTo(framebuffer(cv::Rect(w * x, h * y, w, h)));
 		}, tileSz_, frames_);
-
+		window->setFramebufferViewport(tileViewport_);
 		window->setDisableIO(false);
 		window->write();
 	}
 
 	virtual void teardown(cv::Ptr<V4D> window) override {
+		window->setFramebufferViewport(tileViewport_);
 		for(auto* plan : plans_) {
+			window->setPrefix(std::to_string((size_t)plan));
 			plan->teardown(window);
 		}
 	}
@@ -122,7 +131,7 @@ int main(int argc, char** argv) {
     }
 
 	cv::Ptr<MontageDemoPlan> plan = new MontageDemoPlan(cv::Rect(0, 0, 1920, 1080));
-    cv::Ptr<V4D> window = V4D::make(plan->size(), "Montage Demo", ALL);
+    cv::Ptr<V4D> window = V4D::make(plan->size(), "Montage Demo", AllocateFlags::ALL);
     //Creates a source from a file or a device
     auto src = Source::make(window, argv[1]);
     window->setSource(src);

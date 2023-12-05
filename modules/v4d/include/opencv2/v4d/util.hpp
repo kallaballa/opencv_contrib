@@ -18,7 +18,7 @@
 #endif
 #include <opencv2/core/ocl.hpp>
 #include <opencv2/imgproc.hpp>
-
+#include <set>
 #include <unistd.h>
 #include <mutex>
 #include <functional>
@@ -49,6 +49,11 @@ public:
 class CV_EXPORTS Global {
 	inline static std::mutex global_mtx_;
 
+	inline static std::mutex locking_mtx_;
+	inline static bool locking_ = 0;
+
+	inline static std::set<string> once_;
+
 	inline static std::mutex frame_cnt_mtx_;
 	inline static uint64_t frame_cnt_ = 0;
 
@@ -70,6 +75,7 @@ class CV_EXPORTS Global {
     inline static size_t workers_started_ = 0;
     inline static size_t next_worker_idx_ = 0;
 	inline static std::mutex sharedMtx_;
+
 	inline static std::map<size_t, std::mutex*> shared_;
 	inline static std::map<std::thread::id, size_t> thread_worker_id_;
 	typedef typename std::map<size_t, std::mutex*>::iterator Iterator;
@@ -132,54 +138,86 @@ public:
     	return global_mtx_;
     }
 
+	CV_EXPORTS static const bool once(string name) {
+	    static std::mutex mtx;
+		std::lock_guard<std::mutex> lock(mtx);
+		string stem = name.substr(0, name.find_last_of("-"));
+		std::cerr << "stem :" << stem << std::endl;
+		if(once_.empty()) {
+			once_.insert(stem);
+			std::cerr << "EMPTY" << std::endl;
+			return true;
+		}
+
+		auto it = once_.find(stem);
+		if(it != once_.end()) {
+			std::cerr << "FOUND" << std::endl;
+			return false;
+		} else {
+			std::cerr << "NOT FOUND" << std::endl;
+			once_.insert(stem);
+			return true;
+		}
+	}
+
+	CV_EXPORTS static const bool& isLocking() {
+		std::lock_guard<std::mutex> lock(locking_mtx_);
+    	return locking_;
+    }
+
+	CV_EXPORTS static void setLocking(bool l) {
+	    std::lock_guard<std::mutex> lock(locking_mtx_);
+    	locking_ = l;
+    }
+
 	CV_EXPORTS static uint64_t next_frame_cnt() {
-	    std::unique_lock<std::mutex> lock(frame_cnt_mtx_);
+	    std::lock_guard<std::mutex> lock(frame_cnt_mtx_);
     	return frame_cnt_++;
     }
 
 	CV_EXPORTS static uint64_t frame_cnt() {
-	    std::unique_lock<std::mutex> lock(frame_cnt_mtx_);
+	    std::lock_guard<std::mutex> lock(frame_cnt_mtx_);
     	return frame_cnt_;
     }
 
 	CV_EXPORTS static void mul_frame_cnt(const double& factor) {
-	    std::unique_lock<std::mutex> lock(frame_cnt_mtx_);
+	    std::lock_guard<std::mutex> lock(frame_cnt_mtx_);
     	frame_cnt_ *= factor;
     }
 
 	CV_EXPORTS static void add_to_start_time(const size_t& st) {
-		std::unique_lock<std::mutex> lock(start_time_mtx_);
+		std::lock_guard<std::mutex> lock(start_time_mtx_);
 		start_time_ += st;
     }
 
 	CV_EXPORTS static uint64_t start_time() {
-		std::unique_lock<std::mutex> lock(start_time_mtx_);
+		std::lock_guard<std::mutex> lock(start_time_mtx_);
         return start_time_;
     }
 
 	CV_EXPORTS static double fps() {
-		std::unique_lock<std::mutex> lock(fps_mtx_);
+		std::lock_guard<std::mutex> lock(fps_mtx_);
     	return fps_;
     }
 
 	CV_EXPORTS static void set_fps(const double& f) {
-		std::unique_lock<std::mutex> lock(fps_mtx_);
+		std::lock_guard<std::mutex> lock(fps_mtx_);
     	fps_ = f;
     }
 
 	CV_EXPORTS static void set_main_id(const std::thread::id& id) {
-		std::unique_lock<std::mutex> lock(thread_id_mtx_);
+		std::lock_guard<std::mutex> lock(thread_id_mtx_);
 		main_thread_id_ = id;
     }
 
 	CV_EXPORTS static const bool is_main() {
-		std::unique_lock<std::mutex> lock(start_time_mtx_);
+		std::lock_guard<std::mutex> lock(start_time_mtx_);
 		return (main_thread_id_ == default_thread_id_ || main_thread_id_ == std::this_thread::get_id());
 	}
 
 	CV_EXPORTS static bool is_first_run() {
 		static std::mutex mtx;
-		std::unique_lock<std::mutex> lock(mtx);
+		std::lock_guard<std::mutex> lock(mtx);
     	bool f = first_run_;
     	first_run_ = false;
 		return f;
@@ -187,31 +225,31 @@ public:
 
 	CV_EXPORTS static uint64_t next_run_cnt() {
 	    static std::mutex mtx;
-	    std::unique_lock<std::mutex> lock(mtx);
+	    std::lock_guard<std::mutex> lock(mtx);
     	return run_cnt_++;
     }
 
 	CV_EXPORTS static void set_workers_started(const size_t& ws) {
 	    static std::mutex mtx;
-	    std::unique_lock<std::mutex> lock(mtx);
+	    std::lock_guard<std::mutex> lock(mtx);
 		workers_started_ = ws;
 	}
 
 	CV_EXPORTS static size_t workers_started() {
 	    static std::mutex mtx;
-	    std::unique_lock<std::mutex> lock(mtx);
+	    std::lock_guard<std::mutex> lock(mtx);
 		return workers_started_;
 	}
 
 	CV_EXPORTS static size_t next_worker_ready() {
 	    static std::mutex mtx;
-	    std::unique_lock<std::mutex> lock(mtx);
+	    std::lock_guard<std::mutex> lock(mtx);
 		return ++workers_ready_;
 	}
 
 	CV_EXPORTS static size_t next_worker_idx() {
 	    static std::mutex mtx;
-	    std::unique_lock<std::mutex> lock(mtx);
+	    std::lock_guard<std::mutex> lock(mtx);
 	    thread_worker_id_[std::this_thread::get_id()] = next_worker_idx_;
 		return next_worker_idx_++;
 	}
@@ -319,6 +357,7 @@ template<class R, class... Args>
 struct function_traits<R(Args...)> {
     using result_type = R;
     using argument_types = std::tuple<std::remove_reference_t<Args>...>;
+	static const bool value = true;
 };
 
 // partial specialization for function pointer
@@ -326,6 +365,7 @@ template<class R, class... Args>
 struct function_traits<R (*)(Args...)> {
     using result_type = R;
     using argument_types = std::tuple<std::remove_reference_t<Args>...>;
+	static const bool value = true;
 };
 
 // partial specialization for std::function
@@ -333,6 +373,7 @@ template<class R, class... Args>
 struct function_traits<std::function<R(Args...)>> {
     using result_type = R;
     using argument_types = std::tuple<std::remove_reference_t<Args>...>;
+	static const bool value = true;
 };
 
 // partial specialization for pointer-to-member-function (i.e., operator()'s)
@@ -340,12 +381,14 @@ template<class T, class R, class... Args>
 struct function_traits<R (T::*)(Args...)> {
     using result_type = R;
     using argument_types = std::tuple<std::remove_reference_t<Args>...>;
+	static const bool value = true;
 };
 
 template<class T, class R, class... Args>
 struct function_traits<R (T::*)(Args...) const> {
     using result_type = R;
     using argument_types = std::tuple<std::remove_reference_t<Args>...>;
+	static const bool value = true;
 };
 
 
@@ -426,6 +469,11 @@ class V4D;
 
 
 CV_EXPORTS void copy_shared(const cv::UMat& src, cv::UMat& dst);
+
+template<typename Tenum>
+bool contains(const Tenum flags, const Tenum item) {
+	return static_cast<int>(flags) & static_cast<int>(item) != 0;
+}
 
 /*!
  * Convenience function to color convert from Scalar to Scalar

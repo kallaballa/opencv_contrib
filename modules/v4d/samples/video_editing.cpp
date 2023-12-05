@@ -21,9 +21,9 @@ public:
 			fillColor(Scalar(255, 0, 0, 255));
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
 			text(sz.width / 2.0, sz.height / 2.0, str.c_str(), str.c_str() + str.size());
-		}, win->fbSize(), hv_);
+		}, size(), hv_);
 
-		//Write video to the sink (do nothing in case of WebAssembly)
+		//Write video to the sink
 		win->write();
 	}
 };
@@ -33,7 +33,7 @@ int main(int argc, char** argv) {
         cerr << "Usage: video_editing <input-video-file> <output-video-file>" << endl;
         exit(1);
     }
-    Ptr<VideoEditingPlan> plan = new VideoEditingPlan(cv::Rect(0, 0, 960,960));
+    Ptr<VideoEditingPlan> plan = new VideoEditingPlan(cv::Rect(0, 0, 960, 960));
     Ptr<V4D> window = V4D::make(plan->size(), "Video Editing");
 
     //Make the video source

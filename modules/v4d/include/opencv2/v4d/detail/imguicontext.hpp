@@ -6,24 +6,24 @@
 #ifndef SRC_OPENCV_IMGUIContext_HPP_
 #define SRC_OPENCV_IMGUIContext_HPP_
 
-#include "opencv2/v4d/detail/framebuffercontext.hpp"
-#include "imgui.h"
+#include "framebuffercontext.hpp"
 
-#include "opencv2/v4d/detail/imguicontext.hpp"
-
-
+struct ImGuiContext;
 namespace cv {
 namespace v4d {
 namespace detail {
+
 class CV_EXPORTS ImGuiContextImpl {
     friend class cv::v4d::V4D;
     cv::Ptr<FrameBufferContext> mainFbContext_;
-    ImGuiContext* context_;
-    std::function<void(ImGuiContext*)> renderCallback_;
+    inline static ImGuiContext* context_;
+    std::function<void()> renderCallback_;
     bool firstFrame_ = true;
 public:
     CV_EXPORTS ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext);
-    CV_EXPORTS void build(std::function<void(ImGuiContext*)> fn);
+    CV_EXPORTS void build(std::function<void()> fn);
+    CV_EXPORTS static ImGuiContext* getContext();
+    CV_EXPORTS static void setContext(ImGuiContext* ctx);
 protected:
     CV_EXPORTS void makeCurrent();
     CV_EXPORTS void render(bool displayFPS);

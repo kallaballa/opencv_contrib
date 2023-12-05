@@ -222,10 +222,9 @@ public:
 		}, vao_, shaderProgram_, uniformTransform_);
 
 		//Aquire the frame buffer for use by OpenCV
-		window->fb([](cv::UMat& framebuffer, const cv::Rect& viewport, int glowKernelSize, Cache& cache) {
-			cv::UMat roi = framebuffer(viewport);
-			glow_effect(roi, roi, glowKernelSize, cache);
-		}, viewport(), glowKernelSize_, cache_);
+		window->fb([](cv::UMat& framebuffer, int glowKernelSize, Cache& cache) {
+			glow_effect(framebuffer, framebuffer, glowKernelSize, cache);
+		}, glowKernelSize_, cache_);
 
 		window->write();
 	}
@@ -233,7 +232,7 @@ public:
 
 int main() {
 	cv::Ptr<CubeDemoPlan> plan = new CubeDemoPlan(cv::Rect(0, 0, 1280, 720));
-    cv::Ptr<V4D> window = V4D::make(plan->size(), "Cube Demo", ALL);
+    cv::Ptr<V4D> window = V4D::make(plan->size(), "Cube Demo", AllocateFlags::ALL);
 
     //Creates a writer sink (which might be hardware accelerated)
     auto sink = Sink::make(window, "cube-demo.mkv", 60, plan->size());

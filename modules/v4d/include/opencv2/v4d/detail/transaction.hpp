@@ -12,23 +12,25 @@
 namespace cv {
 namespace v4d {
 
+enum class BranchType;
+
 class Transaction {
 private:
 	cv::Ptr<cv::v4d::detail::V4DContext> ctx_;
+	BranchType btype_;
 public:
+	Transaction();
 	virtual ~Transaction() {}
     virtual void perform() = 0;
+    virtual bool ran() = 0;
     virtual bool enabled() = 0;
     virtual bool isPredicate() = 0;
-    virtual bool lock() = 0;
+    bool isBranch();
+    void setBranchType(BranchType btype);
+    BranchType getBranchType();
 
-    void setContext(cv::Ptr<cv::v4d::detail::V4DContext> ctx) {
-    	ctx_ = ctx;
-    }
-
-    cv::Ptr<cv::v4d::detail::V4DContext> getContext() {
-    	return ctx_;
-    }
+    void setContext(cv::Ptr<cv::v4d::detail::V4DContext> ctx);
+    cv::Ptr<cv::v4d::detail::V4DContext> getContext();
 };
 
 namespace detail {
@@ -38,25 +40,31 @@ class TransactionImpl : public Transaction
 {
     static_assert(sizeof...(Ts) == 0 || (!(std::is_rvalue_reference_v<Ts> && ...)));
 private:
-    bool lock_;
     F f;
     std::tuple<Ts...> args;
+    bool ran_;
 public:
     template <typename FwdF, typename... FwdTs,
         typename = std::enable_if_t<sizeof...(Ts) == 0 || ((std::is_convertible_v<FwdTs&&, Ts> && ...))>>
-		TransactionImpl(bool lock, FwdF&& func, FwdTs&&... fwdArgs)
-        : lock_(lock),
-		  f(std::forward<FwdF>(func)),
-          args{std::forward_as_tuple(fwdArgs...)}
+		TransactionImpl(FwdF&& func, FwdTs&&... fwdArgs)
+        : f(std::forward<FwdF>(func)),
+          args{std::forward_as_tuple(fwdArgs...)},
+		  ran_(false)
     {}
 
     virtual ~TransactionImpl() override
 	{}
 
+    virtual bool ran() override {
+    	return ran_;
+    }
+
     virtual void perform() override
     {
         std::apply(f, args);
+        ran_ = true;
     }
+
 
     template<bool b>
     typename std::enable_if<b, bool>::type enabled() {
@@ -85,24 +93,20 @@ public:
     virtual bool isPredicate() override {
     	return isPredicate<std::is_same_v<std::remove_cv_t<typename decltype(f)::result_type>, bool>>();
     }
-
-    virtual bool lock() override {
-    	return lock_;
-    }
 };
 }
 
 template <typename F, typename... Args>
-cv::Ptr<Transaction> make_transaction(bool lock, F f, Args&&... args) {
+cv::Ptr<Transaction> make_transaction(F f, Args&&... args) {
     return cv::Ptr<Transaction>(dynamic_cast<Transaction*>(new detail::TransactionImpl<std::decay_t<F>, std::remove_cv_t<Args>...>
-        (lock, std::forward<F>(f), std::forward<Args>(args)...)));
+        (std::forward<F>(f), std::forward<Args>(args)...)));
 }
 
 
 template <typename F, typename Tfb, typename... Args>
-cv::Ptr<Transaction> make_transaction(bool lock, F f, Tfb&& fb, Args&&... args) {
+cv::Ptr<Transaction> make_transaction(F f, Tfb&& fb, Args&&... args) {
 	return cv::Ptr<Transaction>(dynamic_cast<Transaction*>(new detail::TransactionImpl<std::decay_t<F>, std::remove_cv_t<Tfb>, std::remove_cv_t<Args>...>
-        (lock, std::forward<F>(f), std::forward<Tfb>(fb), std::forward<Args>(args)...)));
+        (std::forward<F>(f), std::forward<Tfb>(fb), std::forward<Args>(args)...)));
 }
 
 

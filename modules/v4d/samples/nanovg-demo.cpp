@@ -115,35 +115,24 @@ class NanoVGDemoPlan : public Plan {
 	cv::UMat bgra_;
 	cv::UMat hsv_;
 	cv::UMat hueChannel_;
-	inline static long cnt_ = 0;
 	double hue_ = 0;
 public:
 	using Plan::Plan;
 
-	NanoVGDemoPlan(const cv::Rect& vp) : Plan(vp) {
-		Global::registerShared(cnt_);
-	}
-
-	NanoVGDemoPlan(const cv::Size& sz) : NanoVGDemoPlan(cv::Rect(0, 0, sz.width, sz.height)) {
-	}
-
 	void infer(cv::Ptr<V4D> window) override {
-		window->plain([](long& cnt, double& hue){
-			long c;
-			Global::lock(cnt);
-			//we use frame count to calculate the current hue
-			double t = ++c / 60.0;
+		window->plain([](double& hue){
+			//we use time to calculate the current hue
+			double t = cv::getTickCount() / cv::getTickFrequency();
 			//nanovg hue fading depending on t
 			hue = (sinf(t * 0.12) + 1.0) * 127.5;
-			Global::unlock(cnt);
-		},  cnt_, hue_);
+		},  hue_);
 
 		window->capture();
 
 		//Acquire the framebuffer and convert it to RGB
-		window->fb([](const cv::UMat &framebuffer, const cv::Rect& viewport, cv::UMat& rgb) {
-			cvtColor(framebuffer(viewport), rgb, cv::COLOR_BGRA2RGB);
-		}, viewport(), rgb_);
+		window->fb([](const cv::UMat &framebuffer, cv::UMat& rgb) {
+			cvtColor(framebuffer, rgb, cv::COLOR_BGRA2RGB);
+		}, rgb_);
 
 		window->plain([](cv::UMat& rgb, cv::UMat& hsv, std::vector<cv::UMat>& hsvChannels, double& hue){
 			//Color-conversion from RGB to HSV
@@ -161,9 +150,9 @@ public:
 		}, rgb_, hsv_, hsvChannels_, hue_);
 
 		//Acquire the framebuffer and convert the rgb_ into it
-		window->fb([](cv::UMat &framebuffer, const cv::Rect& viewport, const cv::UMat& rgb) {
-			cv::cvtColor(rgb, framebuffer(viewport), cv::COLOR_BGR2BGRA);
-		}, viewport(), rgb_);
+		window->fb([](cv::UMat &framebuffer, const cv::UMat& rgb) {
+			cv::cvtColor(rgb, framebuffer, cv::COLOR_BGR2BGRA);
+		}, rgb_);
 
 		//Render using nanovg
 		window->nvg([](const cv::Size &sz, const double& h) {
@@ -181,7 +170,7 @@ int main(int argc, char **argv) {
 	}
 
     cv::Ptr<NanoVGDemoPlan> plan = new NanoVGDemoPlan(cv::Rect(0, 0, 1280, 960));
-    cv::Ptr<V4D> window = V4D::make(plan->size(), "NanoVG Demo", NANOVG);
+    cv::Ptr<V4D> window = V4D::make(plan->size(), "NanoVG Demo", AllocateFlags::NANOVG);
     window->printSystemInfo();
 
     auto src = Source::make(window, argv[1]);

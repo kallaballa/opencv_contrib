@@ -19,16 +19,6 @@ public:
     virtual void execute(std::function<void()> fn) = 0;
 };
 
-class OnceContext : public V4DContext {
-	inline static std::once_flag flag_;
-public:
-	virtual ~OnceContext() {}
-    virtual void execute(std::function<void()> fn) override {
-    	std::call_once(flag_, fn);
-    }
-};
-
-
 class PlainContext : public V4DContext {
 public:
 	virtual ~PlainContext() {}

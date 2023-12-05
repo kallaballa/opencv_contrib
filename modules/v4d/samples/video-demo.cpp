@@ -203,10 +203,9 @@ public:
 			render_scene(vao, shader, uniformTrans);
 		}, vao_, shader_, uniform_transform_);
 
-		window->fb([](cv::UMat& framebuffer, const cv::Rect& viewport, int glowKernelSize, Cache& cache) {
-			cv::UMat roi = framebuffer(viewport);
-			glow_effect(roi, roi, glowKernelSize, cache);
-		}, viewport(), glowKernelSize_, cache_);
+		window->fb([](cv::UMat& framebuffer, int glowKernelSize, Cache& cache) {
+			glow_effect(framebuffer, framebuffer, glowKernelSize, cache);
+		}, glowKernelSize_, cache_);
 
 		window->write();
 	}
@@ -219,7 +218,7 @@ int main(int argc, char** argv) {
     }
 
 	cv::Ptr<VideoDemoPlan> plan = new VideoDemoPlan(cv::Rect(0,0,1280,720));
-    cv::Ptr<V4D> window = V4D::make(plan->size(), "Video Demo", NONE);
+    cv::Ptr<V4D> window = V4D::make(plan->size(), "Video Demo", AllocateFlags::NONE);
 
     auto src = Source::make(window, argv[1]);
     auto sink = Sink::make(window, "video-demo.mkv", src->fps(), plan->size());

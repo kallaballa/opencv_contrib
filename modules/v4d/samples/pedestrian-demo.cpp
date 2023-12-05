@@ -160,11 +160,11 @@ public:
 		{
 			window->capture();
 
-			window->fb([](const cv::UMat& frameBuffer, const cv::Rect& viewport, cv::UMat& videoFrame){
+			window->fb([](const cv::UMat& framebuffer, cv::UMat& videoFrame){
 				//copy video frame
-				cvtColor(frameBuffer(viewport),videoFrame,cv::COLOR_BGRA2RGB);
+				cvtColor(framebuffer,videoFrame,cv::COLOR_BGRA2RGB);
 				//downsample video frame for hog_ detection
-			}, viewport(), videoFrame_);
+			}, videoFrame_);
 
 			window->plain([](const cv::Size downSize, const cv::UMat& videoFrame, cv::UMat& videoFrameDown, cv::UMat& videoFrameDownGrey, cv::UMat& background){
 				cv::resize(videoFrame, videoFrameDown, downSize);
@@ -263,9 +263,9 @@ public:
 			}, size(), scale_,	tracked_);
 
 			//Put it all together
-			window->fb([](cv::UMat& frameBuffer, const cv::Rect& viewport, cv::UMat& bg, int blurKernelSize, Cache& cache){
-				composite_layers(bg, frameBuffer(viewport), frameBuffer(viewport), blurKernelSize, cache);
-			}, viewport(), background_, blurKernelSize_, cache_);
+			window->fb([](cv::UMat& framebuffer, cv::UMat& bg, int blurKernelSize, Cache& cache){
+				composite_layers(bg, framebuffer, framebuffer, blurKernelSize, cache);
+			}, background_, blurKernelSize_, cache_);
 
 			window->write();
 		}
@@ -281,7 +281,7 @@ int main(int argc, char **argv) {
     }
 
     cv::Ptr<PedestrianDemoPlan> plan = new PedestrianDemoPlan(cv::Rect(0, 0, 1280, 720));
-    cv::Ptr<V4D> window = V4D::make(plan->size(), "Pedestrian Demo", ALL);
+    cv::Ptr<V4D> window = V4D::make(plan->size(), "Pedestrian Demo", AllocateFlags::ALL);
 
     window->printSystemInfo();
 

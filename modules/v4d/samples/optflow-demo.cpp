@@ -62,8 +62,8 @@ private:
 		// The theoretical maximum size of the drawing stroke which is scaled by the area of the convex hull
 		// of tracked points and therefor is usually much smaller.
 		int maxStroke_ = 6;
-		// Blue, green, red and alpha. All from 0.0f to 1.0f
-		cv::Scalar_<float> effectColor_ = {0.4f, 0.75f, 1.0f, 0.15f};
+		// Red, green, blue and alpha. All from 0.0f to 1.0f
+		cv::Scalar_<float> effectColor_ = {1.0f, 0.75f, 0.4f, 0.15f};
 		//display on-screen FPS
 		bool showFps_ = true;
 		//Stretch frame buffer to window size
@@ -156,7 +156,7 @@ private:
 	//Visualize the sparse optical flow
 	static void visualize_sparse_optical_flow(const cv::UMat &prevGrey, const cv::UMat &nextGrey, const vector<cv::Point2f> &detectedPoints, const Params& params, Cache& cache) {
 	    //less then 5 points is a degenerate case (e.g. the corners of a video frame)
-		if (detectedPoints.size() > 4) {
+	    if (detectedPoints.size() > 4) {
 	        cv::convexHull(detectedPoints, cache.hull_);
 	        float area = cv::contourArea(cache.hull_);
 	        //make sure the area of the point cloud is positive
@@ -194,35 +194,31 @@ private:
 
 	                using namespace cv::v4d::nvg;
 	                //start drawing
-
+	                beginPath();
+	                strokeWidth(strokeSize);
+	                strokeColor(colorConvert(params.effectColor_ * 255.0, cv::COLOR_RGB2BGR));
 
 	                for (size_t i = 0; i < cache.prevPoints_.size(); i++) {
-	                	beginPath();
-	                	strokeWidth(strokeSize);
-	                	strokeColor(params.effectColor_ * 255.0);
 	                    if (cache.status_[i] == 1 //point was found in prev and new set
 	                            && cache.err_[i] < (1.0 / density) //with a higher density be more sensitive to the feature error
 	                            && cache.upNextPoints_[i].y >= 0 && cache.upNextPoints_[i].x >= 0 //check bounds
 	                            && cache.upNextPoints_[i].y < nextGrey.rows / params.fgScale_ && cache.upNextPoints_[i].x < nextGrey.cols / params.fgScale_ //check bounds
 	                            ) {
-							float len = hypot(fabs(cache.upPrevPoints_[i].x - cache.upNextPoints_[i].x), fabs(cache.upPrevPoints_[i].y - cache.upNextPoints_[i].y));
-							//upper and lower bound of the flow vector length
-							if (len > 0 && len < sqrt(area)) {
-								//collect new points
-								cache.newPoints_.push_back(cache.nextPoints_[i]);
-								//the actual drawing operations
-								moveTo(cache.upNextPoints_[i].x, cache.upNextPoints_[i].y);
-								lineTo(cache.upPrevPoints_[i].x, cache.upPrevPoints_[i].y);
-	//	                            cerr << "line: " << cache.upNextPoints_ << "-> " << cache.upPrevPoints_ << endl;
-							}
-						}
-		                //end drawing
-		                stroke();
+	                        float len = hypot(fabs(cache.upPrevPoints_[i].x - cache.upNextPoints_[i].x), fabs(cache.upPrevPoints_[i].y - cache.upNextPoints_[i].y));
+	                        //upper and lower bound of the flow vector length
+	                        if (len > 0 && len < sqrt(area)) {
+	                            //collect new points
+	                        	cache.newPoints_.push_back(cache.nextPoints_[i]);
+	                            //the actual drawing operations
+	                            moveTo(cache.upNextPoints_[i].x, cache.upNextPoints_[i].y);
+	                            lineTo(cache.upPrevPoints_[i].x, cache.upPrevPoints_[i].y);
+	                        }
+	                    }
 	                }
-
-		            cache.prevPoints_ = cache.newPoints_;
-
+	                //end drawing
+	                stroke();
 	            }
+	            cache.prevPoints_ = cache.newPoints_;
 	        }
 	    }
 	}
@@ -323,9 +319,8 @@ public:
     }
 
     virtual void gui(cv::Ptr<V4D> window) override {
-		window->imgui([](cv::Ptr<V4D> win, ImGuiContext* ctx, Params& params){
+		window->imgui([](cv::Ptr<V4D> win, Params& params){
 	        using namespace ImGui;
-	        SetCurrentContext(ctx);
 
 	        Begin("Effects");
 	        Text("Foreground");
@@ -380,24 +375,28 @@ public:
 	virtual void setup(cv::Ptr<V4D> window) override {
 		cache_.rng_ = std::mt19937(cache_.rd_());
 		window->setStretching(params_.stretch_);
-		window->once([](const cv::Size& sz, Params& params, cv::UMat& foreground){
-			int diag = hypot(double(sz.width), double(sz.height));
-			params.glowKernelSize_ = std::max(int(diag / 150 % 2 == 0 ? diag / 150 + 1 : diag / 150), 1);
-			params.effectColor_[3] /= (Global::workers_started() - 1);
-			foreground.create(sz, CV_8UC4);
-			foreground = cv::Scalar::all(0);
-		}, size(), params_, foreground_);
+		window->branch(BranchType::ONCE, always_);
+		{
+			window->plain([](const cv::Size& sz, Params& params, cv::UMat& foreground){
+				cerr << "ONCE" << endl;
+				int diag = hypot(double(sz.width), double(sz.height));
+				params.glowKernelSize_ = std::max(int(diag / 150 % 2 == 0 ? diag / 150 + 1 : diag / 150), 1);
+				params.effectColor_[3] /= (Global::workers_started() - 1);
+				foreground = cv::UMat(sz, CV_8UC4);
+			}, size(), params_, foreground_);
+		}
+		window->endbranch(BranchType::ONCE, always_);
 	}
 
 	virtual void infer(cv::Ptr<V4D> window) override {
 		window->capture();
 
-		window->fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, cv::UMat& down, cv::UMat& background, const Params& params) {
+		window->fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, cv::UMat& d, cv::UMat& b, const Params& params) {
 			Params p = Global::safe_copy(params);
 			//resize to foreground scale
-			cv::resize(framebuffer(viewport), down, cv::Size(viewport.width * p.fgScale_, viewport.height * p.fgScale_));
+			cv::resize(framebuffer, d, cv::Size(viewport.width * p.fgScale_, viewport.height * p.fgScale_));
 			//save video background
-			framebuffer(viewport).copyTo(background);
+			framebuffer.copyTo(b);
 		}, viewport(), down_, background_, params_);
 
 		window->plain([](const cv::UMat& d, cv::UMat& dng, cv::UMat& dmmg, std::vector<cv::Point2f>& dp, cv::Ptr<cv::BackgroundSubtractor>& bg_subtractor, cv::Ptr<cv::FastFeatureDetector>& detector, Cache& cache){
@@ -408,9 +407,9 @@ public:
 			detect_points(dmmg, dp, detector, cache);
 		}, down_, downNextGrey_, downMotionMaskGrey_, detectedPoints_, bg_subtractor_, detector_, cache_);
 
-		window->nvg([](const cv::UMat& dmmg, const cv::UMat& dpg, const cv::UMat& dng, const std::vector<cv::Point2f>& dp, const Params& params, Cache& cache) {
+		window->nvg([](const cv::UMat& dmmg, cv::UMat& dpg, const cv::UMat& dng, const std::vector<cv::Point2f>& dp, const Params& params, Cache& cache) {
 			const Params p = Global::safe_copy(params);
-			cv::v4d::nvg::clear();
+			nvg::clear();
 			if (!dpg.empty()) {
 				//We don't want the algorithm to get out of hand when there is a scene change, so we suppress it when we detect one.
 				if (!detect_scene_change(dmmg, p, cache)) {
@@ -418,21 +417,16 @@ public:
 					visualize_sparse_optical_flow(dpg, dng, dp, p, cache);
 				}
 			}
+        	dpg = dng.clone();
 		}, downMotionMaskGrey_, downPrevGrey_, downNextGrey_, detectedPoints_, params_, cache_);
 
-		window->plain([](cv::UMat& dpg, const cv::UMat& dng) {
-			dpg = dng.clone();
-		}, downPrevGrey_, downNextGrey_);
-
-        window->fb([](cv::UMat& framebuffer, const cv::Rect& viewport, cv::UMat& background, cv::UMat& foreground, const Params& params, Cache& cache) {
-            //Put it all together (OpenCL)
+        window->fb([](cv::UMat& framebuffer, cv::UMat& background, cv::UMat& foreground, const Params& params, Cache& cache) {
+        	//Put it all together (OpenCL)
             Global::Scope scope(foreground);
             copy_shared(foreground, cache.localFg_);
-            cv::UMat fbvp = framebuffer(viewport);
-            cerr << detail::cnz(framebuffer) << endl;
-            composite_layers(background, cache.localFg_, fbvp, fbvp, params, cache);
+            composite_layers(background, cache.localFg_, framebuffer, framebuffer, params, cache);
             copy_shared(cache.localFg_, foreground);
-        }, viewport(), background_, foreground_, params_, cache_);
+        }, background_, foreground_, params_, cache_);
 
         window->write();
 	}
@@ -447,13 +441,13 @@ int main(int argc, char **argv) {
     }
 
     cv::Ptr<OptflowDemoPlan> plan = new OptflowDemoPlan(cv::Rect(0, 0, 1280, 720));
-	cv::Ptr<V4D> window = V4D::make(plan->size(), "Sparse Optical Flow Demo", ALL);
+	cv::Ptr<V4D> window = V4D::make(plan->size(), "Sparse Optical Flow Demo", AllocateFlags::ALL);
 
 	auto src = Source::make(window, argv[1]);
 	auto sink = Sink::make(window, "optflow-demo.mkv", src->fps(), plan->size());
 	window->setSource(src);
 	window->setSink(sink);
 
-	window->run(plan, 0);
+	window->run(plan, 5);
     return 0;
 }

@@ -10,7 +10,7 @@
 #include "context.hpp"
 #include <opencv2/core.hpp>
 #include <opencv2/core/ocl.hpp>
-#include "opencv2/v4d/util.hpp"
+#include "../util.hpp"
 #include <iostream>
 #include <map>
 #include <vector>
@@ -208,10 +208,12 @@ public:
 			CLExecScope_t clExecScope(getCLExecContext());
 			FrameBufferContext::GLScope glScope(self(), GL_FRAMEBUFFER);
 			FrameBufferContext::FrameBufferScope fbScope(self(), framebuffer_);
+			framebuffer_ = framebuffer_(viewport_);
 			fn();
 		} else {
 			FrameBufferContext::GLScope glScope(self(), GL_FRAMEBUFFER);
 			FrameBufferContext::FrameBufferScope fbScope(self(), framebuffer_);
+			framebuffer_ = framebuffer_(viewport_);
 			fn();
 		}
     }

@@ -40,13 +40,12 @@ V4D::V4D(const cv::Size& size, const cv::Size& fbsize, const string& title, Allo
     mainFbContext_ = new detail::FrameBufferContext(*this, fbsize.empty() ? size : fbsize, offscreen, title, 3,
                 2, samples, debug, nullptr, nullptr, true);
     CLExecScope_t scope(mainFbContext_->getCLExecContext());
-    if(flags() & NANOVG)
+    if(contains(flags(), AllocateFlags::NANOVG))
         nvgContext_ = new detail::NanoVGContext(mainFbContext_);
     sourceContext_ = new detail::SourceContext(mainFbContext_);
     sinkContext_ = new detail::SinkContext(mainFbContext_);
-    onceContext_ = new detail::OnceContext();
     plainContext_ = new detail::PlainContext();
-    if(flags() & IMGUI)
+    if(contains(flags(), AllocateFlags::IMGUI))
         imguiContext_ = new detail::ImGuiContextImpl(mainFbContext_);
 
     //preallocate the primary gl context
@@ -61,11 +60,10 @@ V4D::V4D(const V4D& other, const string& title) :
                 2, other.samples_, other.debug_, other.fbCtx()->rootWindow_, other.fbCtx(), true);
 
     CLExecScope_t scope(mainFbContext_->getCLExecContext());
-    if(flags() & NANOVG)
+    if(contains(flags(), AllocateFlags::NANOVG))
     	nvgContext_ = new detail::NanoVGContext(mainFbContext_);
     sourceContext_ = new detail::SourceContext(mainFbContext_);
     sinkContext_ = new detail::SinkContext(mainFbContext_);
-    onceContext_ = new detail::OnceContext();
     plainContext_ = new detail::PlainContext();
 
     //preallocate the primary gl context
@@ -74,6 +72,14 @@ V4D::V4D(const V4D& other, const string& title) :
 
 V4D::~V4D() {
 
+}
+
+const string V4D::getPrefix() const {
+	return prefix_;
+}
+
+void V4D::setPrefix(const string& p) {
+	prefix_ = p;
 }
 
 const int32_t& V4D::workerIndex() const {
@@ -110,11 +116,6 @@ cv::Ptr<SinkContext> V4D::sinkCtx() {
 cv::Ptr<NanoVGContext> V4D::nvgCtx() {
     assert(nvgContext_ != nullptr);
     return nvgContext_;
-}
-
-cv::Ptr<OnceContext> V4D::onceCtx() {
-    assert(onceContext_ != nullptr);
-    return onceContext_;
 }
 
 cv::Ptr<PlainContext> V4D::plainCtx() {
@@ -165,11 +166,7 @@ bool V4D::hasNvgCtx() {
     return nvgContext_ != nullptr;
 }
 
-bool V4D::hasOnceCtx() {
-    return onceContext_ != nullptr;
-}
-
-bool V4D::hasParallelCtx() {
+bool V4D::hasPlainCtx() {
     return plainContext_ != nullptr;
 }
 
@@ -182,7 +179,7 @@ bool V4D::hasGlCtx(uint32_t idx) {
 }
 
 bool V4D::hasExtCtx(uint32_t idx) {
-    return glContexts_.find(idx) != glContexts_.end();
+    return extContexts_.find(idx) != extContexts_.end();
 }
 
 size_t V4D::numGlCtx() {
@@ -190,7 +187,7 @@ size_t V4D::numGlCtx() {
 }
 
 size_t V4D::numExtCtx() {
-    return std::max(off_t(0), off_t(glContexts_.size()) - 1);
+    return std::max(off_t(0), off_t(extContexts_.size()) - 1);
 }
 
 void V4D::copyTo(cv::UMat& m) {
@@ -410,8 +407,13 @@ bool V4D::display() {
 			fbCtx()->blitFrameBufferToFrameBuffer(viewport(), fbCtx()->getWindowSize(), 0, isStretching());
 		}
 
-		if(hasImguiCtx())
+		if(hasImguiCtx()) {
+			GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
+		#if !defined(OPENCV_V4D_USE_ES3)
+			GL_CHECK(glDrawBuffer(GL_BACK));
+		#endif
 			imguiCtx()->render(getShowFPS());
+		}
 
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
 		GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));

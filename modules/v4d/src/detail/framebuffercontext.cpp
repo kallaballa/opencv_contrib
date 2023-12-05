@@ -183,7 +183,7 @@ void FrameBufferContext::init() {
     				ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
     				return false;
     			}, [](GLFWwindow *window, double xpos, double ypos) {
-    				ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
+//    				ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
     				return false;
     			}
     	);
@@ -364,6 +364,15 @@ void FrameBufferContext::toGLTexture2D(cv::UMat& u, cv::ogl::Texture2D& texture)
     status = clEnqueueReleaseGLObjects(q, 1, &clImage_, 0, NULL, NULL);
     if (status != CL_SUCCESS)
          throw std::runtime_error("OpenCL: clEnqueueReleaseGLObjects failed: " + std::to_string(status));
+
+    status = clFinish(q); // TODO Use events
+    if (status != CL_SUCCESS)
+        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
+
+    status = clReleaseMemObject(clImage_); // TODO RAII
+    if (status != CL_SUCCESS)
+        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clReleaseMemObject failed: %d", status));
+    clImage_ = nullptr;
 }
 
 void FrameBufferContext::fromGLTexture2D(const cv::ogl::Texture2D& texture, cv::UMat& u) {
@@ -378,15 +387,13 @@ void FrameBufferContext::fromGLTexture2D(const cv::ogl::Texture2D& texture, cv::
 
     cl_command_queue q = (cl_command_queue) context_.getQueue().ptr();
     cl_int status = 0;
-
-    if (clImage_ == nullptr) {
-        Context& ctx = context_.getContext();
-        cl_context context = (cl_context) ctx.ptr();
-        clImage_ = clCreateFromGLTexture(context, CL_MEM_READ_ONLY, 0x0DE1, 0, texture.texId(),
-                &status);
-        if (status != CL_SUCCESS)
-            throw std::runtime_error("OpenCL: clCreateFromGLTexture failed: " + std::to_string(status));
-    }
+    CV_Assert(clImage_ == nullptr);
+	Context& ctx = context_.getContext();
+	cl_context context = (cl_context) ctx.ptr();
+	clImage_ = clCreateFromGLTexture(context, CL_MEM_READ_ONLY, 0x0DE1, 0, texture.texId(),
+			&status);
+	if (status != CL_SUCCESS)
+		throw std::runtime_error("OpenCL: clCreateFromGLTexture failed: " + std::to_string(status));
 
     status = clEnqueueAcquireGLObjects(q, 1, &clImage_, 0, NULL, NULL);
     if (status != CL_SUCCESS)

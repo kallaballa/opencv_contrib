@@ -97,20 +97,14 @@ endif()
 # Add the opencv module
 if(NOT (TARGET ${the_module}))
   ocv_add_module(v4d opencv_core opencv_imgproc opencv_videoio opencv_video)
-  ocv_glob_module_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/")
+  file(GLOB imgui_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/imguicontext.cpp")
+  file(GLOB imgui_backend_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3*.cpp")
+  file(GLOB imgui_glfw_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_glfw.cpp")
+  ocv_glob_module_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/" ${imgui_sources} ${imgui_backend_sources} ${imgui_glfw_sources})
   ocv_module_include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/" "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/")
   ocv_create_module()
   ocv_add_samples(opencv_v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn opencv_flann)
-
   set_target_properties(${the_module} PROPERTIES LINKER_LANGUAGE CXX)
-
-  # Add ImGui source files
-  file(GLOB imgui_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp")
-  file(GLOB imgui_backend_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3*.cpp")
-  file(GLOB imgui_glfw_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_glfw.cpp")
-  add_library(imgui_v4d SHARED ${imgui_sources} ${imgui_backend_sources} ${imgui_glfw_sources})
-  target_include_directories(imgui_v4d PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/")
-  ocv_target_link_libraries(imgui_v4d OpenGL GLEW glfw X11)
 
   # Populate assets
   fetch_file("LBFMODEL" "https://github.com/kurnianggoro/GSOC2017/raw/master/data/lbfmodel.yaml" "70dd8b1657c42d1595d6bd13d97d932877b3bed54a95d3c4733a0f740d1fd66b")
@@ -212,5 +206,5 @@ if(NOT (TARGET ${the_module}))
   ocv_warnings_disable(CMAKE_CXX_FLAGS -Wdeprecated-enum-enum-conversion)
   target_link_directories(${the_module} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
 
-  ocv_target_link_libraries(${the_module} OpenCL OpenGL GLEW glfw -lnanovg -limgui_v4d -lassimp)
+  ocv_target_link_libraries(${the_module} OpenCL OpenGL GLEW glfw -lnanovg -lassimp)
 endif()
