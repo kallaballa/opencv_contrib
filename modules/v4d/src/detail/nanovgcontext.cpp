@@ -28,22 +28,22 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext) :
 }
 
 void NanoVGContext::execute(std::function<void()> fn) {
-        {
-            FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
-            glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-            NanoVGContext::Scope nvgScope(*this);
-            cv::v4d::nvg::detail::NVG::initializeContext(context_);
-            fn();
-        }
+	{
+		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
+		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		NanoVGContext::Scope nvgScope(*this);
+		cv::v4d::nvg::detail::NVG::initializeContext(context_);
+		fn();
+	}
 }
 
 
 void NanoVGContext::begin() {
     float w = fbCtx()->size().width;
     float h = fbCtx()->size().height;
-    cv::Rect vp = fbCtx()->getV4D()->plan()->viewport();
-    float ws = w / vp.width;
-    float hs = h / vp.height;
+    cv::Rect vp = fbCtx()->getViewport();
+    float ws = vp.width;
+    float hs = vp.height;
     float r = fbCtx()->pixelRatioX();
     CV_UNUSED(ws);
     CV_UNUSED(hs);

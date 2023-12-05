@@ -256,6 +256,14 @@ cv::Rect& V4D::viewport() {
     return viewport_;
 }
 
+cv::Rect V4D::getFramebufferViewport() {
+	return fbCtx()->getViewport();
+}
+
+void V4D::setFramebufferViewport(const cv::Rect& vp) {
+	return fbCtx()->setViewport(vp);
+}
+
 float V4D::pixelRatioX() {
     return fbCtx()->pixelRatioX();
 }

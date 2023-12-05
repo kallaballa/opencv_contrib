@@ -184,6 +184,9 @@ public:
 
     GLuint getFramebufferID();
     GLuint getTextureID();
+    cv::Rect getViewport();
+    void setViewport(const cv::Rect& vp);
+
     /*!
      * Get the framebuffer size.
      * @return The framebuffer size.

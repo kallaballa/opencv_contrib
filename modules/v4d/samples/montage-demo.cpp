@@ -65,10 +65,10 @@ class MontageDemoPlan : public Plan {
 public:
 	MontageDemoPlan(const cv::Rect& vp) : Plan(vp) {
 		CV_Assert(plans_.size() == frames_.results_.size() &&  plans_.size() == size_t(tiling_.width * tiling_.height));
-		scale_ = cv::Size_<float>(float(size().width) / tileSz_.width, float(size().height) / tileSz_.height);
 	}
 
 	virtual void setup(cv::Ptr<V4D> window) override {
+		window->setFramebufferViewport(viewport_);
 		for(auto* plan : plans_) {
 			plan->setup(window);
 		}

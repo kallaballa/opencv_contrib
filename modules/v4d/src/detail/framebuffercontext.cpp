@@ -59,6 +59,14 @@ GLuint FrameBufferContext::getTextureID() {
     return textureID_;
 }
 
+cv::Rect FrameBufferContext::getViewport() {
+	return viewport_;
+}
+
+void FrameBufferContext::setViewport(const cv::Rect& vp) {
+	viewport_ = vp;
+}
+
 void FrameBufferContext::init() {
 	static std::mutex initMtx;
 	std::unique_lock<std::mutex> lock(initMtx);

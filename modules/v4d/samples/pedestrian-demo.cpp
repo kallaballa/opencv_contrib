@@ -46,16 +46,18 @@ private:
 		cv::TrackerKCF::Params params_;
 		//KCF tracker used instead of continous detection
 		cv::Ptr<cv::Tracker> tracker_;
+		//initialize tracker only once
+		bool trackerInit_ = false;
 		//If tracking fails re-detect
 		bool redetect_ = true;
 		//Descriptor used for pedestrian detection
 		cv::HOGDescriptor hog_;
     } detection_;
 
-    inline static cv::Rect tracked_ = cv::Rect(0,0,1,1);
+    inline static cv::Rect tracked_ = cv::Rect(0,0,0,0);
 
-	constexpr static auto doRedect_ = [](const Detection& detection){ return detection.redetect_; };
-	constexpr static auto dontRedect_ = [](const Detection& detection){ return !detection.redetect_; };
+	constexpr static auto doRedect_ = [](const Detection& detection){ return !detection.trackerInit_ || detection.redetect_; };
+	constexpr static auto dontRedect_ = [](const Detection& detection){ return detection.trackerInit_  && !detection.redetect_; };
 
 	//adapted from cv::dnn_objdetect::InferBbox
 	static inline bool pair_comparator(std::pair<double, size_t> l1, std::pair<double, size_t> l2) {
@@ -195,18 +197,23 @@ public:
 						if (keep[i]) {
 							Global::Scope scope(tracked);
 							//only track the first pedestrian found
-							tracked.x = (detection.locations_[i].x + tracked.x) / 2.0;
-							tracked.y = (detection.locations_[i].y + tracked.y) / 2.0;
-							tracked.width = (detection.locations_[i].width + tracked.width) / 2.0;
-							tracked.height = (detection.locations_[i].height + tracked.height) / 2.0;
+							if(tracked.width == 0 || tracked.height == 0) {
+								tracked = detection.locations_[i];
+							} else {
+								tracked.x = (detection.locations_[i].x + tracked.x) / 2.0;
+								tracked.y = (detection.locations_[i].y + tracked.y) / 2.0;
+								tracked.width = (detection.locations_[i].width + tracked.width) / 2.0;
+								tracked.height = (detection.locations_[i].height + tracked.height) / 2.0;
+							}
 							break;
 						}
 					}
 
-					{
+					if(!detection.trackerInit_){
 						Global::Scope scope(tracked);
 						//initialize the tracker once
 						detection.tracker_->init(videoFrameDownGrey, tracked);
+						detection.trackerInit_ = true;
 					}
 				}
 			}, videoFrameDownGrey_, detection_, tracked_, cache_);
@@ -217,14 +224,15 @@ public:
 		{
 			window->plain([](cv::UMat& videoFrameDownGrey, Detection& detection, cv::Rect& tracked, Cache& cache) {
 				Global::Scope scope(tracked);
-				cv::Rect newTracked;
-				if(!detection.tracker_->update(videoFrameDownGrey, newTracked)) {
+				cv::Rect newTracked = tracked;
+				if(newTracked.width == 0 || newTracked.height == 0 || !detection.tracker_->update(videoFrameDownGrey, newTracked)) {
 					detection.redetect_ = true;
+				} else {
+					tracked.x = (newTracked.x + tracked.x) / 2.0;
+					tracked.y = (newTracked.y + tracked.y) / 2.0;
+					tracked.width = (newTracked.width + tracked.width) / 2.0;
+					tracked.height = (newTracked.height+ tracked.height) / 2.0;
 				}
-				tracked.x = (newTracked.x + tracked.x) / 2.0;
-				tracked.y = (newTracked.y + tracked.y) / 2.0;
-				tracked.width = (newTracked.width + tracked.width) / 2.0;
-				tracked.height = (newTracked.height+ tracked.height) / 2.0;
 			}, videoFrameDownGrey_, detection_, tracked_, cache_);
 		}
 		window->endbranch(dontRedect_, detection_);

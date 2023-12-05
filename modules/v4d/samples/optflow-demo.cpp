@@ -112,7 +112,7 @@ private:
 	} cache_;
 
 	//BGRA
-	cv::UMat background_, down_, frame_;
+	cv::UMat background_, down_;
     inline static cv::UMat foreground_;
 	//BGR
 	cv::UMat result_;
@@ -156,7 +156,7 @@ private:
 	//Visualize the sparse optical flow
 	static void visualize_sparse_optical_flow(const cv::UMat &prevGrey, const cv::UMat &nextGrey, const vector<cv::Point2f> &detectedPoints, const Params& params, Cache& cache) {
 	    //less then 5 points is a degenerate case (e.g. the corners of a video frame)
-	    if (detectedPoints.size() > 4) {
+		if (detectedPoints.size() > 4) {
 	        cv::convexHull(detectedPoints, cache.hull_);
 	        float area = cv::contourArea(cache.hull_);
 	        //make sure the area of the point cloud is positive
@@ -194,31 +194,35 @@ private:
 
 	                using namespace cv::v4d::nvg;
 	                //start drawing
-	                beginPath();
-	                strokeWidth(strokeSize);
-	                strokeColor(params.effectColor_ * 255.0);
+
 
 	                for (size_t i = 0; i < cache.prevPoints_.size(); i++) {
+	                	beginPath();
+	                	strokeWidth(strokeSize);
+	                	strokeColor(params.effectColor_ * 255.0);
 	                    if (cache.status_[i] == 1 //point was found in prev and new set
 	                            && cache.err_[i] < (1.0 / density) //with a higher density be more sensitive to the feature error
 	                            && cache.upNextPoints_[i].y >= 0 && cache.upNextPoints_[i].x >= 0 //check bounds
 	                            && cache.upNextPoints_[i].y < nextGrey.rows / params.fgScale_ && cache.upNextPoints_[i].x < nextGrey.cols / params.fgScale_ //check bounds
 	                            ) {
-	                        float len = hypot(fabs(cache.upPrevPoints_[i].x - cache.upNextPoints_[i].x), fabs(cache.upPrevPoints_[i].y - cache.upNextPoints_[i].y));
-	                        //upper and lower bound of the flow vector length
-	                        if (len > 0 && len < sqrt(area)) {
-	                            //collect new points
-	                        	cache.newPoints_.push_back(cache.nextPoints_[i]);
-	                            //the actual drawing operations
-	                            moveTo(cache.upNextPoints_[i].x, cache.upNextPoints_[i].y);
-	                            lineTo(cache.upPrevPoints_[i].x, cache.upPrevPoints_[i].y);
-	                        }
-	                    }
+							float len = hypot(fabs(cache.upPrevPoints_[i].x - cache.upNextPoints_[i].x), fabs(cache.upPrevPoints_[i].y - cache.upNextPoints_[i].y));
+							//upper and lower bound of the flow vector length
+							if (len > 0 && len < sqrt(area)) {
+								//collect new points
+								cache.newPoints_.push_back(cache.nextPoints_[i]);
+								//the actual drawing operations
+								moveTo(cache.upNextPoints_[i].x, cache.upNextPoints_[i].y);
+								lineTo(cache.upPrevPoints_[i].x, cache.upPrevPoints_[i].y);
+	//	                            cerr << "line: " << cache.upNextPoints_ << "-> " << cache.upPrevPoints_ << endl;
+							}
+						}
+		                //end drawing
+		                stroke();
 	                }
-	                //end drawing
-	                stroke();
+
+		            cache.prevPoints_ = cache.newPoints_;
+
 	            }
-	            cache.prevPoints_ = cache.newPoints_;
 	        }
 	    }
 	}
@@ -388,20 +392,12 @@ public:
 	virtual void infer(cv::Ptr<V4D> window) override {
 		window->capture();
 
-        window->fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, cv::UMat& frame) {
-            framebuffer(viewport).copyTo(frame);
-        }, viewport(), frame_);
-
-        window->plain([](const cv::UMat& frame, cv::UMat& background) {
-            frame.copyTo(background);
-        }, frame_, background_);
-
-		window->fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, cv::UMat& d, cv::UMat& b, const Params& params) {
+		window->fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, cv::UMat& down, cv::UMat& background, const Params& params) {
 			Params p = Global::safe_copy(params);
 			//resize to foreground scale
-			cv::resize(framebuffer(viewport), d, cv::Size(viewport.width * p.fgScale_, viewport.height * p.fgScale_));
+			cv::resize(framebuffer(viewport), down, cv::Size(viewport.width * p.fgScale_, viewport.height * p.fgScale_));
 			//save video background
-			framebuffer(viewport).copyTo(b);
+			framebuffer(viewport).copyTo(background);
 		}, viewport(), down_, background_, params_);
 
 		window->plain([](const cv::UMat& d, cv::UMat& dng, cv::UMat& dmmg, std::vector<cv::Point2f>& dp, cv::Ptr<cv::BackgroundSubtractor>& bg_subtractor, cv::Ptr<cv::FastFeatureDetector>& detector, Cache& cache){
@@ -428,21 +424,15 @@ public:
 			dpg = dng.clone();
 		}, downPrevGrey_, downNextGrey_);
 
-        window->fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, cv::UMat& frame) {
-            framebuffer(viewport).copyTo(frame);
-        }, viewport(), frame_);
-
-        window->plain([](cv::UMat& frame, cv::UMat& background, cv::UMat& foreground, const Params& params, Cache& cache) {
+        window->fb([](cv::UMat& framebuffer, const cv::Rect& viewport, cv::UMat& background, cv::UMat& foreground, const Params& params, Cache& cache) {
             //Put it all together (OpenCL)
             Global::Scope scope(foreground);
             copy_shared(foreground, cache.localFg_);
-            composite_layers(background, cache.localFg_, frame, frame, params, cache);
+            cv::UMat fbvp = framebuffer(viewport);
+            cerr << detail::cnz(framebuffer) << endl;
+            composite_layers(background, cache.localFg_, fbvp, fbvp, params, cache);
             copy_shared(cache.localFg_, foreground);
-        }, frame_, background_, foreground_, params_, cache_);
-
-        window->fb([](cv::UMat& framebuffer, const cv::Rect& viewport, const cv::UMat& frame) {
-            frame.copyTo(framebuffer(viewport));
-        }, viewport(), frame_);
+        }, viewport(), background_, foreground_, params_, cache_);
 
         window->write();
 	}

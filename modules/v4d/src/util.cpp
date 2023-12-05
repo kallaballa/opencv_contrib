@@ -61,7 +61,7 @@ size_t cnz(const cv::UMat& m) {
 CV_EXPORTS void copy_shared(const cv::UMat& src, cv::UMat& dst) {
 	if(dst.empty())
 		dst.create(src.size(), src.type());
-	src.copyTo(dst.getMat(cv::ACCESS_READ));
+	src.copyTo(dst.getMat(cv::ACCESS_WRITE));
 }
 
 cv::Scalar colorConvert(const cv::Scalar& src, cv::ColorConversionCodes code) {

@@ -766,6 +766,10 @@ public:
      * @return The current viewport reference.
      */
     CV_EXPORTS cv::Rect& viewport();
+
+    CV_EXPORTS cv::Rect getFramebufferViewport();
+    CV_EXPORTS void setFramebufferViewport(const cv::Rect& vp);
+
     /*!
      * Get the pixel ratio of the display x-axis.
      * @return The pixel ratio of the display x-axis.
