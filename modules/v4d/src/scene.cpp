@@ -5,6 +5,7 @@
 
 
 #include "../include/opencv2/v4d/scene.hpp"
+#include "../include/opencv2/v4d/detail/gl.hpp"
 #include "../third/PerlinNoise/PerlinNoise.hpp"
 #include <iostream>
 #include <assimp/postprocess.h>
