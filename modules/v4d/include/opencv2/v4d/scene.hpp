@@ -23,34 +23,34 @@ struct BoundingBox {
 	cv::Vec3f span_;
 };
 
-class AssimpScene {
+class CV_EXPORTS AssimpScene {
     Assimp::Importer importer_;
 	const aiScene* scene_;
 	BoundingBox bbox_;
 	double autoScale_;
 public:
 
-AssimpScene(const std::string filename);
-AssimpScene(std::vector<cv::Point3f>& vertices);
-~AssimpScene();
+	CV_EXPORTS AssimpScene(const std::string filename);
+	CV_EXPORTS AssimpScene(std::vector<cv::Point3f>& vertices);
+	CV_EXPORTS ~AssimpScene();
 
-BoundingBox boundingBox();
-float autoScale();
-const aiScene* scene() const;
-cv::Mat_<float> verticesAsMat();
-std::vector<cv::Point3f> verticesAsVector();
+	CV_EXPORTS BoundingBox boundingBox();
+	CV_EXPORTS float autoScale();
+	CV_EXPORTS const aiScene* scene() const;
+	CV_EXPORTS cv::Mat_<float> verticesAsMat();
+	CV_EXPORTS std::vector<cv::Point3f> verticesAsVector();
 };
 
 } // namespace assimp
 
 namespace gl {
 
-cv::Vec3f rotate3D(const cv::Vec3f& point, const cv::Vec3f& center, const cv::Vec2f& rotation);
-cv::Matx44f perspective(float fov, float aspect, float zNear, float zFar);
-cv::Matx44f lookAt(cv::Vec3f eye, cv::Vec3f center, cv::Vec3f up);
-cv::Matx44f modelView(const cv::Vec3f& translation, const cv::Vec3f& rotationVec, const cv::Vec3f& scaleVec);
+CV_EXPORTS cv::Vec3f rotate3D(const cv::Vec3f& point, const cv::Vec3f& center, const cv::Vec2f& rotation);
+CV_EXPORTS cv::Matx44f perspective(float fov, float aspect, float zNear, float zFar);
+CV_EXPORTS cv::Matx44f lookAt(cv::Vec3f eye, cv::Vec3f center, cv::Vec3f up);
+CV_EXPORTS cv::Matx44f modelView(const cv::Vec3f& translation, const cv::Vec3f& rotationVec, const cv::Vec3f& scaleVec);
 
-class Scene {
+class CV_EXPORTS Scene {
 public:
 	enum RenderMode {
 		DEFAULT = 0,
@@ -294,34 +294,34 @@ private:
  	void creatVolumeTexture(Mat& textureData);
  	void createSceneObjects();
 public:
-	Scene(const cv::Rect& viewport);
-	virtual ~Scene();
-	void reset();
-	bool load(const std::vector<Point3f>& points);
-	bool load(const std::string& filename);
-	void render(const cv::Vec3f& cameraPosition, const cv::Vec3f& cameraDirection, const cv::Matx33f& cameraRotation, const cv::Matx44f& projection, const cv::Matx44f& view, const cv::Matx44f& modelView);
+ 	CV_EXPORTS Scene(const cv::Rect& viewport);
+ 	CV_EXPORTS virtual ~Scene();
+ 	CV_EXPORTS void reset();
+ 	CV_EXPORTS bool load(const std::vector<Point3f>& points);
+ 	CV_EXPORTS bool load(const std::string& filename);
+ 	CV_EXPORTS void render(const cv::Vec3f& cameraPosition, const cv::Vec3f& cameraDirection, const cv::Matx33f& cameraRotation, const cv::Matx44f& projection, const cv::Matx44f& view, const cv::Matx44f& modelView);
 
-	float autoScale() const {
+ 	CV_EXPORTS float autoScale() const {
 		return assimp_->autoScale();
 	}
 
-	cv::Vec3f autoCenter() const {
+ 	CV_EXPORTS cv::Vec3f autoCenter() const {
 		return assimp_->boundingBox().center_;
 	}
 
-	RenderMode getMode() const {
+ 	CV_EXPORTS RenderMode getMode() const {
 		return mode_;
 	}
 
-	void setMode(RenderMode mode) {
+ 	CV_EXPORTS void setMode(RenderMode mode) {
 		mode_ = mode;
 	}
 
-	cv::Vec3f lightPosition() const {
+ 	CV_EXPORTS cv::Vec3f lightPosition() const {
 		return lightPos_;
 	}
 
-	void setLightPosition(cv::Vec3f pos) {
+ 	CV_EXPORTS void setLightPosition(cv::Vec3f pos) {
 		lightPos_ = pos;
 	}
 };

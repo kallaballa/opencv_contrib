@@ -14,20 +14,20 @@ namespace v4d {
 
 
 
-class Resequence {
+class CV_EXPORTS Resequence {
 	bool finish_ = false;
 	std::mutex putMtx_;
 	std::mutex waitMtx_;
 	std::condition_variable cv_;
     uint64_t nextSeq_ = 0;
 public:
-    Resequence() {
+    CV_EXPORTS Resequence() {
     }
 
-    virtual ~Resequence() {}
-    void finish();
-    void notify();
-    void waitFor(const uint64_t& seq);
+    CV_EXPORTS virtual ~Resequence() {}
+    CV_EXPORTS void finish();
+    CV_EXPORTS void notify();
+    CV_EXPORTS void waitFor(const uint64_t& seq);
 };
 
 } /* namespace v4d */

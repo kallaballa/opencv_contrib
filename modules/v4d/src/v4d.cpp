@@ -3,24 +3,26 @@
 // of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
-#include "opencv2/v4d/v4d.hpp"
-#include "opencv2/v4d/detail/framebuffercontext.hpp"
 #include <sstream>
 #include <algorithm>
 #include <opencv2/core.hpp>
 #include <vector>
 
+#include "../include/opencv2/v4d/v4d.hpp"
+#include "../include/opencv2/v4d/detail/framebuffercontext.hpp"
+#include "../include/opencv2/v4d/detail/gl.hpp"
+
 namespace cv {
 namespace v4d {
 
-cv::Ptr<V4D> V4D::make(const cv::Size& size, const string& title, AllocateFlags flags, bool offscreen, bool debug, int samples) {
+cv::Ptr<V4D> V4D::make(const cv::Size& size, const string& title, int flags, bool offscreen, bool debug, int samples) {
     V4D* v4d = new V4D(size, cv::Size(), title, flags, offscreen, debug, samples);
     v4d->setVisible(!offscreen);
     v4d->fbCtx()->makeCurrent();
     return v4d->self();
 }
 
-cv::Ptr<V4D> V4D::make(const cv::Size& size, const cv::Size& fbsize, const string& title, AllocateFlags flags, bool offscreen, bool debug, int samples) {
+cv::Ptr<V4D> V4D::make(const cv::Size& size, const cv::Size& fbsize, const string& title, int flags, bool offscreen, bool debug, int samples) {
     V4D* v4d = new V4D(size, fbsize, title, flags, offscreen, debug, samples);
     v4d->setVisible(!offscreen);
     v4d->fbCtx()->makeCurrent();
@@ -34,22 +36,24 @@ cv::Ptr<V4D> V4D::make(const V4D& other, const string& title) {
     return v4d->self();
 }
 
-V4D::V4D(const cv::Size& size, const cv::Size& fbsize, const string& title, AllocateFlags aflags, bool offscreen, bool debug, int samples) :
+V4D::V4D(const cv::Size& size, const cv::Size& fbsize, const string& title, int aflags, bool offscreen, bool debug, int samples) :
         initialSize_(size), flags_(aflags), debug_(debug), viewport_(0, 0, size.width, size.height), stretching_(true), samples_(samples) {
     self_ = cv::Ptr<V4D>(this);
     mainFbContext_ = new detail::FrameBufferContext(*this, fbsize.empty() ? size : fbsize, offscreen, title, 3,
                 2, samples, debug, nullptr, nullptr, true);
-    CLExecScope_t scope(mainFbContext_->getCLExecContext());
-    if(contains(flags(), AllocateFlags::NANOVG))
-        nvgContext_ = new detail::NanoVGContext(mainFbContext_);
-    sourceContext_ = new detail::SourceContext(mainFbContext_);
-    sinkContext_ = new detail::SinkContext(mainFbContext_);
-    plainContext_ = new detail::PlainContext();
-    if(contains(flags(), AllocateFlags::IMGUI))
+//    CLExecScope_t scope(mainFbContext_->getCLExecContext());
+//    if(flags() & AllocateFlags::NANOVG)
+//        nvgContext_ = new detail::NanoVGContext(mainFbContext_);
+//    if(flags() & AllocateFlags::BGFX)
+//        bgfxContext_ = new detail::BgfxContext(mainFbContext_);
+//    sourceContext_ = new detail::SourceContext(mainFbContext_);
+//    sinkContext_ = new detail::SinkContext(mainFbContext_);
+//    plainContext_ = new detail::PlainContext();
+    if(flags() & AllocateFlags::IMGUI)
         imguiContext_ = new detail::ImGuiContextImpl(mainFbContext_);
 
     //preallocate the primary gl context
-    glCtx(-1);
+//    glCtx(-1);
 }
 
 V4D::V4D(const V4D& other, const string& title) :
@@ -60,8 +64,10 @@ V4D::V4D(const V4D& other, const string& title) :
                 2, other.samples_, other.debug_, other.fbCtx()->rootWindow_, other.fbCtx(), true);
 
     CLExecScope_t scope(mainFbContext_->getCLExecContext());
-    if(contains(flags(), AllocateFlags::NANOVG))
+    if(flags() & AllocateFlags::NANOVG)
     	nvgContext_ = new detail::NanoVGContext(mainFbContext_);
+    if(flags() & AllocateFlags::BGFX)
+        bgfxContext_ = new detail::BgfxContext(mainFbContext_);
     sourceContext_ = new detail::SourceContext(mainFbContext_);
     sinkContext_ = new detail::SinkContext(mainFbContext_);
     plainContext_ = new detail::PlainContext();
@@ -118,6 +124,11 @@ cv::Ptr<NanoVGContext> V4D::nvgCtx() {
     return nvgContext_;
 }
 
+cv::Ptr<BgfxContext> V4D::bgfxCtx() {
+    assert(bgfxContext_ != nullptr);
+    return bgfxContext_;
+}
+
 cv::Ptr<PlainContext> V4D::plainCtx() {
     assert(plainContext_ != nullptr);
     return plainContext_;
@@ -164,6 +175,10 @@ bool V4D::hasSinkCtx() {
 
 bool V4D::hasNvgCtx() {
     return nvgContext_ != nullptr;
+}
+
+bool V4D::hasBgfxCtx() {
+    return bgfxContext_ != nullptr;
 }
 
 bool V4D::hasPlainCtx() {
@@ -377,16 +392,25 @@ void V4D::swapContextBuffers() {
 //        GL_CHECK(glFinish());
 		glfwSwapBuffers(nvgCtx()->fbCtx()->getGLFWWindow());
     }
+
+    if(hasBgfxCtx()) {
+		FrameBufferContext::GLScope glScope(bgfxCtx()->fbCtx(), GL_READ_FRAMEBUFFER);
+		bgfxCtx()->fbCtx()->blitFrameBufferToFrameBuffer(viewport(), bgfxCtx()->fbCtx()->getWindowSize(), 0, isStretching());
+//        GL_CHECK(glFinish());
+		glfwSwapBuffers(bgfxCtx()->fbCtx()->getGLFWWindow());
+    }
+
 }
 
 bool V4D::display() {
     bool result = true;
-    if(!Global::is_main())
+    if(!Global::is_main()) {
     	Global::next_frame_cnt();
 
-	if(debug_) {
-		swapContextBuffers();
-	}
+		if(debug_) {
+			swapContextBuffers();
+		}
+    }
 	if (Global::is_main()) {
 		auto start = Global::start_time();
 		auto now = get_epoch_nanos();
@@ -409,19 +433,24 @@ bool V4D::display() {
 
 		if(hasImguiCtx()) {
 			GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
-		#if !defined(OPENCV_V4D_USE_ES3)
+#if !defined(OPENCV_V4D_USE_ES3)
 			GL_CHECK(glDrawBuffer(GL_BACK));
-		#endif
+#endif
 			imguiCtx()->render(getShowFPS());
 		}
 
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
-		GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
-		GL_CHECK(glViewport(0, 0, size().width, size().height));
-		GL_CHECK(glClearColor(0,0,0,1));
-		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
+//		GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+//		GL_CHECK(glViewport(0, 0, size().width, size().height));
+//		GL_CHECK(glClearColor(0,0,0,1));
+//		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
 	} else {
 		fbCtx()->copyToRootWindow();
+//		if(debug_) {
+//			FrameBufferContext::GLScope glScope(fbCtx(), GL_READ_FRAMEBUFFER);
+//			fbCtx()->blitFrameBufferToFrameBuffer(viewport(), fbCtx()->getWindowSize(), 0, isStretching());
+//			glfwSwapBuffers(fbCtx()->getGLFWWindow());
+//		}
 	}
 
 	result = !glfwWindowShouldClose(getGLFWWindow());
@@ -462,7 +491,7 @@ void V4D::printSystemInfo() {
 #endif
 }
 
-AllocateFlags V4D::flags() {
+int V4D::flags() {
 	return flags_;
 }
 

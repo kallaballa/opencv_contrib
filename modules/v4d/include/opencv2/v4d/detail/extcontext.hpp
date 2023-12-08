@@ -7,7 +7,6 @@
 #define SRC_OPENCV_EXTCONTEXT_HPP_
 
 #include "opencv2/v4d/detail/framebuffercontext.hpp"
-#include "opencv2/v4d/detail/gl.hpp"
 
 namespace cv {
 namespace v4d {

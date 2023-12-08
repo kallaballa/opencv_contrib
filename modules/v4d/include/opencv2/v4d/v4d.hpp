@@ -20,7 +20,9 @@
 #include "detail/extcontext.hpp"
 #include "detail/sourcecontext.hpp"
 #include "detail/sinkcontext.hpp"
+#include "detail/bgfxcontext.hpp"
 #include "detail/resequence.hpp"
+#define EVENT_API_EXPORT CV_EXPORTS
 #include "events.hpp"
 
 #include <type_traits>
@@ -39,14 +41,11 @@
 #include <opencv2/videoio.hpp>
 #include <opencv2/core/utils/logger.hpp>
 
-#include "imgui.h"
-
 using std::cout;
 using std::cerr;
 using std::endl;
 using std::string;
 using namespace std::chrono_literals;
-
 
 /*!
  * OpenCV namespace
@@ -57,19 +56,14 @@ namespace cv {
  */
 namespace v4d {
 
-enum class AllocateFlags {
-    NONE = 0,
-    NANOVG = 1,
-    IMGUI = 2,
-    ALL = NANOVG | IMGUI
-};
-
-enum class BranchType {
-	NONE = 0,
-	SINGLE = 1,
-	PARALLEL = 2,
-	ONCE = 4,
-	PARALLEL_ONCE = 8,
+struct AllocateFlags {
+	enum Enum {
+		NONE = 0,
+		NANOVG = 1,
+		IMGUI = 2,
+		BGFX = 4,
+		ALL = NANOVG | IMGUI | BGFX
+	};
 };
 
 class Plan {
@@ -124,8 +118,7 @@ template<typename Tlamba> std::string lambda_ptr_hex(Tlamba&& l) {
     return int_to_hex((size_t)Lambda::ptr(l));
 }
 
-static std::size_t index(const std::thread::id id)
-{
+static std::size_t index(const std::thread::id id) {
     static std::size_t nextindex = 0;
     static std::mutex my_mutex;
     static std::unordered_map<std::thread::id, std::size_t> ids;
@@ -158,6 +151,7 @@ class CV_EXPORTS V4D {
     friend class detail::PlainContext;
     friend class detail::GLContext;
     friend class detail::ExtContext;
+    friend class detail::BgfxContext;
     friend class Source;
     friend class Sink;
 
@@ -165,7 +159,7 @@ class CV_EXPORTS V4D {
     cv::Ptr<V4D> self_;
     cv::Ptr<Plan> plan_;
     const cv::Size initialSize_;
-    AllocateFlags flags_;
+    int flags_;
     bool debug_;
     cv::Rect viewport_;
     bool stretching_;
@@ -175,6 +169,7 @@ class CV_EXPORTS V4D {
     cv::Ptr<SourceContext> sourceContext_ = nullptr;
     cv::Ptr<SinkContext> sinkContext_ = nullptr;
     cv::Ptr<NanoVGContext> nvgContext_ = nullptr;
+    cv::Ptr<BgfxContext> bgfxContext_ = nullptr;
     cv::Ptr<ImGuiContextImpl> imguiContext_ = nullptr;
     cv::Ptr<PlainContext> plainContext_ = nullptr;
     std::mutex glCtxMtx_;
@@ -207,8 +202,8 @@ public:
      * @param samples MSAA samples.
      * @param debug Create a debug OpenGL context.
      */
-    CV_EXPORTS static cv::Ptr<V4D> make(const cv::Size& size, const string& title, AllocateFlags flags = AllocateFlags::ALL, bool offscreen = false, bool debug = false, int samples = 0);
-    CV_EXPORTS static cv::Ptr<V4D> make(const cv::Size& size, const cv::Size& fbsize, const string& title, AllocateFlags flags = AllocateFlags::ALL, bool offscreen = false, bool debug = false, int samples = 0);
+    CV_EXPORTS static cv::Ptr<V4D> make(const cv::Size& size, const string& title, int flags = AllocateFlags::ALL, bool offscreen = false, bool debug = false, int samples = 0);
+    CV_EXPORTS static cv::Ptr<V4D> make(const cv::Size& size, const cv::Size& fbsize, const string& title, int flags = AllocateFlags::ALL, bool offscreen = false, bool debug = false, int samples = 0);
     CV_EXPORTS static cv::Ptr<V4D> make(const V4D& v4d, const string& title);
     /*!
      * Default destructor
@@ -286,7 +281,7 @@ public:
     void runGraph() {
 		bool locker = false;
 		bool openBranch = false;
-		BranchType btype;
+		BranchType::Enum btype;
 
     	BranchState currentState;
     	try {
@@ -347,15 +342,15 @@ public:
 							std::lock_guard<std::mutex>(Global::mutex());
 							n->tx_->getContext()->execute([n]() {
 								TimeTracker::getInstance()->execute(n->name_, [n](){
-									cerr << "locked: " << n->name_ << endl;
 									n->tx_->perform();
+//									cerr << "locked: " << n->name_ << endl;
 								});
 							});
 						} else {
 							n->tx_->getContext()->execute([n]() {
 								TimeTracker::getInstance()->execute(n->name_, [n](){
-									cerr << "unlocked: " << n->name_ << endl;
 									n->tx_->perform();
+//									cerr << "unlocked: " << n->name_ << endl;
 								});
 							});
 						}
@@ -408,7 +403,7 @@ public:
     }
 
     template<typename Tfn, typename ...Args>
-    void add_transaction(BranchType btype, cv::Ptr<V4DContext> ctx, const string& invocation, Tfn fn, Args&& ...args) {
+    void add_transaction(BranchType::Enum btype, cv::Ptr<V4DContext> ctx, const string& invocation, Tfn fn, Args&& ...args) {
     	auto it = transactions_.find(invocation);
     	if(it == transactions_.end()) {
     		auto tx = make_transaction(fn, std::forward<Args>(args)...);
@@ -487,7 +482,7 @@ public:
         init_context_call(fn, args...);
 
         const string id = make_id(getPrefix(), "branch", fn, args...);
-
+        emit_access<std::true_type, decltype(fn)>(id, true, &fn);
 		(emit_access<std::true_type, std::remove_reference_t<Args>, Args...>(id, std::is_const_v<std::remove_reference_t<Args>>, &args),...);
 		std::function functor = fn;
 		add_transaction(BranchType::PARALLEL, plainCtx(), id, functor, std::forward<Args>(args)...);
@@ -498,7 +493,7 @@ public:
         init_context_call(fn, args...);
 
         const string id = make_id(getPrefix(), "branch-pin" + std::to_string(workerIdx), fn, args...);
-
+        emit_access<std::true_type, decltype(fn)>(id, true, &fn);
 		(emit_access<std::true_type, std::remove_reference_t<Args>, Args...>(id, std::is_const_v<std::remove_reference_t<Args>>, &args),...);
 		std::function<bool(Args...)> functor = fn;
 		std::function<bool(Args...)> wrap = [this, workerIdx, functor](Args&& ... args){
@@ -508,7 +503,7 @@ public:
     }
 
     template <typename Tfn>
-    void branch(BranchType type, Tfn fn) {
+    void branch(BranchType::Enum type, Tfn fn) {
         init_context_call(fn);
         const string id = make_id(getPrefix(), "branch-type" + std::to_string((int)type) + "-", fn);
 		std::function functor = fn;
@@ -517,22 +512,22 @@ public:
     }
 
     template <typename Tfn, typename ... Args>
-    void branch(BranchType type, Tfn fn, Args&& ... args) {
+    void branch(BranchType::Enum type, Tfn fn, Args&& ... args) {
         init_context_call(fn, args...);
 
         const string id = make_id(getPrefix(), "branch-type" + std::to_string((int)type), fn, args...);
-
+        emit_access<std::true_type, decltype(fn)>(id, true, &fn);
 		(emit_access<std::true_type, std::remove_reference_t<Args>, Args...>(id, std::is_const_v<std::remove_reference_t<Args>>, &args),...);
 		std::function<bool(Args...)> functor = fn;
 		add_transaction(type, plainCtx(), id, functor, std::forward<Args>(args)...);
     }
 
     template <typename Tfn, typename ... Args>
-    void branch(BranchType type, int workerIdx, Tfn fn, Args&& ... args) {
+    void branch(BranchType::Enum type, int workerIdx, Tfn fn, Args&& ... args) {
         init_context_call(fn, args...);
 
         const string id = make_id(getPrefix(), "branch-type-pin" + std::to_string((int)type) + "-" + std::to_string(workerIdx), fn, args...);
-
+        emit_access<std::true_type, decltype(fn)>(id, true, &fn);
 		(emit_access<std::true_type, std::remove_reference_t<Args>, Args...>(id, std::is_const_v<std::remove_reference_t<Args>>, &args),...);
 		std::function<bool(Args...)> functor = fn;
 		std::function<bool(Args...)> wrap = [this, workerIdx, functor](Args&& ... args){
@@ -557,7 +552,7 @@ public:
         init_context_call(fn, args...);
 
         const string id = make_id(getPrefix(), "endbranch", fn, args...);
-
+        emit_access<std::true_type, decltype(fn)>(id, true, &fn);
 		(emit_access<std::true_type, std::remove_reference_t<Args>, Args...>(id, std::is_const_v<std::remove_reference_t<Args>>, &args),...);
 		std::function<bool(Args...)> functor = [this](Args&& ... args){
 			return true;
@@ -579,7 +574,7 @@ public:
     }
 
     template <typename Tfn>
-    void endbranch(BranchType type, Tfn fn) {
+    void endbranch(BranchType::Enum type, Tfn fn) {
         init_context_call(fn);
         const string id = make_id(getPrefix(), "endbranch-type" + std::to_string((int)type) + "-", fn);
 
@@ -589,12 +584,13 @@ public:
     }
 
     template <typename Tfn, typename ... Args>
-    void endbranch(BranchType type, Tfn fn, Args&& ... args) {
+    void endbranch(BranchType ::Enum type, Tfn fn, Args&& ... args) {
         init_context_call(fn, args...);
 
         const string id = make_id(getPrefix(), "endbranch-type" + std::to_string((int)type) + "-", fn, args...);
-
+        emit_access<std::true_type, decltype(fn)>(id, true, &fn);
 		(emit_access<std::true_type, std::remove_reference_t<Args>, Args...>(id, std::is_const_v<std::remove_reference_t<Args>>, &args),...);
+
 		std::function<bool(Args...)> functor = [this](Args&& ... args){
 			return true;
 		};
@@ -602,12 +598,13 @@ public:
     }
 
     template <typename Tfn, typename ... Args>
-    void endbranch(BranchType type, int workerIdx, Tfn fn, Args&& ... args) {
+    void endbranch(BranchType::Enum type, int workerIdx, Tfn fn, Args&& ... args) {
         init_context_call(fn, args...);
 
         const string id = make_id(getPrefix(), "endbranch-pin-type" + std::to_string((int)type) + "-" + std::to_string(workerIdx), fn, args...);
-
+        emit_access<std::true_type, decltype(fn)>(id, true, &fn);
 		(emit_access<std::true_type, std::remove_reference_t<Args>, Args...>(id, std::is_const_v<std::remove_reference_t<Args>>, &args),...);
+
 		std::function<bool(Args...)> functor = [this, workerIdx](Args&& ... args){
 			return this->workerIndex() == workerIdx;
 		};
@@ -697,9 +694,23 @@ public:
         init_context_call(fn, args...);
 
         const string id = make_id(getPrefix(), "nvg", fn, args...);
+        emit_access<std::true_type, cv::UMat, Args...>(id, true, &fbCtx()->fb());
 		(emit_access<std::true_type, std::remove_reference_t<Args>, Args...>(id, std::is_const_v<std::remove_reference_t<Args>>, &args),...);
+		emit_access<std::true_type, cv::UMat, Args...>(id, false, &fbCtx()->fb());
 		std::function functor(fn);
 		add_transaction<decltype(functor)>(nvgCtx(), id, std::forward<decltype(functor)>(fn), std::forward<Args>(args)...);
+    }
+
+    template <typename Tfn, typename ... Args>
+    void bgfx(Tfn fn, Args&&... args) {
+        init_context_call(fn, args...);
+
+        const string id = make_id(getPrefix(), "bgfx", fn, args...);
+        emit_access<std::true_type, cv::UMat, Args...>(id, true, &fbCtx()->fb());
+		(emit_access<std::true_type, std::remove_reference_t<Args>, Args...>(id, std::is_const_v<std::remove_reference_t<Args>>, &args),...);
+		emit_access<std::true_type, cv::UMat, Args...>(id, false, &fbCtx()->fb());
+		std::function functor(fn);
+		add_transaction<decltype(functor)>(bgfxCtx(), id, std::forward<decltype(functor)>(fn), std::forward<Args>(args)...);
     }
 
     template <typename Tfn, typename ... Args>
@@ -707,7 +718,9 @@ public:
         init_context_call(fn, args...);
 
         const string id = make_id(getPrefix(), "plain", fn, args...);
+        emit_access<std::true_type, cv::UMat, Args...>(id, true, &fbCtx()->fb());
 		(emit_access<std::true_type, std::remove_reference_t<Args>, Args...>(id, std::is_const_v<std::remove_reference_t<Args>>, &args),...);
+		emit_access<std::true_type, cv::UMat, Args...>(id, false, &fbCtx()->fb());
 		std::function functor(fn);
 		add_transaction<decltype(functor)>(fbCtx(), id, std::forward<decltype(functor)>(fn), std::forward<Args>(args)...);
     }
@@ -853,7 +866,7 @@ public:
 					reseq.waitFor(seq);
 					{
 						std::lock_guard<std::mutex> lock(pollMtx);
-						event::poll();
+//						event::poll();
 
 					}
 				} while(keepRunning() && this->display());
@@ -1006,18 +1019,19 @@ public:
 private:
     V4D(const V4D& v4d, const string& title);
     V4D(const cv::Size& size, const cv::Size& fbsize,
-            const string& title, AllocateFlags flags, bool offscreen, bool debug, int samples);
+            const string& title, int flags, bool offscreen, bool debug, int samples);
 
     void swapContextBuffers();
     bool display();
 protected:
-    AllocateFlags flags();
+    int flags();
     cv::Ptr<V4D> self();
 
     cv::Ptr<FrameBufferContext> fbCtx() const;
     cv::Ptr<SourceContext> sourceCtx();
     cv::Ptr<SinkContext> sinkCtx();
     cv::Ptr<NanoVGContext> nvgCtx();
+    cv::Ptr<BgfxContext> bgfxCtx();
     cv::Ptr<PlainContext> plainCtx();
     cv::Ptr<ImGuiContextImpl> imguiCtx();
     cv::Ptr<GLContext> glCtx(int32_t idx = 0);
@@ -1027,6 +1041,7 @@ protected:
     bool hasSourceCtx();
     bool hasSinkCtx();
     bool hasNvgCtx();
+    bool hasBgfxCtx();
     bool hasPlainCtx();
     bool hasImguiCtx();
     bool hasGlCtx(uint32_t idx = 0);

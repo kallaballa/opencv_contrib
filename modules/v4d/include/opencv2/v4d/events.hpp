@@ -6,7 +6,7 @@
 #ifndef MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_EVENTS_HPP_
 #define MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_EVENTS_HPP_
 
-
+#define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <queue>
 #include <vector>
@@ -17,6 +17,10 @@
 #include <map>
 #include <cmath>
 #include <cassert>
+
+#ifndef EVENT_API_EXPORT
+#define EVENT_API_EXPORT
+#endif
 
 namespace cv {
 namespace v4d {
@@ -436,17 +440,11 @@ inline static std::map<std::thread::id, size_t> thread_id_map;
 constexpr float AXIS_NO_VALUE = std::numeric_limits<float>::max();
 inline static float prev_axis_value[6] = {AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE};
 inline static float init_axis_value[6] = {AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE};
-inline GLFWwindow* main_window = nullptr;
 
-static void set_main_glfw_window(GLFWwindow* win) {
-	assert(win);
-	main_window = win;
-}
-
-static GLFWwindow* get_main_glfw_window() {
-	assert(main_window);
-	return main_window;
-}
+class EVENT_API_EXPORT Holder {
+public:
+	static GLFWwindow* main_window;
+};
 
 constexpr Keyboard::Key v4d_key(int glfw_key) {
 	switch (glfw_key) {
@@ -1024,7 +1022,7 @@ inline static WindowCloseCallback windowCloseCallback;
 }
 
 template<typename Tpoint>
-static void init(
+inline void init(
 		KeyCallback keyboardCallback = KeyCallback(),
 		MouseButtonCallback mouseButtonCallback = MouseButtonCallback(),
 		ScrollCallback scrollCallback = ScrollCallback(),
@@ -1035,9 +1033,8 @@ static void init(
 		WindowCloseCallback windowCloseCallback = WindowCloseCallback()) {
 	GLFWwindow* win = glfwGetCurrentContext();
 	assert(win);
-	detail::set_main_glfw_window(win);
+	detail::Holder::main_window = win;
 	detail::keyboardCallback = keyboardCallback;
-	detail::mouseButtonCallback = mouseButtonCallback;
 	detail::scrollCallback = scrollCallback;
 	detail::cursorPosCallback = cursorPosCallback;
 	detail::windowSizeCallback = windowSizeCallback;
@@ -1159,84 +1156,85 @@ static void init(
 
 
 template<typename Tevent>
-static bool has(){
+inline bool has(){
 	return detail::queue().has<Tevent>();
 }
 
 template<typename Tevent>
-static std::vector<std::shared_ptr<Tevent>> get(){
+inline std::vector<std::shared_ptr<Tevent>> get(){
 	std::vector<std::shared_ptr<Tevent>> result;
 	detail::queue().get<Tevent>(result);
 	return result;
 }
 
 template<typename Tevent>
-static bool has(const typename Tevent::Type& t){
+inline bool has(const typename Tevent::Type& t){
 	return detail::queue().has(t);
 }
 
 template<typename Tevent>
-static std::vector<std::shared_ptr<Tevent>> get(const typename Tevent::Type& t){
+inline std::vector<std::shared_ptr<Tevent>> get(const typename Tevent::Type& t){
 	std::vector<std::shared_ptr<Tevent>> result;
 	detail::queue().get(t, result);
 	return result;
 }
 
-static std::vector<std::shared_ptr<Keyboard>> get(const Keyboard::Type& t, const Keyboard::Key& k){
+inline std::vector<std::shared_ptr<Keyboard>> get(const Keyboard::Type& t, const Keyboard::Key& k){
 	std::vector<std::shared_ptr<Keyboard>> result;
 	detail::queue().get<Keyboard>(t, result, [k](std::shared_ptr<Keyboard> ev){ return ev->key() == k; });
 	return result;
 }
 
 template<typename Tpoint>
-static std::vector<std::shared_ptr<Mouse<Tpoint>>> get(const typename Mouse<Tpoint>::Type& t, const typename Mouse<Tpoint>::Button& b){
+inline std::vector<std::shared_ptr<Mouse<Tpoint>>> get(const typename Mouse<Tpoint>::Type& t, const typename Mouse<Tpoint>::Button& b){
 	std::vector<std::shared_ptr<Mouse<Tpoint>>> result;
 	detail::queue().get<Mouse<Tpoint>>(t, result, [b](std::shared_ptr<Mouse<Tpoint>> ev){ return ev->button() == b; });
 	return result;
 }
 
-static std::vector<std::shared_ptr<Joystick>> get(const Joystick::Type& t, const Joystick::Button& b){
+inline std::vector<std::shared_ptr<Joystick>> get(const Joystick::Type& t, const Joystick::Button& b){
 	std::vector<std::shared_ptr<Joystick>> result;
 	detail::queue().get<Joystick>(t, result, [b](std::shared_ptr<Joystick> ev){ return ev->button() == b; });
 	return result;
 }
 
-static std::vector<std::shared_ptr<Joystick>> get(const Joystick::Type& t, const Joystick::Axis& a){
+inline std::vector<std::shared_ptr<Joystick>> get(const Joystick::Type& t, const Joystick::Axis& a){
 	std::vector<std::shared_ptr<Joystick>> result;
 	detail::queue().get<Joystick>(t, result, [a](std::shared_ptr<Joystick> ev){ return ev->axis() == a; });
 	return result;
 }
 
-static bool has(const Keyboard::Type& t, const Keyboard::Key& k){
+inline bool has(const Keyboard::Type& t, const Keyboard::Key& k){
 	return detail::queue().has<Keyboard>(t, [k](std::shared_ptr<Keyboard> ev){ return ev->key() == k; });
 }
 
 template<typename Tpoint>
-static bool has(const typename Mouse<Tpoint>::Type& t, const typename Mouse<Tpoint>::Button& b){
+inline bool has(const typename Mouse<Tpoint>::Type& t, const typename Mouse<Tpoint>::Button& b){
 	return detail::queue().has<Mouse<Tpoint>>(t, [b](std::shared_ptr<Mouse<Tpoint>> ev){ return ev->button() == b; });
 }
 
-static bool has(const Joystick::Type& t, const Joystick::Button& b){
+inline bool has(const Joystick::Type& t, const Joystick::Button& b){
 	return detail::queue().has<Joystick>(t, [b](std::shared_ptr<Joystick> ev){ return ev->button() == b; });
 }
 
-static bool has(const Joystick::Type& t, const Joystick::Axis& a){
+inline bool has(const Joystick::Type& t, const Joystick::Axis& a){
 	return detail::queue().has<Joystick>(t, [a](std::shared_ptr<Joystick> ev){ return ev->axis() == a; });
 }
 
 template<typename T>
-static bool has(const typename T::Type& t, std::function<bool(const T&)> fn){
+inline bool has(const typename T::Type& t, std::function<bool(const T&)> fn){
 	return detail::queue().has<T>(t, [fn](std::shared_ptr<T> ev){ return fn(*ev.get()); });
 }
 
 
 template<typename T>
-static std::vector<std::shared_ptr<T>> get(const typename T::Type& t, std::function<bool(const T&)> fn){
+inline std::vector<std::shared_ptr<T>> get(const typename T::Type& t, std::function<bool(const T&)> fn){
 	return detail::queue().get<T>(t, [fn](std::shared_ptr<T> ev){ return fn(*ev.get()); });
 }
 
-static void poll() {
-	if(detail::get_main_glfw_window()) {
+EVENT_API_EXPORT inline void poll() {
+	assert(detail::Holder::main_window);
+	if(detail::Holder::main_window) {
 		detail::queue().clear();
 		glfwPollEvents();
 		detail::poll_joystick_events();

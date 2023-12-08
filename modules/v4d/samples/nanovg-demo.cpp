@@ -150,7 +150,7 @@ public:
 		}, rgb_, hsv_, hsvChannels_, hue_);
 
 		//Acquire the framebuffer and convert the rgb_ into it
-		window->fb([](cv::UMat &framebuffer, const cv::UMat& rgb) {
+		window->fb([](cv::UMat& framebuffer, const cv::UMat& rgb) {
 			cv::cvtColor(rgb, framebuffer, cv::COLOR_BGR2BGRA);
 		}, rgb_);
 

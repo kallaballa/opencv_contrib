@@ -9,6 +9,7 @@
 
 #include "../include/opencv2/v4d/v4d.hpp"
 #include "../include/opencv2/v4d/util.hpp"
+#include "../include/opencv2/v4d/detail/gl.hpp"
 
 #include <csignal>
 #include <unistd.h>
@@ -56,6 +57,38 @@ size_t cnz(const cv::UMat& m) {
     }
     return cv::countNonZero(grey);
 }
+
+std::mutex Global::global_mtx_;
+
+std::mutex Global::locking_mtx_;
+bool Global::locking_ = 0;
+
+std::set<string> Global::once_;
+
+std::mutex Global::frame_cnt_mtx_;
+uint64_t Global::frame_cnt_ = 0;
+
+std::mutex Global::start_time_mtx_;
+uint64_t Global::start_time_ = get_epoch_nanos();
+
+std::mutex Global::fps_mtx_;
+double Global::fps_ = 0;
+
+std::mutex Global::thread_id_mtx_;
+const std::thread::id Global::default_thread_id_;
+std::thread::id Global::main_thread_id_;
+thread_local bool Global::is_main_;
+
+uint64_t Global::run_cnt_ = 0;
+bool Global::first_run_ = true;
+
+size_t Global::workers_ready_ = 0;
+size_t Global::workers_started_ = 0;
+size_t Global::next_worker_idx_ = 0;
+std::mutex Global::sharedMtx_;
+
+std::map<size_t, std::mutex*> Global::shared_;
+std::map<std::thread::id, size_t> Global::thread_worker_id_;
 }
 
 CV_EXPORTS void copy_shared(const cv::UMat& src, cv::UMat& dst) {
@@ -258,7 +291,7 @@ bool isIntelVaSupported() {
 
 bool isClGlSharingSupported() {
 #ifdef HAVE_OPENCL
-	if(cv::ocl::useOpenCL()) {
+	if(cv::ocl::haveOpenCL()) {
 		try {
 			if(!cv::ocl::useOpenCL())
 				return false;

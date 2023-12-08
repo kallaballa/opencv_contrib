@@ -12,25 +12,33 @@
 namespace cv {
 namespace v4d {
 
-enum class BranchType;
+struct BranchType {
+	enum Enum {
+	NONE = 0,
+	SINGLE = 1,
+	PARALLEL = 2,
+	ONCE = 4,
+	PARALLEL_ONCE = 8
+	};
+};
 
-class Transaction {
+class CV_EXPORTS Transaction {
 private:
 	cv::Ptr<cv::v4d::detail::V4DContext> ctx_;
-	BranchType btype_;
+	BranchType::Enum btype_;
 public:
-	Transaction();
-	virtual ~Transaction() {}
-    virtual void perform() = 0;
-    virtual bool ran() = 0;
-    virtual bool enabled() = 0;
-    virtual bool isPredicate() = 0;
-    bool isBranch();
-    void setBranchType(BranchType btype);
-    BranchType getBranchType();
+	CV_EXPORTS Transaction();
+	CV_EXPORTS virtual ~Transaction() {}
+	CV_EXPORTS virtual void perform() = 0;
+	CV_EXPORTS virtual bool ran() = 0;
+	CV_EXPORTS virtual bool enabled() = 0;
+	CV_EXPORTS virtual bool isPredicate() = 0;
+	CV_EXPORTS bool isBranch();
+	CV_EXPORTS void setBranchType(BranchType::Enum btype);
+	CV_EXPORTS BranchType::Enum getBranchType();
 
-    void setContext(cv::Ptr<cv::v4d::detail::V4DContext> ctx);
-    cv::Ptr<cv::v4d::detail::V4DContext> getContext();
+	CV_EXPORTS void setContext(cv::Ptr<cv::v4d::detail::V4DContext> ctx);
+	CV_EXPORTS cv::Ptr<cv::v4d::detail::V4DContext> getContext();
 };
 
 namespace detail {

@@ -441,13 +441,13 @@ int main(int argc, char **argv) {
     }
 
     cv::Ptr<OptflowDemoPlan> plan = new OptflowDemoPlan(cv::Rect(0, 0, 1280, 720));
-	cv::Ptr<V4D> window = V4D::make(plan->size(), "Sparse Optical Flow Demo", AllocateFlags::ALL);
+	cv::Ptr<V4D> window = V4D::make(plan->size(), "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
 	auto src = Source::make(window, argv[1]);
 	auto sink = Sink::make(window, "optflow-demo.mkv", src->fps(), plan->size());
 	window->setSource(src);
 	window->setSink(sink);
 
-	window->run(plan, 5);
+	window->run(plan, 0);
     return 0;
 }

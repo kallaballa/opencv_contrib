@@ -53,11 +53,6 @@ void ImGuiContextImpl::build(std::function<void()> fn) {
 
 void ImGuiContextImpl::render(bool showFPS) {
 	mainFbContext_->makeCurrent();
-
-	GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, 0));
-#if !defined(OPENCV_V4D_USE_ES3)
-	GL_CHECK(glDrawBuffer(GL_BACK));
-#endif
 	ImGui_ImplOpenGL3_NewFrame();
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();

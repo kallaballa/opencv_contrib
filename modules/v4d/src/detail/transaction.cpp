@@ -1,5 +1,4 @@
 #include "../../include/opencv2/v4d/detail/transaction.hpp"
-#include "../../include/opencv2/v4d/v4d.hpp"
 
 #include <tuple>
 #include <functional>
@@ -17,11 +16,11 @@ bool Transaction::isBranch() {
 	return btype_ != BranchType::NONE;
 }
 
-void Transaction::setBranchType(BranchType btype) {
+void Transaction::setBranchType(BranchType::Enum btype) {
 	btype_ = btype;
 }
 
-BranchType Transaction::getBranchType() {
+BranchType::Enum Transaction::getBranchType() {
 	return btype_;
 }
 

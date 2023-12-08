@@ -7,6 +7,7 @@
 #define SRC_OPENCV_IMGUIContext_HPP_
 
 #include "framebuffercontext.hpp"
+#include "../../../third/imgui/imgui.h"
 
 struct ImGuiContext;
 namespace cv {

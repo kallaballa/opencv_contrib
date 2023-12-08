@@ -3,6 +3,7 @@
 // of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
+#include "opencv2/v4d/detail/gl.hpp"
 #include "opencv2/v4d/detail/nanovgcontext.hpp"
 #include "opencv2/v4d/nvg.hpp"
 #include "nanovg_gl.h"
@@ -49,7 +50,7 @@ void NanoVGContext::begin() {
     CV_UNUSED(hs);
     nvgSave(context_);
     nvgBeginFrame(context_, ws, hs, r);
-    nvgTransform(context_, 1, 0, 0, -1, 0, hs);
+    nvgTranslate(context_, 0, h - hs);
 }
 
 void NanoVGContext::end() {

@@ -3,19 +3,24 @@
 // of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
-#include "opencv2/v4d/detail/framebuffercontext.hpp"
-#include "opencv2/v4d/v4d.hpp"
-#include "opencv2/v4d/util.hpp"
-#include "opencv2/core/ocl.hpp"
-#include "opencv2/v4d/detail/gl.hpp"
-
+#include "../include/opencv2/v4d/detail/framebuffercontext.hpp"
+#include "../include/opencv2/v4d/v4d.hpp"
+#include "../include/opencv2/v4d/detail/gl.hpp"
+#include <opencv2/core/ocl.hpp>
 #include "opencv2/core/opengl.hpp"
 #include <opencv2/core/utils/logger.hpp>
 #include <exception>
 #include <iostream>
+#include "../../third/imgui/backends/imgui_impl_glfw.h"
+
+#define GLAD_GL_IMPLEMENTATION
+#if !defined(OPENCV_V4D_USE_ES3)
+#  include "glad/gl.h"
+#else
+#  include "glad/gles3.h"
+#endif
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
-#include "../../third/imgui/backends/imgui_impl_glfw.h"
 
 using std::cerr;
 using std::cout;
@@ -49,6 +54,70 @@ FrameBufferContext::FrameBufferContext(V4D& v4d, const cv::Size& framebufferSize
 
 FrameBufferContext::~FrameBufferContext() {
         teardown();
+}
+
+void FrameBufferContext::loadShader(const size_t& index) {
+#if !defined(OPENCV_V4D_USE_ES3)
+    const string shaderVersion = "330";
+#else
+    const string shaderVersion = "300 es";
+#endif
+
+    const string vert =
+            "    #version " + shaderVersion
+                    + R"(
+    layout (location = 0) in vec3 aPos;
+    
+    void main()
+    {
+        gl_Position = vec4(aPos, 1.0);
+    }
+)";
+
+    const string frag =
+            "    #version " + shaderVersion
+                    + R"(
+    precision mediump float;
+    out vec4 FragColor;
+    
+    uniform sampler2D texture0;
+    uniform vec2 resolution;
+
+    void main()
+    {      
+        //translate screen coordinates to texture coordinates and flip the y-axis.   
+        vec4 texPos = gl_FragCoord / vec4(resolution.x, resolution.y * -1.0f, 1.0, 1.0);
+        vec4 texColor0 = texture(texture0, texPos.xy);
+        if(texColor0.a == 0.0)
+            discard;
+        else
+            FragColor = texColor0;
+    }
+)";
+
+    unsigned int handles[3];
+    cv::v4d::init_shaders(handles, vert.c_str(), frag.c_str(), "fragColor");
+    shader_program_hdls_[index] = handles[0];
+}
+
+void FrameBufferContext::loadBuffers(const size_t& index) {
+    glGenVertexArrays(1, &copyVaos[index]);
+    glBindVertexArray(copyVaos[index]);
+
+    glGenBuffers(1, &copyVbos[index]);
+    glGenBuffers(1, &copyEbos[index]);
+
+    glBindBuffer(GL_ARRAY_BUFFER, copyVbos[index]);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(copyVertices), copyVertices, GL_STATIC_DRAW);
+
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, copyEbos[index]);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(copyIndices), copyIndices, GL_STATIC_DRAW);
+
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*) 0);
+    glEnableVertexAttribArray(0);
+
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
 }
 
 GLuint FrameBufferContext::getFramebufferID() {
@@ -149,9 +218,10 @@ void FrameBufferContext::init() {
 
 #if !defined(OPENCV_V4D_USE_ES3)
     if (!parent_) {
-        GLenum err = glewInit();
-        if (err != GLEW_OK && err != GLEW_ERROR_NO_GLX_DISPLAY) {
-        	CV_Error(Error::StsError, "Could not initialize GLEW!");
+    	GladGLContext context;
+    	int version = gladLoadGLContext(&context, glfwGetProcAddress);
+        if (version == 0) {
+            CV_Error(cv::Error::StsError, "Failed to initialize OpenGL context\n");
         }
     }
 #endif
@@ -168,25 +238,38 @@ void FrameBufferContext::init() {
         clglSharing_ = false;
     }
 
-    context_ = CLExecContext_t::getCurrent();
+    if(cv::ocl::useOpenCL())
+    	context_ = CLExecContext_t::getCurrent();
 
     setup();
-    if(Global::is_main() && !parent_) {
-    	event::init<cv::Point2f>(
-    			[](GLFWwindow *window, int key, int scancode, int action, int mods){
-					ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
-					return ImGui::GetIO().WantCaptureKeyboard;
-    			}, [](GLFWwindow *window, int button, int action, int mods) {
-					ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
-					return ImGui::GetIO().WantCaptureMouse;
-    			}, [](GLFWwindow *window, double xoffset, double yoffset) {
-    				ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
-    				return false;
-    			}, [](GLFWwindow *window, double xpos, double ypos) {
-//    				ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
-    				return false;
-    			}
-    	);
+//    if(Global::is_main() && !parent_) {
+//    	event::init<cv::Point2f>(
+//			[](GLFWwindow *window, int key, int scancode, int action, int mods){
+//				if(ImGui::GetCurrentContext()) {
+//					ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+//					return ImGui::GetIO().WantCaptureKeyboard;
+//				} else {
+//					return false;
+//				}
+//			}, [](GLFWwindow *window, int button, int action, int mods) {
+//				if(ImGui::GetCurrentContext()) {
+//					ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+//					return ImGui::GetIO().WantCaptureMouse;
+//				} else {
+//					return false;
+//				}
+//			}, [](GLFWwindow *window, double xoffset, double yoffset) {
+//				if(ImGui::GetCurrentContext()) {
+//					ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
+//				}
+//				return false;
+//			}, [](GLFWwindow *window, double xpos, double ypos) {
+//				if(ImGui::GetCurrentContext()) {
+//					ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
+//				}
+//				return false;
+//			}
+//    	);
 
 //    glfwSetWindowUserPointer(getGLFWWindow(), getV4D().get());
 ////    glfwSetDropCallback(getGLFWWindow(), [](GLFWwindow* glfwWin, int count, const char** filenames) {
@@ -245,7 +328,7 @@ void FrameBufferContext::init() {
 //                v4d->setFocused(i == 1);
 //            }
 //    });
-    }
+//    }
 }
 
 cv::Ptr<V4D> FrameBufferContext::getV4D() {
@@ -346,7 +429,6 @@ void FrameBufferContext::teardown() {
 #ifdef HAVE_OPENCL
 void FrameBufferContext::toGLTexture2D(cv::UMat& u, cv::ogl::Texture2D& texture) {
     CV_Assert(clImage_ != nullptr);
-
 	using namespace cv::ocl;
 
     cl_int status = 0;
@@ -368,30 +450,32 @@ void FrameBufferContext::toGLTexture2D(cv::UMat& u, cv::ogl::Texture2D& texture)
     status = clFinish(q); // TODO Use events
     if (status != CL_SUCCESS)
         CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
-
-    status = clReleaseMemObject(clImage_); // TODO RAII
-    if (status != CL_SUCCESS)
-        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clReleaseMemObject failed: %d", status));
-    clImage_ = nullptr;
 }
 
 void FrameBufferContext::fromGLTexture2D(const cv::ogl::Texture2D& texture, cv::UMat& u) {
     using namespace cv::ocl;
-
     const int dtype = CV_8UC4;
     int textureType = dtype;
-
-    if (u.size() != texture.size() || u.type() != textureType) {
-        u.create(texture.size(), textureType);
-    }
-
     cl_command_queue q = (cl_command_queue) context_.getQueue().ptr();
     cl_int status = 0;
-    CV_Assert(clImage_ == nullptr);
-	Context& ctx = context_.getContext();
-	cl_context context = (cl_context) ctx.ptr();
-	clImage_ = clCreateFromGLTexture(context, CL_MEM_READ_ONLY, 0x0DE1, 0, texture.texId(),
-			&status);
+
+    CV_Assert(u.size() == texture.size() || u.type() == textureType);
+    if (clImage_ != nullptr) {
+//    	CV_Assert(false);
+//        u.create(texture.size(), textureType);
+		status = clReleaseMemObject(clImage_); // TODO RAII
+		if (status != CL_SUCCESS)
+			CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clReleaseMemObject failed: %d", status));
+		clImage_ = nullptr;
+
+    }
+
+    if(clImage_ == nullptr) {
+		Context& ctx = context_.getContext();
+		cl_context context = (cl_context) ctx.ptr();
+		clImage_ = clCreateFromGLTexture(context, CL_MEM_READ_ONLY, 0x0DE1, 0, texture.texId(),
+				&status);
+    }
 	if (status != CL_SUCCESS)
 		throw std::runtime_error("OpenCL: clCreateFromGLTexture failed: " + std::to_string(status));
 
@@ -506,7 +590,7 @@ cv::UMat& FrameBufferContext::fb() {
 void FrameBufferContext::begin(GLenum framebufferTarget, GLuint frameBufferID) {
     currentFBOTarget_ = frameBufferID;
 	this->makeCurrent();
-    GL_CHECK(glBindFramebuffer(framebufferTarget, frameBufferID));
+	GL_CHECK(glBindFramebuffer(framebufferTarget, frameBufferID));
 }
 
 void FrameBufferContext::end() {
@@ -521,6 +605,7 @@ void FrameBufferContext::end() {
 
 		blitFrameBufferToFrameBuffer(cv::Rect(fbX, fbY, fbWidth, fbHeight), size(), getFramebufferID(), false, false);
 	}
+//	this->makeNoneCurrent();
 }
 
 void FrameBufferContext::download(cv::UMat& m) {
@@ -548,8 +633,7 @@ void FrameBufferContext::acquireFromGL(cv::UMat& m) {
             clglSharing_ = false;
             download(m);
         }
-        return;
-	}
+	} else
 #endif
     {
         download(m);
@@ -569,8 +653,7 @@ void FrameBufferContext::releaseToGL(cv::UMat& m) {
             clglSharing_ = false;
             upload(m);
         }
-        return;
-    }
+    } else
 #endif
     {
         upload(m);

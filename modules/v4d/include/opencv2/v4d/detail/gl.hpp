@@ -7,13 +7,12 @@
 #ifndef MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_GL_HPP_
 #define MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_GL_HPP_
 
-#  if !defined(OPENCV_V4D_USE_ES3)
-#    include "GL/glew.h"
-#    define GLFW_INCLUDE_NONE
-#  else
-#    define GLFW_INCLUDE_ES3
-#    define GLFW_INCLUDE_GLEXT
-#  endif
-#  include <GLFW/glfw3.h>
+#if !defined(OPENCV_V4D_USE_ES3)
+#    define GL_GLEXT_PROTOTYPES
+#	include "GL/glcorearb.h"
+#else
+#	include "GLES3/gl3.h"
+#	include "GLES2/gl2ext.h"
+#endif
 
 #endif /* MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_GL_HPP_ */

@@ -14,11 +14,10 @@
 #include <iostream>
 #include <map>
 #include <vector>
-#define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
 typedef unsigned int GLenum;
 #define GL_FRAMEBUFFER 0x8D40
 
+struct GLFWwindow;
 namespace cv {
 namespace v4d {
 class V4D;
@@ -26,7 +25,29 @@ class V4D;
 namespace detail {
 #ifdef HAVE_OPENCL
 typedef cv::ocl::OpenCLExecutionContext CLExecContext_t;
-typedef cv::ocl::OpenCLExecutionContextScope CLExecScope_t;
+class CLExecScope_t
+{
+    CLExecContext_t ctx_;
+public:
+    inline CLExecScope_t(const CLExecContext_t& ctx)
+    {
+    	if(cv::ocl::useOpenCL()) {
+			CV_Assert(!ctx.empty());
+			ctx_ = CLExecContext_t::getCurrentRef();
+			ctx.bind();
+		}
+    }
+
+    inline ~CLExecScope_t()
+    {
+    	if(cv::ocl::useOpenCL()) {
+			if (!ctx_.empty())
+			{
+				ctx_.bind();
+			}
+    	}
+    }
+};
 #else
 struct CLExecContext_t {
 	bool empty() {
@@ -62,6 +83,7 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     friend class ExtContext;
     friend class NanoVGContext;
     friend class ImGuiContextImpl;
+    friend class BgfxContext;
     friend class cv::v4d::V4D;
     cv::Ptr<FrameBufferContext> self_ = this;
     V4D* v4d_ = nullptr;
@@ -88,6 +110,30 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     cv::Ptr<FrameBufferContext> parent_;
     bool isRoot_ = true;
     int index_;
+    std::map<size_t, GLint> texture_hdls_;
+    std::map<size_t, GLint> resolution_hdls_;
+
+    std::map<size_t, GLuint> shader_program_hdls_;
+
+    //gl object maps
+    std::map<size_t, GLuint> copyVaos, copyVbos, copyEbos;
+
+    // vertex position, color
+    const float copyVertices[12] = {
+    //    x      y      z
+    -1.0f, -1.0f, -0.0f,
+    1.0f, 1.0f, -0.0f,
+    -1.0f, 1.0f, -0.0f,
+    1.0f, -1.0f, -0.0f };
+
+    const unsigned int copyIndices[6] = {
+    //  2---,1
+    //  | .' |
+    //  0'---3
+            0, 1, 2, 0, 3, 1 };
+
+    std::map<size_t, GLuint> copyFramebuffers_;
+    std::map<size_t, GLuint> copyTextures_;
 public:
     /*!
      * Acquires and releases the framebuffer from and to OpenGL.
@@ -204,7 +250,7 @@ public:
       * @param fn A function object that is passed the framebuffer to be read/manipulated.
       */
     virtual void execute(std::function<void()> fn) override {
-		if(!getCLExecContext().empty()) {
+		if(cv::ocl::useOpenCL() && !getCLExecContext().empty()) {
 			CLExecScope_t clExecScope(getCLExecContext());
 			FrameBufferContext::GLScope glScope(self(), GL_FRAMEBUFFER);
 			FrameBufferContext::FrameBufferScope fbScope(self(), framebuffer_);
@@ -262,6 +308,8 @@ protected:
 
     GLFWwindow* getGLFWWindow() const;
 private:
+    void loadBuffers(const size_t& index);
+    void loadShader(const size_t& index);
     void init();
     CV_EXPORTS cv::UMat& fb();
     /*!

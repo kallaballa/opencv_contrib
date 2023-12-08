@@ -47,90 +47,51 @@ public:
 };
 
 class CV_EXPORTS Global {
-	inline static std::mutex global_mtx_;
+	static std::mutex global_mtx_;
 
-	inline static std::mutex locking_mtx_;
-	inline static bool locking_ = 0;
+	static std::mutex locking_mtx_;
+	static bool locking_;
 
-	inline static std::set<string> once_;
+	static std::set<string> once_;
 
-	inline static std::mutex frame_cnt_mtx_;
-	inline static uint64_t frame_cnt_ = 0;
+	static std::mutex frame_cnt_mtx_;
+	static uint64_t frame_cnt_;
 
-	inline static std::mutex start_time_mtx_;
-	inline static uint64_t start_time_ = get_epoch_nanos();
+	static std::mutex start_time_mtx_;
+	static uint64_t start_time_;
 
-	inline static std::mutex fps_mtx_;
-	inline static double fps_ = 0;
+	static std::mutex fps_mtx_;
+	static double fps_;
 
-	inline static std::mutex thread_id_mtx_;
-	inline static const std::thread::id default_thread_id_;
-	inline static std::thread::id main_thread_id_;
-	inline static thread_local bool is_main_;
+	static std::mutex thread_id_mtx_;
+	static const std::thread::id default_thread_id_;
+	static std::thread::id main_thread_id_;
+	static thread_local bool is_main_;
 
-	inline static uint64_t run_cnt_ = 0;
-	inline static bool first_run_ = true;
+	static uint64_t run_cnt_;
+	static bool first_run_;
 
-	inline static size_t workers_ready_ = 0;
-    inline static size_t workers_started_ = 0;
-    inline static size_t next_worker_idx_ = 0;
-	inline static std::mutex sharedMtx_;
+	static size_t workers_ready_;
+    static size_t workers_started_;
+    static size_t next_worker_idx_;
+	static std::mutex sharedMtx_;
 
-	inline static std::map<size_t, std::mutex*> shared_;
-	inline static std::map<std::thread::id, size_t> thread_worker_id_;
+	static std::map<size_t, std::mutex*> shared_;
+	static std::map<std::thread::id, size_t> thread_worker_id_;
 	typedef typename std::map<size_t, std::mutex*>::iterator Iterator;
 public:
 	template <typename T>
 	class Scope {
 	private:
 		const T& t_;
-
-//		ocl::OpenCLExecutionContext* pSavedExecCtx_ = nullptr;
-//		ocl::OpenCLExecutionContext* pExecCtx_ = nullptr;
-//
-//		template<typename Tunused> void bind(const Tunused& t) {
-//			//do nothing for all other types the UMat
-//			CV_UNUSED(t);
-//		}
-//
-//		void bind(const cv::UMat& t) {
-//#ifdef HAVE_OPENCL
-//			if(ocl::useOpenCL()) {
-//				pExecCtx_ = (t.u && t.u->allocatorContext) ? static_cast<ocl::OpenCLExecutionContext*>(t.u->allocatorContext.get()) : nullptr;
-//				if(pExecCtx_ && !pExecCtx_->empty()) {
-//					pSavedExecCtx_ = &ocl::OpenCLExecutionContext::getCurrentRef();
-//					pExecCtx_->bind();
-//				} else {
-//					pSavedExecCtx_ = nullptr;
-//				}
-//			}
-//#endif
-//		}
-//
-//		template<typename Tunused> void unbind(const Tunused& t) {
-//			//do nothing for all other types the UMat
-//			CV_UNUSED(t);
-//		}
-//
-//		void unbind(const cv::UMat& t) {
-//			CV_UNUSED(t);
-//#ifdef HAVE_OPENCL
-//	        if(ocl::useOpenCL() && pSavedExecCtx_ && !pSavedExecCtx_->empty()) {
-//	        	pSavedExecCtx_->bind();
-//	        }
-//#endif
-//		}
-
 public:
 
 		Scope(const T& t) : t_(t) {
 			lock(t_);
-//			bind(t_);
 		}
 
 		~Scope() {
 			unlock(t_);
-//			unbind(t_);
 		}
 	};
 
@@ -138,23 +99,19 @@ public:
     	return global_mtx_;
     }
 
-	CV_EXPORTS static const bool once(string name) {
+	CV_EXPORTS static bool once(string name) {
 	    static std::mutex mtx;
 		std::lock_guard<std::mutex> lock(mtx);
 		string stem = name.substr(0, name.find_last_of("-"));
-		std::cerr << "stem :" << stem << std::endl;
 		if(once_.empty()) {
 			once_.insert(stem);
-			std::cerr << "EMPTY" << std::endl;
 			return true;
 		}
 
 		auto it = once_.find(stem);
 		if(it != once_.end()) {
-			std::cerr << "FOUND" << std::endl;
 			return false;
 		} else {
-			std::cerr << "NOT FOUND" << std::endl;
 			once_.insert(stem);
 			return true;
 		}
@@ -210,7 +167,7 @@ public:
 		main_thread_id_ = id;
     }
 
-	CV_EXPORTS static const bool is_main() {
+	CV_EXPORTS static bool is_main() {
 		std::lock_guard<std::mutex> lock(start_time_mtx_);
 		return (main_thread_id_ == default_thread_id_ || main_thread_id_ == std::this_thread::get_id());
 	}
@@ -442,22 +399,22 @@ make_function(T *t)
 }
 
 //https://stackoverflow.com/a/33047781/1884837
-struct Lambda {
-    template<typename Tret, typename T>
-    static Tret lambda_ptr_exec() {
-        return (Tret) (*(T*)fn<T>());
-    }
-
-    template<typename Tret = void, typename Tfp = Tret(*)(), typename T>
-    static Tfp ptr(T& t) {
-        fn<T>(&t);
-        return (Tfp) lambda_ptr_exec<Tret, T>;
-    }
-
+class Lambda {
     template<typename T>
     static const void* fn(const void* new_fn = nullptr) {
         CV_Assert(new_fn);
     	return new_fn;
+    }
+	template<typename Tret, typename T>
+    static Tret lambda_ptr_exec() {
+        return (Tret) (*(T*)fn<T>());
+    }
+public:
+	//FIXME race condition?
+    template<typename Tret = void, typename Tfp = Tret(*)(), typename T>
+    static Tfp ptr(T& t) {
+        fn<T>(&t);
+        return (Tfp) lambda_ptr_exec<Tret, T>;
     }
 };
 
@@ -470,10 +427,6 @@ class V4D;
 
 CV_EXPORTS void copy_shared(const cv::UMat& src, cv::UMat& dst);
 
-template<typename Tenum>
-bool contains(const Tenum flags, const Tenum item) {
-	return static_cast<int>(flags) & static_cast<int>(item) != 0;
-}
 
 /*!
  * Convenience function to color convert from Scalar to Scalar
