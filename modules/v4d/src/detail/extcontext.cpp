@@ -12,9 +12,10 @@ ExtContext::ExtContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext
         idx_(idx), mainFbContext_(fbContext), extFbContext_(new FrameBufferContext(*fbContext->getV4D(), "ExtOpenGL" + std::to_string(idx), fbContext)) {
 }
 
-void ExtContext::execute(std::function<void()> fn) {
+int ExtContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER, 0);
 		fn();
+		return 1;
 }
 
 const int32_t& ExtContext::getIndex() const {

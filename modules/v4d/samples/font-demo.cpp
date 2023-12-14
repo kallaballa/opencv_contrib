@@ -18,8 +18,8 @@ using std::istringstream;
 using namespace cv::v4d;
 
 class FontDemoPlan : public Plan {
+	inline const static cv::Scalar_<float> INITIAL_COLOR = cv::v4d::colorConvert(cv::Scalar(0.15 * 180.0, 128, 255, 255), cv::COLOR_HLS2RGB);
 	static struct Params {
-		const cv::Scalar_<float> INITIAL_COLOR = cv::v4d::colorConvert(cv::Scalar(0.15 * 180.0, 128, 255, 255), cv::COLOR_HLS2RGB);
 		float minStarSize_ = 0.5f;
 		float maxStarSize_ = 1.5f;
 		int minStarCount_ = 1000;
@@ -31,6 +31,7 @@ class FontDemoPlan : public Plan {
 		float warpRatio_ = 1.0f/3.0f;
 		bool updateStars_ = true;
 		bool updatePerspective_ = true;
+		double timeOffset_ = 0.0f;
 	} params_;
 
     //BGRA
@@ -42,20 +43,16 @@ class FontDemoPlan : public Plan {
     static struct TextVars {
     	//the text to display
     	vector<string> lines_;
-    	//global frame count
-    	uint32_t global_cnt_ = 0;
     	//Total number of lines in the text
     	int32_t numLines_ = 0;
     	//Height of the text in pixels
-    	int32_t textHeight_ = 0;
+    	double textHeight_ = 0;
     } textVars_;
 
-    //the sequence number of the current frame
-    uint32_t seqNum_ = 0;
     //y-value of the current line
-    int32_t y_ = 0;
+    double y_ = 0;
 
-    int32_t translateY_ = 0;
+    double translateY_ = 0;
 
     cv::RNG rng_ = cv::getTickCount();
 public:
@@ -67,6 +64,10 @@ public:
 		Global::registerShared(tm_);
 		Global::registerShared(stars_);
 	}
+
+//	std::string suffix() const override {
+//		return "font-demo";
+//	}
 
 	void gui(cv::Ptr<V4D> window) override {
         window->imgui([](cv::Ptr<V4D> win, Params& params){
@@ -95,15 +96,14 @@ public:
     }
 
     void setup(cv::Ptr<V4D> window) override {
-		window->branch(BranchType::ONCE, always_);
-		{
-			window->plain([](const cv::Size& sz, TextVars& textVars, Params& params){
+		window->branch(BranchType::ONCE, always_)
+			->plain([](const cv::Size& sz, TextVars& textVars, Params& params){
 				//The text to display
 				string txt = cv::getBuildInformation();
 				//Save the text to a vector
 				std::istringstream iss(txt);
 
-				int fontSize = hypot(sz.width, sz.height) / 60.0;
+				double fontSize = hypot(sz.width, sz.height) / 60.0;
 				{
 					Global::Scope scope(textVars);
 					for (std::string line; std::getline(iss, line); ) {
@@ -116,15 +116,16 @@ public:
 					Global::Scope scope(params);
 					params.fontSize_ = fontSize;
 				}
-			}, size(), textVars_, params_);
-		}
-		window->endbranch(BranchType::ONCE, always_);
+			}, size(), textVars_, params_)
+		->endBranch();
     }
 
     void infer(cv::Ptr<V4D> window) override {
-		window->branch(0, isTrue_, params_.updateStars_);
-		{
-			window->nvg([](const cv::Size& sz, cv::RNG& rng, const Params& params) {
+		window->branch(BranchType::SINGLE, [](const Params& params){
+			Params p = Global::safe_copy(params);
+			return p.updateStars_;
+		}, params_)
+			->nvg([](const cv::Size& sz, cv::RNG& rng, const Params& params) {
 				Params p = Global::safe_copy(params);
 				using namespace cv::v4d::nvg;
 				clear();
@@ -133,15 +134,14 @@ public:
 				int numStars = rng.uniform(p.minStarCount_, p.maxStarCount_);
 				for(int i = 0; i < numStars; ++i) {
 					beginPath();
-					const auto& size = rng.uniform(p.minStarSize_, p.maxStarSize_);
+					const auto size = rng.uniform(p.minStarSize_, p.maxStarSize_);
 					strokeWidth(size);
 					strokeColor(cv::Scalar(255, 255, 255, p.starAlpha_ * 255.0f));
 					circle(rng.uniform(0, sz.width) , rng.uniform(0, sz.height), size / 2.0);
 					stroke();
 				}
-			}, size(), rng_, params_);
-
-			window->fb([](const cv::UMat& framebuffer, cv::UMat& stars, Params& params){
+			}, size(), rng_, params_)
+			->fb([](const cv::UMat& framebuffer, cv::UMat& stars, Params& params) {
 				{
 					Global::Scope scope(stars);
 					framebuffer.copyTo(stars);
@@ -150,14 +150,15 @@ public:
 					Global::Scope scope(params);
 					params.updateStars_ = false;
 				}
-			}, stars_, params_);
-		}
-		window->endbranch(0, isTrue_, params_.updateStars_);
+			}, stars_, params_)
+		->endBranch();
 
-		window->branch(0, isTrue_, params_.updatePerspective_);
-		{
-			window->plain([](const cv::Size& sz, cv::Mat& tm, Params& params){
-				Params p = Global::safe_copy(params);
+		window->branch(BranchType::SINGLE, [](const Params& params){
+			Params p = Global::safe_copy(params);
+			return p.updatePerspective_;
+		}, params_)
+			->plain([](const cv::Size& sz, cv::Mat& tm, Params& params) {
+				Params p =	Global::safe_copy(params);
 				//Derive the transformation matrix tm for the pseudo 3D effect from quad1 and quad2.
 				vector<cv::Point2f> quad1 = {cv::Point2f(0,0),cv::Point2f(sz.width,0),
 						cv::Point2f(sz.width,sz.height),cv::Point2f(0,sz.height)};
@@ -166,19 +167,25 @@ public:
 
 				vector<cv::Point2f> quad2 = {cv::Point2f(l, 0.0f),cv::Point2f(r, 0.0f),
 						cv::Point2f(sz.width,sz.height), cv::Point2f(0,sz.height)};
+				{
+					Global::Scope scope(tm);
+					tm = cv::getPerspectiveTransform(quad1.data(), quad2.data());
+				}
+				{
+					Global::Scope scope(params);
+					params.updatePerspective_ = false;
+				}
+			}, size(), tm_, params_)
+		->endBranch();
 
-				Global::Scope scope(tm);
-				tm = cv::getPerspectiveTransform(quad1, quad2);
-			}, size(), tm_, params_);
-		}
-		window->endbranch(0, isTrue_, params_.updatePerspective_);
-
-		window->nvg([](const cv::Size& sz, int32_t& ty, const int32_t& seqNum, int32_t& y, const TextVars& textVars, const Params& params) {
-			Params p = Global::safe_copy(params);
-			TextVars txt = Global::safe_copy(textVars);
-
+		window->nvg([](const cv::Size& sz, double& translateY, double& y, const TextVars& textVars, const Params& params) {
+			Params p;
+			Global::safe_copy(params, p);
+			TextVars txt;
+			Global::safe_copy(textVars, txt);
+			double time = (cv::getTickCount() / cv::getTickFrequency()) - p.timeOffset_;
 			//How many pixels to translate the text up.
-			ty = sz.height - seqNum;
+			translateY = double(sz.height) - round(time * 20.0);
 			using namespace cv::v4d::nvg;
 			clear();
 			fontSize(p.fontSize_);
@@ -187,15 +194,15 @@ public:
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
 
 			/** only draw lines that are visible **/
-			translate(0, ty);
+			translate(0, translateY);
 
 			for (size_t i = 0; i < txt.lines_.size(); ++i) {
 				y = (i * p.fontSize_);
-				if (y + ty < txt.textHeight_ && y + ty + p.fontSize_ > 0) {
+				if (y + translateY < txt.textHeight_ && y + translateY + p.fontSize_ > 0) {
 					text(sz.width / 2.0, y, txt.lines_[i].c_str(), txt.lines_[i].c_str() + txt.lines_[i].size());
 				}
 			}
-		}, size(), translateY_, seqNum_, y_, textVars_, params_);
+		}, size(), translateY_, y_, textVars_, params_);
 
 		window->fb([](cv::UMat& framebuffer, cv::UMat& warped, cv::UMat& stars, cv::Mat& tm) {
 			{
@@ -210,18 +217,14 @@ public:
 
 		window->write();
 
-		window->plain([](const int32_t& translateY, TextVars& textVars, uint32_t& seqNum) {
-			Global::Scope scope(textVars);
-			if(-translateY > textVars.textHeight_) {
-				//reset the scroll once the text is out of the picture
-				textVars.global_cnt_ = 0;
+		window->plain([](const double& translateY, TextVars& textVars, Params& params) {
+			TextVars txt = Global::safe_copy(textVars);
+			Global::Scope scope(params);
+			if(-translateY > txt.textHeight_) {
+				//reset the timeOffset once the text is out of the picture
+				params.timeOffset_ = cv::getTickCount() / cv::getTickFrequency();
 			}
-			++textVars.global_cnt_;
-			//Wrap the cnt around if it becomes to big.
-			if(textVars.global_cnt_ > std::numeric_limits<uint32_t>().max() / 2.0)
-				textVars.global_cnt_ = 0;
-			seqNum = textVars.global_cnt_;
-		}, translateY_, textVars_, seqNum_);
+		}, translateY_, textVars_, params_);
     }
 };
 
@@ -230,10 +233,10 @@ FontDemoPlan::TextVars FontDemoPlan::textVars_;
 
 int main() {
 	cv::Ptr<FontDemoPlan> plan = new FontDemoPlan(cv::Rect(0, 0, 1280, 720));
-	cv::Ptr<V4D> window = V4D::make(plan->size(), "Font Demo", AllocateFlags::ALL);
+	cv::Ptr<V4D> window = V4D::make(plan->size(), "Font Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
 	auto sink = Sink::make(window, "font-demo.mkv", 60, plan->size());
 	window->setSink(sink);
-	window->run(plan, 0);
+	window->run(plan, 3);
     return 0;
 }

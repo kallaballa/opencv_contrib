@@ -118,6 +118,9 @@ class NanoVGDemoPlan : public Plan {
 	double hue_ = 0;
 public:
 	using Plan::Plan;
+//	string suffix() const override {
+//		return "nanovg-demo";
+//	}
 
 	void infer(cv::Ptr<V4D> window) override {
 		window->plain([](double& hue){
@@ -169,7 +172,7 @@ int main(int argc, char **argv) {
         exit(1);
 	}
 
-    cv::Ptr<NanoVGDemoPlan> plan = new NanoVGDemoPlan(cv::Rect(0, 0, 1280, 960));
+    cv::Ptr<NanoVGDemoPlan> plan = new NanoVGDemoPlan(cv::Rect(0, 0, 1920, 1080));
     cv::Ptr<V4D> window = V4D::make(plan->size(), "NanoVG Demo", AllocateFlags::NANOVG);
     window->printSystemInfo();
 

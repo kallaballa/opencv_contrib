@@ -21,7 +21,7 @@ class CV_EXPORTS GLContext : public V4DContext {
 public:
     GLContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext);
     virtual ~GLContext() {};
-    virtual void execute(std::function<void()> fn) override;
+    virtual int execute(const cv::Rect& vp, std::function<void()> fn) override;
     const int32_t& getIndex() const;
     cv::Ptr<FrameBufferContext> fbCtx();
 };

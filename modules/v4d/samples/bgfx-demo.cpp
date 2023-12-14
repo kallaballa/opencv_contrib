@@ -71,8 +71,8 @@ public:
 
 int main(int argc, char** argv) {
 	CV_Assert(argc == 1);
-	cv::Ptr<BgfxDemoPlan> plan = new BgfxDemoPlan(cv::Rect(0,0, 1920, 1080));
-	cv::Ptr<V4D> window = V4D::make(plan->size(), "Bgfx Demo", AllocateFlags::ALL);
+	cv::Ptr<BgfxDemoPlan> plan = new BgfxDemoPlan(cv::Rect(0,0, 1280, 720));
+	cv::Ptr<V4D> window = V4D::make(plan->size(), "Bgfx Demo", AllocateFlags::DEFAULT);
 
 	auto sink = Sink::make(window, "bgfx-demo.mkv", 60, plan->size());
     window->setSink(sink);

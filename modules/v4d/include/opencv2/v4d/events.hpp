@@ -213,7 +213,7 @@ private:
 
 
 template<typename Tpoint>
-class Mouse: public Event {
+class Mouse_: public Event {
 public:
 	enum class Button {
 		NONE,
@@ -238,22 +238,22 @@ public:
 		DOUBLE_CLICK
 	};
 
-	Mouse(Type type, Tpoint position) :
+	Mouse_(Type type, Tpoint position) :
 			Event(Class::MOUSE), button_(Button::NONE), type_(type), position_(
 					position) {
 	}
 
-	Mouse(Type type, Tpoint position, Tpoint data) :
+	Mouse_(Type type, Tpoint position, Tpoint data) :
 			Event(Class::MOUSE), button_(Button::NONE), type_(type), position_(
 					position), data_(data) {
 	}
 
-	Mouse(Type type, Button button, Tpoint position) :
+	Mouse_(Type type, Button button, Tpoint position) :
 			Event(Class::MOUSE), button_(button), type_(type), position_(
 					position) {
 	}
 
-	Mouse(Type type, Button button, Tpoint position, Tpoint data) :
+	Mouse_(Type type, Button button, Tpoint position, Tpoint data) :
 			Event(Class::MOUSE), button_(button), type_(type), position_(
 					position), data_(data) {
 	}
@@ -403,17 +403,17 @@ private:
 };
 
 template<typename Tpoint>
-class Window: public Event {
+class Window_: public Event {
 public:
 	enum class Type {
 		RESIZE, MOVE, FOCUS, UNFOCUS, CLOSE
 	};
 
-	Window(Type type, Tpoint data) :
+	Window_(Type type, Tpoint data) :
 			Event(Class::WINDOW), type_(type), data_(data) {
 	}
 
-	Window(Type type) :
+	Window_(Type type) :
 			Event(Class::WINDOW), type_(type) {
 	}
 
@@ -441,9 +441,20 @@ constexpr float AXIS_NO_VALUE = std::numeric_limits<float>::max();
 inline static float prev_axis_value[6] = {AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE};
 inline static float init_axis_value[6] = {AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE, AXIS_NO_VALUE};
 
+class EventQueue;
+
 class EVENT_API_EXPORT Holder {
 public:
 	static GLFWwindow* main_window;
+	static KeyCallback keyboardCallback;
+	static MouseButtonCallback mouseButtonCallback;
+	static ScrollCallback scrollCallback;
+	static CursorPosCallback cursorPosCallback;
+	static WindowSizeCallback windowSizeCallback;
+	static WindowPosCallback windowPosCallback;
+	static WindowFocusCallback windowFocusCallback;
+	static WindowCloseCallback windowCloseCallback;
+	static std::vector<EventQueue*> queue_vector;
 };
 
 constexpr Keyboard::Key v4d_key(int glfw_key) {
@@ -670,24 +681,24 @@ constexpr Keyboard::Key v4d_key(int glfw_key) {
 }
 
 template<typename Tpoint>
-constexpr typename Mouse<Tpoint>::Button v4d_mouse_button(int glfw_button) {
+constexpr typename Mouse_<Tpoint>::Button v4d_mouse_button(int glfw_button) {
 	switch (glfw_button) {
 	case GLFW_MOUSE_BUTTON_LEFT:
-		return Mouse<Tpoint>::Button::LEFT;
+		return Mouse_<Tpoint>::Button::LEFT;
 	case GLFW_MOUSE_BUTTON_RIGHT:
-		return Mouse<Tpoint>::Button::RIGHT;
+		return Mouse_<Tpoint>::Button::RIGHT;
 	case GLFW_MOUSE_BUTTON_MIDDLE:
-		return Mouse<Tpoint>::Button::MIDDLE;
+		return Mouse_<Tpoint>::Button::MIDDLE;
 	case GLFW_MOUSE_BUTTON_4:
-		return Mouse<Tpoint>::Button::N4;
+		return Mouse_<Tpoint>::Button::N4;
 	case GLFW_MOUSE_BUTTON_5:
-		return Mouse<Tpoint>::Button::N5;
+		return Mouse_<Tpoint>::Button::N5;
 	case GLFW_MOUSE_BUTTON_6:
-		return Mouse<Tpoint>::Button::N6;
+		return Mouse_<Tpoint>::Button::N6;
 	case GLFW_MOUSE_BUTTON_7:
-		return Mouse<Tpoint>::Button::N7;
+		return Mouse_<Tpoint>::Button::N7;
 	case GLFW_MOUSE_BUTTON_8:
-		return Mouse<Tpoint>::Button::N8;
+		return Mouse_<Tpoint>::Button::N8;
 	default:
 		throw std::runtime_error(
 				"Invalid mouse button: " + std::to_string(glfw_button)
@@ -776,14 +787,14 @@ constexpr Keyboard::Type v4d_keyboard_event_type(int glfw_state) {
 }
 
 template<typename Tpoint>
-constexpr typename Mouse<Tpoint>::Type v4d_mouse_event_type(int glfw_state) {
-	typename Mouse<Tpoint>::Type type;
+constexpr typename Mouse_<Tpoint>::Type v4d_mouse_event_type(int glfw_state) {
+	typename Mouse_<Tpoint>::Type type;
 	switch (glfw_state) {
 	case GLFW_PRESS:
-		type = Mouse<Tpoint>::Type::PRESS;
+		type = Mouse_<Tpoint>::Type::PRESS;
 		break;
 	case GLFW_RELEASE:
-		type = Mouse<Tpoint>::Type::RELEASE;
+		type = Mouse_<Tpoint>::Type::RELEASE;
 		break;
 	default:
 		throw std::runtime_error(
@@ -830,101 +841,65 @@ public:
 
 
 	template <typename Tevent>
-	bool has() {
+	bool consume() {
+		return consume<Tevent>([](std::shared_ptr<Tevent> event){
+			CV_UNUSED(event);
+			return true;
+		});
+	}
+
+	template <typename Tevent, typename Tfn>
+	bool consume(Tfn fn) {
 		std::unique_lock<std::mutex> lock(mutex_);
+		bool found = false;
+		std::deque<std::shared_ptr<Event>> remainder;
 		for(size_t i = 0; i < size(); ++i) {
-			std::shared_ptr<Tevent> found = std::dynamic_pointer_cast<Tevent>(parent_t::operator[](i));
-			if(found) {
-				return true;
+			std::shared_ptr<Event> event = parent_t::operator[](i);
+			std::shared_ptr<Tevent> candidate = std::dynamic_pointer_cast<Tevent>(event);
+			if(candidate && fn(candidate)) {
+				found = true;
+			} else {
+				remainder.push_back(event);
 			}
 		}
-
-		return false;
+		if(remainder.size() != size()) {
+			parent_t::clear();
+			parent_t::operator =(std::move(remainder));
+		}
+		return found;
 	}
 
 	template <typename Tevent>
-	bool has(std::function<bool(std::shared_ptr<Tevent>)> fn) {
+	std::vector<std::shared_ptr<Tevent>> fetch() {
+		return fetch<Tevent>([](std::shared_ptr<Tevent> event){
+			CV_UNUSED(event);
+			return true;
+		});
+	}
+
+	template <typename Tevent, typename Tfn>
+	std::vector<std::shared_ptr<Tevent>> fetch(Tfn fn) {
 		std::unique_lock<std::mutex> lock(mutex_);
+		std::vector<std::shared_ptr<Tevent>> result;
+		std::deque<std::shared_ptr<Event>> remainder;
 		for(size_t i = 0; i < size(); ++i) {
-			std::shared_ptr<Tevent> found = std::dynamic_pointer_cast<Tevent>(parent_t::operator[](i));
-			if(found && fn(found)) {
-				return true;
+			std::shared_ptr<Event> event = parent_t::operator[](i);
+			std::shared_ptr<Tevent> candidate = std::dynamic_pointer_cast<Tevent>(event);
+			if(candidate && fn(candidate)) {
+				result.push_back(candidate);
+			} else {
+				remainder.push_back(event);
 			}
 		}
 
-		return false;
-	}
-
-	template <typename Tevent>
-	void get(std::vector<std::shared_ptr<Tevent>>& result) {
-		std::unique_lock<std::mutex> lock(mutex_);
-		for(size_t i = 0; i < size(); ++i) {
-			std::shared_ptr<Tevent> found = std::dynamic_pointer_cast<Tevent>(parent_t::operator[](i));
-			if(found) {
-				result.push_back(found);
-			}
-		}
-	}
-
-	template <typename Tevent>
-	void get(std::vector<std::shared_ptr<Tevent>>& result, std::function<bool(std::shared_ptr<Tevent>)> fn) {
-		std::unique_lock<std::mutex> lock(mutex_);
-		for(size_t i = 0; i < size(); ++i) {
-			std::shared_ptr<Tevent> found = std::dynamic_pointer_cast<Tevent>(parent_t::operator[](i));
-			if(found && fn(found)) {
-				result.push_back(found);
-			}
-		}
-	}
-
-
-	template <typename Tevent>
-	bool has(const typename Tevent::Type& t) {
-		std::unique_lock<std::mutex> lock(mutex_);
-		for(size_t i = 0; i < size(); ++i) {
-			std::shared_ptr<Tevent> found = std::dynamic_pointer_cast<Tevent>(parent_t::operator[](i));
-			if(found && found->type() == t) {
-				return true;
-			}
+		if(remainder.size() != size()) {
+			parent_t::clear();
+			parent_t::operator =(std::move(remainder));
 		}
 
-		return false;
+		return result;
 	}
 
-	template <typename Tevent>
-	bool has(const typename Tevent::Type& t, std::function<bool(std::shared_ptr<Tevent>)> fn) {
-		std::unique_lock<std::mutex> lock(mutex_);
-		for(size_t i = 0; i < size(); ++i) {
-			std::shared_ptr<Tevent> found = std::dynamic_pointer_cast<Tevent>(parent_t::operator[](i));
-			if(found && found->type() == t && fn(found)) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	template <typename Tevent>
-	void get(const typename Tevent::Type& t, std::vector<std::shared_ptr<Tevent>>& result) {
-		std::unique_lock<std::mutex> lock(mutex_);
-		for(size_t i = 0; i < size(); ++i) {
-			std::shared_ptr<Tevent> found = std::dynamic_pointer_cast<Tevent>(parent_t::operator[](i));
-			if(found && found->type() == t) {
-				result.push_back(found);
-			}
-		}
-	}
-
-	template <typename Tevent>
-	void get(const typename Tevent::Type& t, std::vector<std::shared_ptr<Tevent>>& result, std::function<bool(std::shared_ptr<Tevent>)> fn) {
-		std::unique_lock<std::mutex> lock(mutex_);
-		for(size_t i = 0; i < size(); ++i) {
-			std::shared_ptr<Tevent> found = std::dynamic_pointer_cast<Tevent>(parent_t::operator[](i));
-			if(found && found->type() == t &&  fn(found)) {
-				result.push_back(found);
-			}
-		}
-	}
 
 	bool empty() {
 		std::unique_lock < std::mutex > lock(mutex_);
@@ -938,28 +913,28 @@ public:
 	}
 };
 
-inline static std::vector<EventQueue*> queue_vector;
-
 static EventQueue& queue() {
 	std::lock_guard<std::mutex> guard(queue_access_mtx);
-	auto it = thread_id_map.find(std::this_thread::get_id());
-	size_t id = 0;
+	auto tid = std::this_thread::get_id();
+	auto it = thread_id_map.find(tid);
+	size_t index = 0;
 	if(it != thread_id_map.end()) {
-		id = (*it).second;
+		index = (*it).second;
 	} else if(!thread_id_map.empty()) {
-		id = (*std::prev(thread_id_map.end())).second + 1;
+		index = (*std::prev(thread_id_map.end())).second + 1;
+		thread_id_map.insert({tid, index});
 	}
 
-	std::vector<EventQueue*>& qs = queue_vector;
-	if(qs.size() <= id) {
+	std::vector<EventQueue*>& qs = Holder::queue_vector;
+	while(qs.size() <= index) {
 		qs.push_back(new EventQueue());
 	}
-	return *qs[id];
+	return *qs[index];
 }
 
 static void push(const std::shared_ptr<Event>& event) {
 	std::lock_guard<std::mutex> guard(queue_access_mtx);
-	auto& qs = queue_vector;
+	auto& qs = Holder::queue_vector;
 
 	for(size_t i = 0; i < qs.size(); ++i) {
 		qs[i]->push(event);
@@ -1011,14 +986,6 @@ static void poll_joystick_events() {
 	}
 }
 
-inline static KeyCallback keyboardCallback;
-inline static MouseButtonCallback mouseButtonCallback;
-inline static ScrollCallback scrollCallback;
-inline static CursorPosCallback cursorPosCallback;
-inline static WindowSizeCallback windowSizeCallback;
-inline static WindowPosCallback windowPosCallback;
-inline static WindowFocusCallback windowFocusCallback;
-inline static WindowCloseCallback windowCloseCallback;
 }
 
 template<typename Tpoint>
@@ -1034,19 +1001,20 @@ inline void init(
 	GLFWwindow* win = glfwGetCurrentContext();
 	assert(win);
 	detail::Holder::main_window = win;
-	detail::keyboardCallback = keyboardCallback;
-	detail::scrollCallback = scrollCallback;
-	detail::cursorPosCallback = cursorPosCallback;
-	detail::windowSizeCallback = windowSizeCallback;
-	detail::windowPosCallback = windowPosCallback;
-	detail::windowFocusCallback = windowFocusCallback;
-	detail::windowCloseCallback = windowCloseCallback;
+	detail::Holder::keyboardCallback = keyboardCallback;
+	detail::Holder::mouseButtonCallback = mouseButtonCallback;
+	detail::Holder::scrollCallback = scrollCallback;
+	detail::Holder::cursorPosCallback = cursorPosCallback;
+	detail::Holder::windowSizeCallback = windowSizeCallback;
+	detail::Holder::windowPosCallback = windowPosCallback;
+	detail::Holder::windowFocusCallback = windowFocusCallback;
+	detail::Holder::windowCloseCallback = windowCloseCallback;
 
 	std::vector<detail::EventQueue*> *queues = new std::vector<detail::EventQueue*>();
 	glfwSetKeyCallback(win,
 			[](GLFWwindow *window, int key, int scancode, int action,
 					int mods) {
-				if (!detail::keyboardCallback || detail::keyboardCallback(window, key, scancode, action, mods)) {
+				if (!detail::Holder::keyboardCallback || !detail::Holder::keyboardCallback(window, key, scancode, action, mods)) {
 					if (key != GLFW_KEY_UNKNOWN) {
 						Keyboard::Key v4d_key = detail::v4d_key(key);
 						Keyboard::Type type = detail::v4d_keyboard_event_type(action);
@@ -1058,27 +1026,27 @@ inline void init(
 
 	glfwSetMouseButtonCallback(win,
 			[](GLFWwindow *window, int button, int action, int mods) {
-				if (!detail::mouseButtonCallback || detail::mouseButtonCallback(window, button, action, mods)) {
+				if (!detail::Holder::mouseButtonCallback || !detail::Holder::mouseButtonCallback(window, button, action, mods)) {
 					if (button != GLFW_MOUSE_BUTTON_LAST) {
-						typename Mouse<Tpoint>::Button mouseButton = detail::v4d_mouse_button<Tpoint>(button);
-						typename Mouse<Tpoint>::Type type = detail::v4d_mouse_event_type<Tpoint>(action);
+						typename Mouse_<Tpoint>::Button mouseButton = detail::v4d_mouse_button<Tpoint>(button);
+						typename Mouse_<Tpoint>::Type type = detail::v4d_mouse_event_type<Tpoint>(action);
 
 						double x, y;
 						glfwGetCursorPos(window, &x, &y);
 						Tpoint position(x, y);
-						std::shared_ptr<Mouse<Tpoint>> event = std::make_shared<Mouse<Tpoint>>(type, mouseButton, position);
+						std::shared_ptr<Mouse_<Tpoint>> event = std::make_shared<Mouse_<Tpoint>>(type, mouseButton, position);
 						detail::push(event);
 					}
 				}
 			});
 	glfwSetScrollCallback(win,
 			[](GLFWwindow *window, double xoffset, double yoffset) {
-			if (!detail::scrollCallback || detail::scrollCallback(window, xoffset, yoffset)) {
+			if (!detail::Holder::scrollCallback || !detail::Holder::scrollCallback(window, xoffset, yoffset)) {
 					Tpoint offset(xoffset, yoffset);
 					double x, y;
 					glfwGetCursorPos(window, &x, &y);
 					Tpoint position(x, y);
-					std::shared_ptr<Mouse<Tpoint>> event = std::make_shared<Mouse<Tpoint>>(Mouse<Tpoint>::Type::SCROLL, position, offset);
+					std::shared_ptr<Mouse_<Tpoint>> event = std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::Type::SCROLL, position, offset);
 					detail::push(event);
 				}
 			});
@@ -1087,7 +1055,7 @@ inline void init(
 			[](GLFWwindow *window, double xpos, double ypos) {
 				static Tpoint prevMousePos;
 
-				if (!detail::cursorPosCallback || detail::cursorPosCallback(window, xpos, ypos)) {
+				if (!detail::Holder::cursorPosCallback || !detail::Holder::cursorPosCallback(window, xpos, ypos)) {
 					double x, y;
 					glfwGetCursorPos(window, &x, &y);
 					Tpoint position(x, y);
@@ -1104,14 +1072,14 @@ inline void init(
 						for (int button = 0; button <= GLFW_MOUSE_BUTTON_LAST;
 								button++) {
 							if (glfwGetMouseButton(window, button) == GLFW_PRESS) {
-								typename Mouse<Tpoint>::Button v4d_button = detail::v4d_mouse_button<Tpoint>(button);
-								std::shared_ptr<Mouse<Tpoint>> event = std::make_shared <Mouse<Tpoint>>(Mouse<Tpoint>::Type::DRAG, v4d_button, position, delta);
+								typename Mouse_<Tpoint>::Button v4d_button = detail::v4d_mouse_button<Tpoint>(button);
+								std::shared_ptr<Mouse_<Tpoint>> event = std::make_shared <Mouse_<Tpoint>>(Mouse_<Tpoint>::Type::DRAG, v4d_button, position, delta);
 								detail::push(event);
 							}
 						}
 						prevMousePos = position;
 					} else {
-						std::shared_ptr<Mouse<Tpoint>> event = std::make_shared<Mouse<Tpoint>> (Mouse<Tpoint>::Type::MOVE, position);
+						std::shared_ptr<Mouse_<Tpoint>> event = std::make_shared<Mouse_<Tpoint>> (Mouse_<Tpoint>::Type::MOVE, position);
 						detail::push(event);
 					}
 				}
@@ -1119,36 +1087,36 @@ inline void init(
 
 	glfwSetWindowSizeCallback(win,
 			[](GLFWwindow *window, int width, int height) {
-				if(!detail::windowSizeCallback || detail::windowSizeCallback(window, width, height)) {
+				if(!detail::Holder::windowSizeCallback || !detail::Holder::windowSizeCallback(window, width, height)) {
 					Tpoint sz(width, height);
-					std::shared_ptr<Window<Tpoint>> event = std::make_shared<Window<Tpoint>>(Window<Tpoint>::Type::RESIZE, sz);
+					std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::Type::RESIZE, sz);
 					detail::push(event);
 				}
 			});
 
 	glfwSetWindowPosCallback(win,
 			[](GLFWwindow *window, int xpos, int ypos) {
-				if(!detail::windowPosCallback || detail::windowPosCallback(window, xpos, ypos)) {
+				if(!detail::Holder::windowPosCallback || !detail::Holder::windowPosCallback(window, xpos, ypos)) {
 					Tpoint position(xpos, ypos);
-					std::shared_ptr<Window<Tpoint>> event = std::make_shared<Window<Tpoint>>(Window<Tpoint>::Type::MOVE, position);
+					std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::Type::MOVE, position);
 					detail::push(event);
 				}
 			});
 
 	glfwSetWindowFocusCallback(win, [](GLFWwindow *window, int focused) {
-		if(!detail::windowFocusCallback || detail::windowFocusCallback(window, focused)) {
-			typename Window<Tpoint>::Type type = focused
-					? Window<Tpoint>::Type::FOCUS
-							: Window<Tpoint>::Type::UNFOCUS;
+		if(!detail::Holder::windowFocusCallback || !detail::Holder::windowFocusCallback(window, focused)) {
+			typename Window_<Tpoint>::Type type = focused
+					? Window_<Tpoint>::Type::FOCUS
+							: Window_<Tpoint>::Type::UNFOCUS;
 
-			std::shared_ptr<Window<Tpoint>> event = std::make_shared<Window<Tpoint>>(type);
+			std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(type);
 			detail::push(event);
 		}
 	});
 
 	glfwSetWindowCloseCallback(win, [](GLFWwindow *window) {
-		if(!detail::windowCloseCallback || detail::windowCloseCallback(window)) {
-			std::shared_ptr<Window<Tpoint>> event = std::make_shared<Window<Tpoint>>(Window<Tpoint>::Type::CLOSE);
+		if(!detail::Holder::windowCloseCallback || !detail::Holder::windowCloseCallback(window)) {
+			std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::Type::CLOSE);
 			detail::push(event);
 		}
 	});
@@ -1156,89 +1124,80 @@ inline void init(
 
 
 template<typename Tevent>
-inline bool has(){
-	return detail::queue().has<Tevent>();
+inline bool consume(){
+	return detail::queue().consume<Tevent>();
 }
 
 template<typename Tevent>
-inline std::vector<std::shared_ptr<Tevent>> get(){
-	std::vector<std::shared_ptr<Tevent>> result;
-	detail::queue().get<Tevent>(result);
-	return result;
+inline bool consume(const typename Tevent::Type& t){
+	return detail::queue().consume<Tevent>([t](std::shared_ptr<Tevent> ev){ return ev->type() == t; });
+}
+
+inline bool consume(const Keyboard::Type& t, const Keyboard::Key& k){
+	return detail::queue().consume<Keyboard>([t,k](std::shared_ptr<Keyboard> ev){ return ev->type() == t && ev->key() == k; });
+}
+
+template<typename Tmouse>
+inline bool consume(const typename Tmouse::Type& t, const typename Tmouse::Button& b){
+	return detail::queue().consume<Tmouse>([t,b](std::shared_ptr<Tmouse> ev){ return ev->type() == t && ev->button() == b; });
+}
+
+inline bool consume(const Joystick::Type& t, const Joystick::Button& b){
+	return detail::queue().consume<Joystick>([t,b](std::shared_ptr<Joystick> ev){ return ev->type() == t && ev->button() == b; });
+}
+
+inline bool consume(const Joystick::Type& t, const Joystick::Axis& a){
+	return detail::queue().consume<Joystick>([t,a](std::shared_ptr<Joystick> ev){ return ev->type() == t && ev->axis() == a; });
 }
 
 template<typename Tevent>
-inline bool has(const typename Tevent::Type& t){
-	return detail::queue().has(t);
+inline bool consume(std::function<bool(const Tevent&)> fn){
+	return detail::queue().consume<Tevent>([fn](std::shared_ptr<Tevent> ev){ return fn(*ev.get()); });
 }
 
 template<typename Tevent>
-inline std::vector<std::shared_ptr<Tevent>> get(const typename Tevent::Type& t){
-	std::vector<std::shared_ptr<Tevent>> result;
-	detail::queue().get(t, result);
-	return result;
+inline std::vector<std::shared_ptr<Tevent>> fetch(){
+	return detail::queue().fetch<Tevent>();
 }
 
-inline std::vector<std::shared_ptr<Keyboard>> get(const Keyboard::Type& t, const Keyboard::Key& k){
-	std::vector<std::shared_ptr<Keyboard>> result;
-	detail::queue().get<Keyboard>(t, result, [k](std::shared_ptr<Keyboard> ev){ return ev->key() == k; });
-	return result;
+template<typename Tevent>
+inline std::vector<std::shared_ptr<Tevent>> fetch(const typename Tevent::Type& t){
+	return detail::queue().fetch<Tevent>([t](std::shared_ptr<Tevent> ev){ return ev->type() == t; });
 }
 
-template<typename Tpoint>
-inline std::vector<std::shared_ptr<Mouse<Tpoint>>> get(const typename Mouse<Tpoint>::Type& t, const typename Mouse<Tpoint>::Button& b){
-	std::vector<std::shared_ptr<Mouse<Tpoint>>> result;
-	detail::queue().get<Mouse<Tpoint>>(t, result, [b](std::shared_ptr<Mouse<Tpoint>> ev){ return ev->button() == b; });
-	return result;
+inline std::vector<std::shared_ptr<Keyboard>> fetch(const Keyboard::Type& t, const Keyboard::Key& k){
+	return detail::queue().fetch<Keyboard>([t,k](std::shared_ptr<Keyboard> ev){ return ev->type() == t && ev->key() == k; });
 }
 
-inline std::vector<std::shared_ptr<Joystick>> get(const Joystick::Type& t, const Joystick::Button& b){
-	std::vector<std::shared_ptr<Joystick>> result;
-	detail::queue().get<Joystick>(t, result, [b](std::shared_ptr<Joystick> ev){ return ev->button() == b; });
-	return result;
+template<typename Tmouse>
+inline std::vector<std::shared_ptr<Tmouse>> fetch(const typename Tmouse::Type& t, const typename Tmouse::Button& b){
+	return detail::queue().fetch<Tmouse>([t,b](std::shared_ptr<Tmouse> ev){ return ev->type() == t && ev->button() == b; });
 }
 
-inline std::vector<std::shared_ptr<Joystick>> get(const Joystick::Type& t, const Joystick::Axis& a){
-	std::vector<std::shared_ptr<Joystick>> result;
-	detail::queue().get<Joystick>(t, result, [a](std::shared_ptr<Joystick> ev){ return ev->axis() == a; });
-	return result;
+inline std::vector<std::shared_ptr<Joystick>> fetch(const Joystick::Type& t, const Joystick::Button& b){
+	return detail::queue().fetch<Joystick>([t,b](std::shared_ptr<Joystick> ev){ return ev->type() == t && ev->button() == b; });
 }
 
-inline bool has(const Keyboard::Type& t, const Keyboard::Key& k){
-	return detail::queue().has<Keyboard>(t, [k](std::shared_ptr<Keyboard> ev){ return ev->key() == k; });
+inline std::vector<std::shared_ptr<Joystick>> fetch(const Joystick::Type& t, const Joystick::Axis& a){
+	return detail::queue().fetch<Joystick>([t,a](std::shared_ptr<Joystick> ev){ return ev->type() == t && ev->axis() == a; });
 }
 
-template<typename Tpoint>
-inline bool has(const typename Mouse<Tpoint>::Type& t, const typename Mouse<Tpoint>::Button& b){
-	return detail::queue().has<Mouse<Tpoint>>(t, [b](std::shared_ptr<Mouse<Tpoint>> ev){ return ev->button() == b; });
-}
-
-inline bool has(const Joystick::Type& t, const Joystick::Button& b){
-	return detail::queue().has<Joystick>(t, [b](std::shared_ptr<Joystick> ev){ return ev->button() == b; });
-}
-
-inline bool has(const Joystick::Type& t, const Joystick::Axis& a){
-	return detail::queue().has<Joystick>(t, [a](std::shared_ptr<Joystick> ev){ return ev->axis() == a; });
-}
-
-template<typename T>
-inline bool has(const typename T::Type& t, std::function<bool(const T&)> fn){
-	return detail::queue().has<T>(t, [fn](std::shared_ptr<T> ev){ return fn(*ev.get()); });
-}
-
-
-template<typename T>
-inline std::vector<std::shared_ptr<T>> get(const typename T::Type& t, std::function<bool(const T&)> fn){
-	return detail::queue().get<T>(t, [fn](std::shared_ptr<T> ev){ return fn(*ev.get()); });
+template<typename Tevent>
+inline std::vector<std::shared_ptr<Tevent>> fetch(std::function<bool(const Tevent&)> fn){
+	return detail::queue().fetch<Tevent>([fn](std::shared_ptr<Tevent> ev){ return fn(*ev.get()); });
 }
 
 EVENT_API_EXPORT inline void poll() {
+	static std::mutex mtx;
+	std::lock_guard<std::mutex> lock(mtx);
 	assert(detail::Holder::main_window);
-	if(detail::Holder::main_window) {
-		detail::queue().clear();
-		glfwPollEvents();
-		detail::poll_joystick_events();
-	}
+	glfwPollEvents();
+	detail::poll_joystick_events();
+}
+
+EVENT_API_EXPORT inline void clear() {
+	static std::mutex mtx;
+	detail::queue().clear();
 }
 
 }

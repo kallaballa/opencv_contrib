@@ -32,31 +32,65 @@ namespace v4d {
 namespace detail {
 
 static void glfw_error_callback(int error, const char* description) {
-#ifndef NDEBUG
-    fprintf(stderr, "GLFW Error: (%d) %s\n", error, description);
-#endif
+    CV_LOG_DEBUG(nullptr, "GLFW Error: (" + std::to_string(error) + ") "+ description);
 }
 
-int frameBufferContextCnt = 0;
-
-FrameBufferContext::FrameBufferContext(V4D& v4d, const string& title, cv::Ptr<FrameBufferContext> other) :
-		FrameBufferContext(v4d, other->framebufferSize_, !other->debug_, title, other->major_,  other->minor_, other->samples_, other->debug_, other->rootWindow_, other, false) {
+static void draw_quad()
+{
+    const static float quadVertices[] = {
+        // positions        // texture Coords
+        -1.0f,  1.0f, 0.0f, 0.0f, 1.0f,
+        -1.0f, -1.0f, 0.0f, 0.0f, 0.0f,
+         1.0f,  1.0f, 0.0f, 1.0f, 1.0f,
+         1.0f, -1.0f, 0.0f, 1.0f, 0.0f,
+    };
+    // setup quad VAO
+    static thread_local unsigned int quadVAO = 0;
+    static thread_local unsigned int quadVBO = 0;
+    if (quadVAO == 0)
+    {
+        GL_CHECK(glGenVertexArrays(1, &quadVAO));
+        GL_CHECK(glGenBuffers(1, &quadVBO));
+        GL_CHECK(glBindVertexArray(quadVAO));
+        GL_CHECK(glBindBuffer(GL_ARRAY_BUFFER, quadVBO));
+        GL_CHECK(glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), &quadVertices, GL_STATIC_DRAW));
+        GL_CHECK(glEnableVertexAttribArray(0));
+        GL_CHECK(glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)0));
+        GL_CHECK(glEnableVertexAttribArray(1));
+        GL_CHECK(glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (void*)(3 * sizeof(float))));
+    }
+    GL_CHECK(glBindVertexArray(quadVAO));
+    GL_CHECK(glDrawArrays(GL_TRIANGLE_STRIP, 0, 4));
+    GL_CHECK(glBindVertexArray(0));
 }
 
-FrameBufferContext::FrameBufferContext(V4D& v4d, const cv::Size& framebufferSize, bool offscreen,
-        const string& title, int major, int minor, int samples, bool debug, GLFWwindow* rootWindow, cv::Ptr<FrameBufferContext> parent, bool root) :
-        v4d_(&v4d), offscreen_(offscreen), title_(title), major_(major), minor_(
-                minor), samples_(samples), debug_(debug), isVisible_(offscreen), viewport_(0, 0, framebufferSize.width, framebufferSize.height), framebufferSize_(framebufferSize), hasParent_(false), rootWindow_(rootWindow), parent_(parent), framebuffer_(), isRoot_(root) {
-    init();
-    index_ = ++frameBufferContextCnt;
-    currentFBOTarget_ = frameBufferID_;
+std::mutex FrameBufferContext::window_size_mtx_;
+cv::Size FrameBufferContext::window_size_;
+FrameBufferContext::FrameBufferContext(V4D& v4d, const string& title, cv::Ptr<FrameBufferContext> other, int confFlags) :
+				FrameBufferContext(v4d, other->framebufferSize_, title, other->major_,  other->minor_, other->samples_, other->rootWindow_, other, false, confFlags == -1 ? other->configFlags() : confFlags) {
+}
+
+FrameBufferContext::FrameBufferContext(V4D& v4d, const cv::Size& framebufferSize,
+        const string& title, int major, int minor, int samples, GLFWwindow* rootWindow, cv::Ptr<FrameBufferContext> parent, bool root, int confFlags) :
+        v4d_(&v4d), title_(title), major_(major), minor_(minor), samples_(samples), configFlags_(confFlags), isVisible_(!(confFlags & FBConfigFlags::OFFSCREEN)), viewport_(0, 0, framebufferSize.width, framebufferSize.height), framebufferSize_(framebufferSize), hasParent_(false), rootWindow_(rootWindow), parent_(parent), framebuffer_(), isRoot_(root) {
+	if(!parent_) {
+		std::lock_guard guard(window_size_mtx_);
+		window_size_ = v4d.initialSize();
+	}
+	init();
+    index_ = Global::on<size_t>(Global::FRAMEBUFFER_INDEX, [](size_t& v){ return v++; });
+    currentFBOTarget_ = framebufferID_;
 }
 
 FrameBufferContext::~FrameBufferContext() {
         teardown();
 }
 
-void FrameBufferContext::loadShader(const size_t& index) {
+int FrameBufferContext::configFlags() {
+	return configFlags_;
+}
+
+void FrameBufferContext::loadShaders(const size_t& index) {
 #if !defined(OPENCV_V4D_USE_ES3)
     const string shaderVersion = "330";
 #else
@@ -64,30 +98,35 @@ void FrameBufferContext::loadShader(const size_t& index) {
 #endif
 
     const string vert =
-            "    #version " + shaderVersion
-                    + R"(
-    layout (location = 0) in vec3 aPos;
-    
-    void main()
-    {
-        gl_Position = vec4(aPos, 1.0);
-    }
-)";
+    		"    #version " + shaderVersion
+            	+ R"(
+    		precision highp float;
+    		
+    		layout (location = 0) in vec2 aPos;
+    		layout (location = 1) in vec2 aTexCoords;
+    		
+    		out vec2 TexCoords;
+    		
+    		void main()
+    		{
+    			gl_Position = vec4(aPos, 0.0, 1.0);
+    			TexCoords = aTexCoords;
+    		}
+    	)";
 
     const string frag =
             "    #version " + shaderVersion
                     + R"(
     precision mediump float;
-    out vec4 FragColor;
+    
+	in vec2 TexCoords;
+	out vec4 FragColor;
     
     uniform sampler2D texture0;
-    uniform vec2 resolution;
 
     void main()
     {      
-        //translate screen coordinates to texture coordinates and flip the y-axis.   
-        vec4 texPos = gl_FragCoord / vec4(resolution.x, resolution.y * -1.0f, 1.0, 1.0);
-        vec4 texColor0 = texture(texture0, texPos.xy);
+        vec4 texColor0 = texture(texture0, TexCoords);
         if(texColor0.a == 0.0)
             discard;
         else
@@ -100,28 +139,47 @@ void FrameBufferContext::loadShader(const size_t& index) {
     shader_program_hdls_[index] = handles[0];
 }
 
-void FrameBufferContext::loadBuffers(const size_t& index) {
-    glGenVertexArrays(1, &copyVaos[index]);
-    glBindVertexArray(copyVaos[index]);
+void FrameBufferContext::initBlend(const size_t& index) {
+    GL_CHECK(glGenFramebuffers(1, &copyFramebuffers_[index]));
+    GL_CHECK(glGenTextures(1, &copyTextures_[index]));
+    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, copyFramebuffers_[index]));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, copyTextures_[index]));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+    GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+    GL_CHECK(
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size().width, size().height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
+    GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, copyTextures_[index], 0));
+    assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    loadShaders(index);
 
-    glGenBuffers(1, &copyVbos[index]);
-    glGenBuffers(1, &copyEbos[index]);
-
-    glBindBuffer(GL_ARRAY_BUFFER, copyVbos[index]);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(copyVertices), copyVertices, GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, copyEbos[index]);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(copyIndices), copyIndices, GL_STATIC_DRAW);
-
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*) 0);
-    glEnableVertexAttribArray(0);
-
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-    glBindVertexArray(0);
+    // lookup the sampler locations.
+    texture_hdls_[index] = glGetUniformLocation(shader_program_hdls_[index], "texture0");
 }
 
+void FrameBufferContext::blendFramebuffer(const GLuint& otherID) {
+    float res[2] = {float(size().width), float(size().height)};
+	GL_CHECK(glDisable(GL_DEPTH_TEST));
+    GL_CHECK(glEnable(GL_BLEND));
+    GL_CHECK(glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
+
+    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, this->getFramebufferID()));
+    GL_CHECK(glViewport(0, 0, size().width, size().height));
+    GL_CHECK(glActiveTexture(GL_TEXTURE0));
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, copyTextures_[otherID]));
+    assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+
+    GL_CHECK(glUseProgram(shader_program_hdls_[otherID]));
+    GL_CHECK(glUniform1i(texture_hdls_[otherID], 0));
+
+    draw_quad();
+    GL_CHECK(glDisable(GL_BLEND));
+    GL_CHECK(glEnable(GL_DEPTH_TEST));
+    GL_CHECK(glFinish());
+}
+
+
 GLuint FrameBufferContext::getFramebufferID() {
-    return frameBufferID_;
+    return framebufferID_;
 }
 
 GLuint FrameBufferContext::getTextureID() {
@@ -161,7 +219,7 @@ void FrameBufferContext::init() {
 
     glfwSetErrorCallback(cv::v4d::detail::glfw_error_callback);
 
-    if (debug_)
+    if (configFlags() & FBConfigFlags::DEBUG_GL_CONTEXT)
         glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 
     glfwSetTime(0);
@@ -190,7 +248,7 @@ void FrameBufferContext::init() {
     glfwWindowHint(GLFW_STENCIL_BITS, 8);
     glfwWindowHint(GLFW_DEPTH_BITS, 24);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
-    glfwWindowHint(GLFW_VISIBLE, offscreen_ ? GLFW_FALSE : GLFW_TRUE );
+    glfwWindowHint(GLFW_VISIBLE, configFlags() & FBConfigFlags::OFFSCREEN ? GLFW_FALSE : GLFW_TRUE );
     glfwWindowHint(GLFW_DOUBLEBUFFER, GLFW_TRUE);
 
     glfwWindow_ = glfwCreateWindow(framebufferSize_.width, framebufferSize_.height, title_.c_str(), nullptr, rootWindow_);
@@ -209,15 +267,17 @@ void FrameBufferContext::init() {
 
     this->makeCurrent();
 
-    if(isRoot()) {
+    if(!hasParent()) {
     	rootWindow_ = glfwWindow_;
+        //glfwSwapInterval(configFlags() & FBConfigFlags::VSYNC ? 1 : 0);
         glfwSwapInterval(1);
     } else {
-        glfwSwapInterval(0);
+//    	glfwSwapInterval(configFlags() & FBConfigFlags::DISPLAY_MODE ? Global::workers_started() : 0);
+        glfwSwapInterval(24);
     }
 
 #if !defined(OPENCV_V4D_USE_ES3)
-    if (!parent_) {
+    if (!hasParent()) {
     	GladGLContext context;
     	int version = gladLoadGLContext(&context, glfwGetProcAddress);
         if (version == 0) {
@@ -242,34 +302,38 @@ void FrameBufferContext::init() {
     	context_ = CLExecContext_t::getCurrent();
 
     setup();
-//    if(Global::is_main() && !parent_) {
-//    	event::init<cv::Point2f>(
-//			[](GLFWwindow *window, int key, int scancode, int action, int mods){
-//				if(ImGui::GetCurrentContext()) {
-//					ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
-//					return ImGui::GetIO().WantCaptureKeyboard;
-//				} else {
-//					return false;
-//				}
-//			}, [](GLFWwindow *window, int button, int action, int mods) {
-//				if(ImGui::GetCurrentContext()) {
-//					ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
-//					return ImGui::GetIO().WantCaptureMouse;
-//				} else {
-//					return false;
-//				}
-//			}, [](GLFWwindow *window, double xoffset, double yoffset) {
-//				if(ImGui::GetCurrentContext()) {
-//					ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
-//				}
-//				return false;
-//			}, [](GLFWwindow *window, double xpos, double ypos) {
-//				if(ImGui::GetCurrentContext()) {
-//					ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
-//				}
-//				return false;
-//			}
-//    	);
+    if(Global::is_main() && !parent_) {
+    	event::init<cv::Point>(
+			[](GLFWwindow *window, int key, int scancode, int action, int mods){
+				if(ImGui::GetCurrentContext()) {
+					ImGui_ImplGlfw_KeyCallback(window, key, scancode, action, mods);
+					return ImGui::GetIO().WantCaptureKeyboard;
+				} else {
+					return false;
+				}
+			}, [](GLFWwindow *window, int button, int action, int mods) {
+				if(ImGui::GetCurrentContext()) {
+					ImGui_ImplGlfw_MouseButtonCallback(window, button, action, mods);
+					return ImGui::GetIO().WantCaptureMouse;
+				} else {
+					return false;
+				}
+			}, [](GLFWwindow *window, double xoffset, double yoffset) {
+				if(ImGui::GetCurrentContext()) {
+					ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
+				}
+				return false;
+			}, [](GLFWwindow *window, double xpos, double ypos) {
+				if(ImGui::GetCurrentContext()) {
+					ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
+				}
+				return false;
+			}, [](GLFWwindow *window, int w, int h) {
+				std::lock_guard guard(FrameBufferContext::window_size_mtx_);
+				FrameBufferContext::window_size_ = cv::Size(w, h);
+				return false;
+			}
+    	);
 
 //    glfwSetWindowUserPointer(getGLFWWindow(), getV4D().get());
 ////    glfwSetDropCallback(getGLFWWindow(), [](GLFWwindow* glfwWin, int count, const char** filenames) {
@@ -328,7 +392,7 @@ void FrameBufferContext::init() {
 //                v4d->setFocused(i == 1);
 //            }
 //    });
-//    }
+    }
 }
 
 cv::Ptr<V4D> FrameBufferContext::getV4D() {
@@ -343,9 +407,26 @@ void FrameBufferContext::setup() {
 	cv::Size sz = framebufferSize_;
     CLExecScope_t clExecScope(getCLExecContext());
     framebuffer_.create(sz, CV_8UC4);
+
+    if(clglSharing_) {
+        GL_CHECK(glGenFramebuffers(1, &framebufferFlippedID_));
+        GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferFlippedID_));
+        GL_CHECK(glGenTextures(1, &textureFlippedID_));
+        GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureFlippedID_));
+        textureFlipped_ = new cv::ogl::Texture2D(sz, cv::ogl::Texture2D::RGBA, textureFlippedID_);
+        GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+        GL_CHECK(
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
+        GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
+        GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
+        GL_CHECK(
+                glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureFlippedID_, 0));
+        assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    }
+
     if(isRoot()) {
-        GL_CHECK(glGenFramebuffers(1, &frameBufferID_));
-        GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, frameBufferID_));
+        GL_CHECK(glGenFramebuffers(1, &framebufferID_));
+        GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferID_));
         GL_CHECK(glGenRenderbuffers(1, &renderBufferID_));
 
         GL_CHECK(glGenTextures(1, &textureID_));
@@ -367,8 +448,8 @@ void FrameBufferContext::setup() {
 
         assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
     } else if(hasParent()) {
-        GL_CHECK(glGenFramebuffers(1, &frameBufferID_));
-        GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, frameBufferID_));
+        GL_CHECK(glGenFramebuffers(1, &framebufferID_));
+        GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferID_));
         GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
         texture_ = new cv::ogl::Texture2D(sz, cv::ogl::Texture2D::RGBA, textureID_);
         GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
@@ -420,10 +501,25 @@ void FrameBufferContext::teardown() {
     glGetError();
     CV_Assert(texture_ != nullptr);
     delete texture_;
-    GL_CHECK(glDeleteTextures(1, &textureID_));
     GL_CHECK(glDeleteRenderbuffers(1, &renderBufferID_));
-    GL_CHECK(glDeleteFramebuffers(1, &frameBufferID_));
+    GL_CHECK(glDeleteTextures(1, &textureID_));
+    GL_CHECK(glDeleteFramebuffers(1, &framebufferID_));
+    if(textureFlippedID_)
+    GL_CHECK(glDeleteTextures(1, &textureFlippedID_));
+    if(framebufferFlippedID_)
+    GL_CHECK(glDeleteFramebuffers(1, &framebufferFlippedID_));
+
     this->makeNoneCurrent();
+}
+
+void FrameBufferContext::flip() {
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebufferID_);
+	blitFrameBufferToFrameBuffer(getViewport(), size(), framebufferFlippedID_, false, true);
+}
+
+void FrameBufferContext::unflip() {
+	glBindFramebuffer(GL_READ_FRAMEBUFFER, framebufferFlippedID_);
+	blitFrameBufferToFrameBuffer(getViewport(), size(), framebufferID_, false, true);
 }
 
 #ifdef HAVE_OPENCL
@@ -447,9 +543,9 @@ void FrameBufferContext::toGLTexture2D(cv::UMat& u, cv::ogl::Texture2D& texture)
     if (status != CL_SUCCESS)
          throw std::runtime_error("OpenCL: clEnqueueReleaseGLObjects failed: " + std::to_string(status));
 
-    status = clFinish(q); // TODO Use events
-    if (status != CL_SUCCESS)
-        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
+//    status = clFinish(q); // TODO Use events
+//    if (status != CL_SUCCESS)
+//        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
 }
 
 void FrameBufferContext::fromGLTexture2D(const cv::ogl::Texture2D& texture, cv::UMat& u) {
@@ -460,15 +556,15 @@ void FrameBufferContext::fromGLTexture2D(const cv::ogl::Texture2D& texture, cv::
     cl_int status = 0;
 
     CV_Assert(u.size() == texture.size() || u.type() == textureType);
-    if (clImage_ != nullptr) {
-//    	CV_Assert(false);
-//        u.create(texture.size(), textureType);
-		status = clReleaseMemObject(clImage_); // TODO RAII
-		if (status != CL_SUCCESS)
-			CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clReleaseMemObject failed: %d", status));
-		clImage_ = nullptr;
-
-    }
+//    if (clImage_ != nullptr) {
+////    	CV_Assert(false);
+////        u.create(texture.size(), textureType);
+//		status = clReleaseMemObject(clImage_); // TODO RAII
+//		if (status != CL_SUCCESS)
+//			CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clReleaseMemObject failed: %d", status));
+//		clImage_ = nullptr;
+//
+//    }
 
     if(clImage_ == nullptr) {
 		Context& ctx = context_.getContext();
@@ -526,7 +622,7 @@ void FrameBufferContext::copyFrom(const cv::UMat& src) {
 
 void FrameBufferContext::copyToRootWindow() {
 	this->makeCurrent();
-    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, frameBufferID_));
+    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferID_));
 	GL_CHECK(glReadBuffer(GL_COLOR_ATTACHMENT0));
 
 	GL_CHECK(glActiveTexture(GL_TEXTURE0));
@@ -536,6 +632,11 @@ void FrameBufferContext::copyToRootWindow() {
 
 cv::ogl::Texture2D& FrameBufferContext::getTexture2D() {
     return *texture_;
+}
+
+cv::ogl::Texture2D& FrameBufferContext::getFlippedTexture2D() {
+    CV_Assert(textureFlipped_);
+	return *textureFlipped_;
 }
 
 GLFWwindow* FrameBufferContext::getGLFWWindow() const {
@@ -577,7 +678,9 @@ void FrameBufferContext::blitFrameBufferToFrameBuffer(const cv::Rect& srcViewpor
         dstY0 = dstY1;
         dstY1 = tmp;
     }
+    assert(glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
     GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, targetFramebufferID));
+    assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
     GL_CHECK(glBlitFramebuffer( srcX0, srcY0, srcX1, srcY1,
             dstX0, dstY0, dstX1, dstY1,
             GL_COLOR_BUFFER_BIT, GL_NEAREST));
@@ -585,6 +688,25 @@ void FrameBufferContext::blitFrameBufferToFrameBuffer(const cv::Rect& srcViewpor
 
 cv::UMat& FrameBufferContext::fb() {
 	return framebuffer_;
+}
+
+cv::UMat& FrameBufferContext::view() {
+	cv::Rect vp = getViewport();
+	auto it = views_.find(vp);
+	if(it == views_.end()) {
+		const auto p = views_.insert({vp, framebuffer_(vp)});
+//		cerr << "created:" << (size_t)&(*p.first).second << endl;
+//		for(auto& pair : views_) {
+//			cerr << (size_t)&pair.second << "->" << pair.second.size() << " / " << pair.first << endl;
+//		}
+		return (*p.first).second;
+	} else {
+//		cerr << "found:" << (size_t)&(*it).second << endl;
+//		for(auto& pair : views_) {
+//			cerr << (size_t)&pair.second << "->" << pair.second.size() << " / " << pair.first << endl;
+//		}
+		return (*it).second;
+	}
 }
 
 void FrameBufferContext::begin(GLenum framebufferTarget, GLuint frameBufferID) {
@@ -595,6 +717,10 @@ void FrameBufferContext::begin(GLenum framebufferTarget, GLuint frameBufferID) {
 
 void FrameBufferContext::end() {
 	if(currentFBOTarget_ != getFramebufferID()) {
+		if(copyFramebuffers_.find(currentFBOTarget_) == copyFramebuffers_.end()) {
+			initBlend(currentFBOTarget_);
+	    }
+
 		GL_CHECK(glBindFramebuffer(GL_READ_FRAMEBUFFER, currentFBOTarget_));
 		GLint dims[4] = {0};
 		glGetIntegerv(GL_VIEWPORT, dims);
@@ -603,7 +729,8 @@ void FrameBufferContext::end() {
 		GLint fbWidth = dims[2];
 		GLint fbHeight = dims[3];
 
-		blitFrameBufferToFrameBuffer(cv::Rect(fbX, fbY, fbWidth, fbHeight), size(), getFramebufferID(), false, false);
+		blitFrameBufferToFrameBuffer(cv::Rect(fbX, fbY, fbWidth, fbHeight), size(), copyFramebuffers_[currentFBOTarget_], false, false);
+		blendFramebuffer(currentFBOTarget_);
 	}
 //	this->makeNoneCurrent();
 }
@@ -628,34 +755,40 @@ void FrameBufferContext::acquireFromGL(cv::UMat& m) {
 #ifdef HAVE_OPENCL
 	if (cv::ocl::useOpenCL() && clglSharing_) {
         try {
-            GL_CHECK(fromGLTexture2D(getTexture2D(), m));
+            flip();
+        	GL_CHECK(fromGLTexture2D(getFlippedTexture2D(), m));
+            return;
         } catch(...) {
+        	CV_LOG_WARNING(nullptr, "CL-GL failed to acquire.");
             clglSharing_ = false;
-            download(m);
         }
 	} else
 #endif
     {
         download(m);
+    	cv::flip(m, m, 0);
     }
 
-    cv::flip(m, m, 0);
+
 }
 
 void FrameBufferContext::releaseToGL(cv::UMat& m) {
 
-    cv::flip(m, m, 0);
 #ifdef HAVE_OPENCL
     if (cv::ocl::useOpenCL() && clglSharing_) {
-        try {
-            GL_CHECK(toGLTexture2D(m, getTexture2D()));
+        try
+        {
+        	GL_CHECK(toGLTexture2D(m, getFlippedTexture2D()));
+        	unflip();
+        	return;
         } catch(...) {
+        	CV_LOG_WARNING(nullptr, "CL-GL failed to release.");
             clglSharing_ = false;
-            upload(m);
         }
-    } else
+    }
 #endif
     {
+    	cv::flip(m, m, 0);
         upload(m);
     }
 }
@@ -699,14 +832,14 @@ void FrameBufferContext::setResizable(bool r) {
 }
 
 void FrameBufferContext::setWindowSize(const cv::Size& sz) {
+	std::lock_guard guard(window_size_mtx_);
+	window_size_ = sz;
     glfwSetWindowSize(getGLFWWindow(), sz.width, sz.height);
 }
 
-//FIXME cache window size
-cv::Size FrameBufferContext::getWindowSize() {
-    cv::Size sz;
-    glfwGetWindowSize(getGLFWWindow(), &sz.width, &sz.height);
-    return sz;
+const cv::Size FrameBufferContext::getWindowSize() {
+	std::lock_guard guard(window_size_mtx_);
+    return window_size_;
 }
 
 bool FrameBufferContext::isFullscreen() {

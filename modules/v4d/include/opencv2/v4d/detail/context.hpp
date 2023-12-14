@@ -4,7 +4,7 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include <functional>
-#include "../../../../include/opencv2/v4d/util.hpp"
+#include <opencv2/core/types.hpp>
 
 #ifndef MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_V4DCONTEXT_HPP_
 #define MODULES_V4D_INCLUDE_OPENCV2_V4D_DETAIL_V4DCONTEXT_HPP_
@@ -16,14 +16,16 @@ namespace detail {
 class V4DContext {
 public:
 	virtual ~V4DContext() {}
-    virtual void execute(std::function<void()> fn) = 0;
+    virtual int execute(const cv::Rect& vp, std::function<void()> fn) = 0;
 };
 
 class PlainContext : public V4DContext {
 public:
 	virtual ~PlainContext() {}
-    virtual void execute(std::function<void()> fn) override {
+    virtual int execute(const cv::Rect& vp, std::function<void()> fn) override {
+    	CV_UNUSED(vp);
     	fn();
+    	return 1;
     }
 };
 

@@ -24,7 +24,8 @@ class V4D;
 class CV_EXPORTS Sink {
     std::mutex mtx_;
     bool open_ = true;
-    uint64_t nextSeq_ = 0;
+    //0 is an illegal sequence number
+    uint64_t nextSeq_ = 1;
     std::map<uint64_t, cv::UMat> buffer_;
     std::function<bool(const uint64_t&, const cv::UMat&)> consumer_;
 public:

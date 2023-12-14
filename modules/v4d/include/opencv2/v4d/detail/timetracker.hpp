@@ -43,23 +43,29 @@ struct CV_EXPORTS TimeInfo {
     }
 
     void newCount() {
-        iterCnt_ = 0;
-        iterTime_ = 0;
+    	iterTime_ = iterTime_ / iterCnt_;
+        iterCnt_ = 1;
     }
 
     string str() const {
         stringstream ss;
-        ss << (totalTime_ / 1000.0) / totalCnt_ << "ms = (" << totalTime_ / 1000.0 << '\\' << totalCnt_  << ")\t";
-        ss << (iterTime_ / 1000.0) / iterCnt_ << "ms = (" << iterTime_  / 1000.0 << '\\' << iterCnt_ << ")\t";
+        ss << (totalTime_ / 1000.0) / totalCnt_ << "ms / ";
+        ss << (iterTime_ / 1000.0) / iterCnt_ << "ms";
         return ss.str();
     }
 };
 
-inline std::ostream& operator<<(ostream &os, TimeInfo &ti) {
-    os << (ti.totalTime_ / 1000.0) / ti.totalCnt_ << "ms = (" << ti.totalTime_ / 1000.0 << '\\' << ti.totalCnt_  << ")\t";
-    os << (ti.iterTime_ / 1000.0) / ti.iterCnt_ << "ms = (" << ti.iterTime_  / 1000.0 << '\\' << ti.iterCnt_ << ")";
+inline std::ostream& operator<<(ostream &os, const TimeInfo &ti) {
+    os << std::fixed << std::setprecision(8) << std::setfill(' ') << std::setw(13) << (ti.totalTime_ / 1000.0) / ti.totalCnt_ << "ms / ";
+    os << std::setfill(' ') << std::setw(13) << (ti.iterTime_ / 1000.0) / ti.iterCnt_ << "ms" << std::scientific;
     return os;
 }
+
+struct TimeSortCompare {
+	inline bool operator()(const TimeInfo &lhs, const TimeInfo &rhs) const {
+		return (lhs.totalTime_ / lhs.totalCnt_) > (rhs.totalTime_ / rhs.totalCnt_);
+	}
+};
 
 class CV_EXPORTS TimeTracker {
 private:
@@ -102,8 +108,13 @@ public:
         std::unique_lock lock(mapMtx_);
         stringstream ss;
         ss << "Time tracking info: " << std::endl;
-        for (auto it : tiMap_) {
-            ss << "\t" << it.first << ": " << it.second << std::endl;
+        map<TimeInfo, string, TimeSortCompare> timeSortedMap;
+        for (auto pair : tiMap_) {
+        	timeSortedMap.insert({pair.second, pair.first});
+        }
+
+        for (auto pair : timeSortedMap) {
+        	ss << pair.first << "\t" << pair.second << " " << std::endl;
         }
 
         os << ss.str();

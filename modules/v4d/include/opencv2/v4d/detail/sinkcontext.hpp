@@ -35,7 +35,7 @@ public:
      * @param fn The functor that provides the data.
      * @return true if successful-
      */
-    virtual void execute(std::function<void()> fn) override;
+    virtual int execute(const cv::Rect& vp, std::function<void()> fn) override;
     /*!
      * Called to pass the frambuffer to a functor which consumes it (e.g. writes to a video file).
      * @param fn The functor that consumes the data,

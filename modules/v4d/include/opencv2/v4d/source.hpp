@@ -27,7 +27,6 @@ class CV_EXPORTS Source {
     std::function<bool(cv::UMat&)> generator_;
     uint64_t count_ = 0;
     float fps_;
-    bool threadSafe_ = false;
     std::mutex mtx_;
 public:
     /*!
@@ -50,9 +49,6 @@ public:
      * @return true if the source is ready.
      */
     CV_EXPORTS bool isReady();
-    CV_EXPORTS bool isThreadSafe();
-    CV_EXPORTS void setThreadSafe(bool ts);
-
 
     /*!
      * Determines if the source is open.
@@ -74,7 +70,7 @@ public:
     static cv::Ptr<Source> make(cv::Ptr<V4D> window, const string& inputFilename);
 private:
     static cv::Ptr<Source> makeVaSource(cv::Ptr<V4D> window, const string& inputFilename, const int vaDeviceIndex);
-    static cv::Ptr<Source> makeAnyHWSource(const string& inputFilename);
+    static cv::Ptr<Source> makeAnyHWSource(cv::Ptr<V4D> window, const string& inputFilename);
 };
 
 } /* namespace v4d */

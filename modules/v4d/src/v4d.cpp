@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <opencv2/core.hpp>
 #include <vector>
+#include <semaphore>
 
 #include "../include/opencv2/v4d/v4d.hpp"
 #include "../include/opencv2/v4d/detail/framebuffercontext.hpp"
@@ -15,85 +16,80 @@
 namespace cv {
 namespace v4d {
 
-cv::Ptr<V4D> V4D::make(const cv::Size& size, const string& title, int flags, bool offscreen, bool debug, int samples) {
-    V4D* v4d = new V4D(size, cv::Size(), title, flags, offscreen, debug, samples);
-    v4d->setVisible(!offscreen);
+cv::Ptr<V4D> V4D::make(const cv::Size& size, const string& title, int allocFlags, int confFlags, int debFlags, int samples) {
+    V4D* v4d = new V4D(size, cv::Size(), title, allocFlags, confFlags, debFlags, samples);
     v4d->fbCtx()->makeCurrent();
     return v4d->self();
 }
 
-cv::Ptr<V4D> V4D::make(const cv::Size& size, const cv::Size& fbsize, const string& title, int flags, bool offscreen, bool debug, int samples) {
-    V4D* v4d = new V4D(size, fbsize, title, flags, offscreen, debug, samples);
-    v4d->setVisible(!offscreen);
+cv::Ptr<V4D> V4D::make(const cv::Size& size, const cv::Size& fbsize, const string& title, int allocFlags, int confFlags, int debFlags, int samples) {
+    V4D* v4d = new V4D(size, fbsize, title, allocFlags, confFlags, debFlags, samples);
     v4d->fbCtx()->makeCurrent();
     return v4d->self();
 }
 
 cv::Ptr<V4D> V4D::make(const V4D& other, const string& title) {
     V4D* v4d = new V4D(other, title);
-    v4d->setVisible(other.debug_);
     v4d->fbCtx()->makeCurrent();
     return v4d->self();
 }
 
-V4D::V4D(const cv::Size& size, const cv::Size& fbsize, const string& title, int aflags, bool offscreen, bool debug, int samples) :
-        initialSize_(size), flags_(aflags), debug_(debug), viewport_(0, 0, size.width, size.height), stretching_(true), samples_(samples) {
+V4D::V4D(const cv::Size& size, const cv::Size& fbsize, const string& title, int allocFlags, int confFlags, int debFlags, int samples) :
+        initialSize_(size), allocateFlags_(allocFlags), configFlags_(confFlags), debugFlags_(debFlags), viewport_(0, 0, size.width, size.height), stretching_(true), samples_(samples) {
     self_ = cv::Ptr<V4D>(this);
-    mainFbContext_ = new detail::FrameBufferContext(*this, fbsize.empty() ? size : fbsize, offscreen, title, 3,
-                2, samples, debug, nullptr, nullptr, true);
-//    CLExecScope_t scope(mainFbContext_->getCLExecContext());
-//    if(flags() & AllocateFlags::NANOVG)
-//        nvgContext_ = new detail::NanoVGContext(mainFbContext_);
-//    if(flags() & AllocateFlags::BGFX)
-//        bgfxContext_ = new detail::BgfxContext(mainFbContext_);
-//    sourceContext_ = new detail::SourceContext(mainFbContext_);
-//    sinkContext_ = new detail::SinkContext(mainFbContext_);
-//    plainContext_ = new detail::PlainContext();
-    if(flags() & AllocateFlags::IMGUI)
+    int fbFlags = FBConfigFlags::VSYNC
+    		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
+			| (debugFlags() &  DebugFlags::ONSCREEN_CONTEXTS ? FBConfigFlags::ONSCREEN_CHILD_CONTEXTS : 0)
+			| (configFlags() &  ConfigFlags::OFFSCREEN ? FBConfigFlags::OFFSCREEN : 0);
+    mainFbContext_ = new detail::FrameBufferContext(*this, fbsize.empty() ? size : fbsize, title, 3,
+                2, samples, nullptr, nullptr, true, fbFlags);
+    sourceContext_ = new detail::SourceContext(mainFbContext_);
+    sinkContext_ = new detail::SinkContext(mainFbContext_);
+
+    if(allocateFlags() & AllocateFlags::IMGUI)
         imguiContext_ = new detail::ImGuiContextImpl(mainFbContext_);
 
-    //preallocate the primary gl context
-//    glCtx(-1);
+    setVisible(!(configFlags() & ConfigFlags::OFFSCREEN));
 }
 
 V4D::V4D(const V4D& other, const string& title) :
-        initialSize_(other.initialSize_), flags_(other.flags_), debug_(other.debug_), viewport_(0, 0, other.fbSize().width, other.fbSize().height), stretching_(other.stretching_), samples_(other.samples_) {
-	workerIdx_ = Global::next_worker_idx();
+        initialSize_(other.initialSize_), allocateFlags_(other.allocateFlags_), configFlags_(other.configFlags_), debugFlags_(other.debugFlags_), viewport_(0, 0, other.fbSize().width, other.fbSize().height), stretching_(other.stretching_), samples_(other.samples_) {
+	workerIdx_ = Global::on<size_t>(Global::WORKERS_INDEX, [](size_t& v){ return v++; });
     self_ = cv::Ptr<V4D>(this);
-    mainFbContext_ = new detail::FrameBufferContext(*this, other.fbSize(), !other.debug_, title, 3,
-                2, other.samples_, other.debug_, other.fbCtx()->rootWindow_, other.fbCtx(), true);
+    int fbFlags = (configFlags() &  ConfigFlags::DISPLAY_MODE ? FBConfigFlags::DISPLAY_MODE : 0)
+    		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
+			| (debugFlags() &  DebugFlags::ONSCREEN_CONTEXTS ? FBConfigFlags::ONSCREEN_CHILD_CONTEXTS : FBConfigFlags::OFFSCREEN);
+
+    mainFbContext_ = new detail::FrameBufferContext(*this, other.fbSize(), title, 3,
+                2, other.samples_, other.fbCtx()->rootWindow_, other.fbCtx(), true, fbFlags);
 
     CLExecScope_t scope(mainFbContext_->getCLExecContext());
-    if(flags() & AllocateFlags::NANOVG)
+    if(allocateFlags() & AllocateFlags::NANOVG)
     	nvgContext_ = new detail::NanoVGContext(mainFbContext_);
-    if(flags() & AllocateFlags::BGFX)
+    if(allocateFlags() & AllocateFlags::BGFX)
         bgfxContext_ = new detail::BgfxContext(mainFbContext_);
     sourceContext_ = new detail::SourceContext(mainFbContext_);
     sinkContext_ = new detail::SinkContext(mainFbContext_);
     plainContext_ = new detail::PlainContext();
 
-    //preallocate the primary gl context
-    glCtx(-1);
+    setVisible(debugFlags() & DebugFlags::ONSCREEN_CONTEXTS);
 }
 
 V4D::~V4D() {
 
 }
 
-const string V4D::getPrefix() const {
-	return prefix_;
+const string V4D::getCurrentID() const {
+	return currentID_;
 }
 
-void V4D::setPrefix(const string& p) {
-	prefix_ = p;
+cv::Ptr<V4D> V4D::setCurrentID(const string& id) {
+	currentID_ = id;
+	return self();
 }
 
 const int32_t& V4D::workerIndex() const {
 	return workerIdx_;
-}
-
-size_t V4D::workers_running() {
-	return Global::workers_started();
 }
 
 cv::ogl::Texture2D& V4D::texture() {
@@ -227,26 +223,21 @@ bool V4D::hasSource() const {
 void V4D::feed(cv::UMat& in) {
 	static thread_local cv::UMat frame;
 
-	plain([](cv::UMat& src, cv::UMat& f, const cv::Size sz) {
+	plain([](cv::UMat& src, cv::UMat& f) {
+		src.copyTo(f);
+	}, in, frame);
+
+    fb([](cv::UMat& framebuffer, const cv::UMat& f) {
 		cv::UMat rgb;
 
-		resizePreserveAspectRatio(src, rgb, sz);
-		cv::cvtColor(rgb, f, cv::COLOR_RGB2BGRA);
-	}, in, frame, mainFbContext_->size());
+		if(f.size() != framebuffer.size())
+			resizePreserveAspectRatio(f, rgb, framebuffer.size());
+		else
+			rgb = f;
 
-    fb([](cv::UMat& frameBuffer, const cv::UMat& f) {
-        f.copyTo(frameBuffer);
+		cv::cvtColor(rgb, framebuffer, cv::COLOR_RGB2BGRA);
     }, frame);
 }
-
-cv::UMat V4D::fetch() {
-	static thread_local cv::UMat frame;
-	fb([](const cv::UMat& fb, cv::UMat& f) {
-		fb.copyTo(f);
-	}, frame);
-    return frame;
-}
-
 
 void V4D::setSink(cv::Ptr<Sink> sink) {
     sink_ = sink;
@@ -272,8 +263,9 @@ cv::Rect V4D::getFramebufferViewport() {
 	return fbCtx()->getViewport();
 }
 
-void V4D::setFramebufferViewport(const cv::Rect& vp) {
-	return fbCtx()->setViewport(vp);
+cv::Ptr<V4D> V4D::setFramebufferViewport(const cv::Rect& vp) {
+	fbCtx()->setViewport(vp);
+	return self();
 }
 
 float V4D::pixelRatioX() {
@@ -292,7 +284,7 @@ const cv::Size& V4D::initialSize() const {
     return initialSize_;
 }
 
-cv::Size V4D::size() {
+const cv::Size V4D::size() {
     return fbCtx()->getWindowSize();
 }
 
@@ -320,8 +312,9 @@ void V4D::setShowTracking(bool st) {
     showTracking_ = st;
 }
 
-void V4D::setDisableIO(bool d) {
+cv::Ptr<V4D> V4D::setDisableIO(bool d) {
 	disableIO_ = d;
+	return self();
 }
 
 bool V4D::getShowTracking() {
@@ -372,14 +365,7 @@ bool V4D::isFocused() {
 }
 
 void V4D::swapContextBuffers() {
-	{
-        FrameBufferContext::GLScope glScope(glCtx(-1)->fbCtx(), GL_READ_FRAMEBUFFER);
-        glCtx(-1)->fbCtx()->blitFrameBufferToFrameBuffer(viewport(), glCtx(-1)->fbCtx()->getWindowSize(), 0, isStretching());
-//        GL_CHECK(glFinish());
-        glfwSwapBuffers(glCtx(-1)->fbCtx()->getGLFWWindow());
-	}
-
-    for(size_t i = 0; i < numGlCtx(); ++i) {
+    for(int32_t i = -1; i < numGlCtx(); ++i) {
         FrameBufferContext::GLScope glScope(glCtx(i)->fbCtx(), GL_READ_FRAMEBUFFER);
         glCtx(i)->fbCtx()->blitFrameBufferToFrameBuffer(viewport(), glCtx(i)->fbCtx()->getWindowSize(), 0, isStretching());
 //        GL_CHECK(glFinish());
@@ -405,23 +391,25 @@ void V4D::swapContextBuffers() {
 bool V4D::display() {
     bool result = true;
     if(!Global::is_main()) {
-    	Global::next_frame_cnt();
+    	Global::on<size_t>(Global::FRAME_COUNT, [](size_t& v){ return v++; });
 
-		if(debug_) {
+		if(debugFlags() & DebugFlags::ONSCREEN_CONTEXTS) {
 			swapContextBuffers();
 		}
     }
 	if (Global::is_main()) {
-		auto start = Global::start_time();
+		auto start = Global::get<uint64_t>(Global::START_TIME);
 		auto now = get_epoch_nanos();
 		auto diff = now - start;
 		double diffSeconds = diff / 1000000000.0;
 
 		if(Global::fps() > 0 && diffSeconds > 1.0) {
-			Global::add_to_start_time(diff / 2.0);
-			Global::mul_frame_cnt(0.5);
+			Global::on<uint64_t>(Global::START_TIME, [diff](uint64_t& v) { return (v = v + (diff / 2.0)); } );
+			Global::on<size_t>(Global::FRAME_COUNT, [](size_t& v){ return (v = v * 0.5); });
 		} else {
-			Global::set_fps((Global::fps() * 3.0 + (Global::frame_cnt() / diffSeconds)) / 4.0);
+			double fps = Global::fps();
+			size_t cnt = Global::get<size_t>(Global::FRAME_COUNT);
+			Global::set<double>(Global::FPS, (fps * 3.0 + (cnt / diffSeconds)) / 4.0);
 		}
 
 		if(getPrintFPS())
@@ -438,36 +426,33 @@ bool V4D::display() {
 #endif
 			imguiCtx()->render(getShowFPS());
 		}
-
+		TimeTracker::getInstance()->newCount();
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
-//		GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
-//		GL_CHECK(glViewport(0, 0, size().width, size().height));
-//		GL_CHECK(glClearColor(0,0,0,1));
-//		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
+		GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+		GL_CHECK(glViewport(0, 0, size().width, size().height));
+		GL_CHECK(glClearColor(0,0,0,1));
+		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
 	} else {
 		fbCtx()->copyToRootWindow();
-//		if(debug_) {
-//			FrameBufferContext::GLScope glScope(fbCtx(), GL_READ_FRAMEBUFFER);
-//			fbCtx()->blitFrameBufferToFrameBuffer(viewport(), fbCtx()->getWindowSize(), 0, isStretching());
-//			glfwSwapBuffers(fbCtx()->getGLFWWindow());
-//		}
+		if(debugFlags() & DebugFlags::ONSCREEN_CONTEXTS) {
+			FrameBufferContext::GLScope glScope(fbCtx(), GL_READ_FRAMEBUFFER);
+			fbCtx()->blitFrameBufferToFrameBuffer(viewport(), fbCtx()->getWindowSize(), 0, isStretching());
+			glfwSwapBuffers(fbCtx()->getGLFWWindow());
+		}
 	}
 
 	result = !glfwWindowShouldClose(getGLFWWindow());
 
-    if (seqNr_ == (std::numeric_limits<uint64_t>().max() - 1))
-        seqNr_ = 0;
-    else
-        ++seqNr_;
-
     return result;
 }
 
-const uint64_t& V4D::sequenceNumber() {
-	if(hasSource()){
-		return sourceCtx()->sequenceNumber();
-	}
+void V4D::setSequenceNumber(size_t seq) {
+	seqNr_ = seq;
+}
 
+uint64_t V4D::getSequenceNumber() {
+	//0 is an illegal sequence number
+	CV_Assert(seqNr_ > 0);
 	return seqNr_;
 }
 
@@ -491,8 +476,16 @@ void V4D::printSystemInfo() {
 #endif
 }
 
-int V4D::flags() {
-	return flags_;
+int V4D::allocateFlags() {
+	return allocateFlags_;
+}
+
+int V4D::configFlags() {
+	return configFlags_;
+}
+
+int V4D::debugFlags() {
+	return debugFlags_;
 }
 
 cv::Ptr<V4D> V4D::self() {

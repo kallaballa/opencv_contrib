@@ -19,11 +19,9 @@ namespace detail {
 class CV_EXPORTS SourceContext : public V4DContext {
     friend class cv::v4d::V4D;
     CLExecContext_t context_;
-    cv::UMat captureBuffer_;
-    cv::UMat captureBufferRGB_;
+    cv::UMat sourceBuffer_;
     bool hasContext_ = false;
     cv::Ptr<FrameBufferContext> mainFbContext_;
-    uint64_t currentSeqNr_ = 0;
 public:
     /*!
      * Create the CLVAContext
@@ -37,9 +35,7 @@ public:
      * @param fn The functor that provides the data.
      * @return true if successful-
      */
-    virtual void execute(std::function<void()> fn) override;
-
-    const uint64_t& sequenceNumber() const;
+    virtual int execute(const cv::Rect& vp, std::function<void()> fn) override;
 
     /*FIXME only public till https://github.com/opencv/opencv/pull/22780 is resolved.
      * required for manual initialization of VideoCapture/VideoWriter

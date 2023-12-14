@@ -7,6 +7,15 @@ namespace v4d {
 namespace event {
 namespace detail {
 	GLFWwindow* Holder::main_window = nullptr;
+	KeyCallback Holder::keyboardCallback;
+	MouseButtonCallback Holder::mouseButtonCallback;
+	ScrollCallback Holder::scrollCallback;
+	CursorPosCallback Holder::cursorPosCallback;
+	WindowSizeCallback Holder::windowSizeCallback;
+	WindowPosCallback Holder::windowPosCallback;
+	WindowFocusCallback Holder::windowFocusCallback;
+	WindowCloseCallback Holder::windowCloseCallback;
+	std::vector<EventQueue*> Holder::queue_vector;
 ;
 }
 }

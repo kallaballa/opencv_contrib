@@ -57,41 +57,23 @@ size_t cnz(const cv::UMat& m) {
     }
     return cv::countNonZero(grey);
 }
-
+}
+ThreadSafeMap<Global::Keys> Global::map_;
 std::mutex Global::global_mtx_;
-
-std::mutex Global::locking_mtx_;
-bool Global::locking_ = 0;
-
+bool Global::is_first_run_ = true;
 std::set<string> Global::once_;
-
-std::mutex Global::frame_cnt_mtx_;
-uint64_t Global::frame_cnt_ = 0;
-
-std::mutex Global::start_time_mtx_;
-uint64_t Global::start_time_ = get_epoch_nanos();
-
-std::mutex Global::fps_mtx_;
-double Global::fps_ = 0;
-
 std::mutex Global::thread_id_mtx_;
 const std::thread::id Global::default_thread_id_;
 std::thread::id Global::main_thread_id_;
 thread_local bool Global::is_main_;
-
-uint64_t Global::run_cnt_ = 0;
-bool Global::first_run_ = true;
-
-size_t Global::workers_ready_ = 0;
-size_t Global::workers_started_ = 0;
-size_t Global::next_worker_idx_ = 0;
 std::mutex Global::sharedMtx_;
-
 std::map<size_t, std::mutex*> Global::shared_;
-std::map<std::thread::id, size_t> Global::thread_worker_id_;
-}
+std::mutex Global::node_lock_mtx_;
+std::map<string, std::pair<std::thread::id, cv::Ptr<std::mutex>>> Global::node_lock_map_;
 
-CV_EXPORTS void copy_shared(const cv::UMat& src, cv::UMat& dst) {
+Global global;
+
+CV_EXPORTS void copy_cross(const cv::UMat& src, cv::UMat& dst) {
 	if(dst.empty())
 		dst.create(src.size(), src.type());
 	Mat m = dst.getMat(cv::ACCESS_WRITE);
@@ -358,8 +340,6 @@ void resizePreserveAspectRatio(const cv::UMat& src, cv::UMat& output, const cv::
     double hf = double(dstSize.height) / src.size().height;
     double wf = double(dstSize.width) / src.size().width;
     double f = std::min(hf, wf);
-    if (f < 0)
-        f = 1.0 / f;
 
     cv::resize(src, tmp, cv::Size(), f, f);
 

@@ -14,7 +14,8 @@ namespace detail {
 SourceContext::SourceContext(cv::Ptr<FrameBufferContext> mainFbContext) : mainFbContext_(mainFbContext) {
 }
 
-void SourceContext::execute(std::function<void()> fn) {
+int SourceContext::execute(const cv::Rect& vp, std::function<void()> fn) {
+	CV_UNUSED(vp);
     if (hasContext()) {
         CLExecScope_t scope(getCLExecContext());
         if (mainFbContext_->getV4D()->hasSource()) {
@@ -22,38 +23,37 @@ void SourceContext::execute(std::function<void()> fn) {
 
         	if(src->isOpen()) {
 				auto p = src->operator ()();
-				currentSeqNr_ = p.first;
+		        CV_Assert(p.first > 0);
 
 				if(p.second.empty()) {
 					CV_Error(cv::Error::StsError, "End of stream");
 				}
 
-				resizePreserveAspectRatio(p.second, captureBufferRGB_, mainFbContext_->size());
-				cv::cvtColor(captureBufferRGB_, sourceBuffer(), cv::COLOR_RGB2BGRA);
+				cv::cvtColor(p.second, sourceBuffer(), cv::COLOR_RGB2BGRA);
+		        fn();
+		        return p.first;
         	}
         }
-        fn();
+        return 0;
     } else {
         if (mainFbContext_->getV4D()->hasSource()) {
         	auto src = mainFbContext_->getV4D()->getSource();
 
         	if(src->isOpen()) {
 				auto p = src->operator ()();
-				currentSeqNr_ = p.first;
-
+		        CV_Assert(p.first > 0);
 				if(p.second.empty()) {
 					CV_Error(cv::Error::StsError, "End of stream");
 				}
-				resizePreserveAspectRatio(p.second, captureBufferRGB_, mainFbContext_->size());
-				cv::cvtColor(captureBufferRGB_, sourceBuffer(), cv::COLOR_RGB2BGRA);
+
+				cv::cvtColor(p.second, sourceBuffer(), cv::COLOR_RGB2BGRA);
+		        fn();
+
+		        return p.first;
         	}
         }
-        fn();
+        return 0;
     }
-}
-
-const uint64_t& SourceContext::sequenceNumber() const {
-	return currentSeqNr_;
 }
 
 bool SourceContext::hasContext() {
@@ -69,7 +69,7 @@ CLExecContext_t SourceContext::getCLExecContext() {
 }
 
 cv::UMat& SourceContext::sourceBuffer() {
-	return captureBuffer_;
+	return sourceBuffer_;
 }
 }
 }

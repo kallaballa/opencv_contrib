@@ -15,7 +15,8 @@ namespace detail {
 SinkContext::SinkContext(cv::Ptr<FrameBufferContext> mainFbContext) : mainFbContext_(mainFbContext) {
 }
 
-void SinkContext::execute(std::function<void()> fn) {
+int SinkContext::execute(const cv::Rect& vp, std::function<void()> fn) {
+	CV_UNUSED(vp);
     if (hasContext()) {
         CLExecScope_t scope(getCLExecContext());
         fn();
@@ -23,9 +24,11 @@ void SinkContext::execute(std::function<void()> fn) {
     	fn();
     }
 	auto v4d = mainFbContext_->getV4D();
-	if(v4d->hasSink()) {
-		v4d->getSink()->operator ()(v4d->sequenceNumber(), sinkBuffer());
+	if(v4d->hasSink() && v4d->getSink()->isOpen()) {
+			v4d->getSink()->operator ()(v4d->getSequenceNumber(), sinkBuffer());
+			return 1;
 	}
+	return 0;
 }
 
 bool SinkContext::hasContext() {

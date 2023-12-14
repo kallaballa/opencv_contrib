@@ -79,6 +79,9 @@ void ImGuiContextImpl::render(bool showFPS) {
 		std::stringstream ss;
 		TimeTracker::getInstance()->print(ss);
 		std::string line;
+		ImFont* font = ImGui::GetFont();
+		font->Scale = 2.0;
+		ImGui::PushFont(font);
 		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.0f, 0.0f, 0.0f, 0.5f));
 		ImGui::Begin("Time Tracking");
 		while(getline(ss, line)) {
@@ -86,6 +89,7 @@ void ImGuiContextImpl::render(bool showFPS) {
 		}
 		ImGui::End();
 		ImGui::PopStyleColor(1);
+		ImGui::PopFont();
 	}
 	if (renderCallback_)
 		renderCallback_();

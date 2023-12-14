@@ -33,7 +33,7 @@ private:
         //contrast boost
         int contrastBoost_ = 255; //0.0-255
         //max fractal iterations
-        int maxIterations_ = 50000;
+        int maxIterations_ = 10000;
         //center x coordinate
         float centerX_ = -0.466;
         //center y coordinate
@@ -101,7 +101,7 @@ private:
     }
 
     //mandelbrot shader code adapted from my own project: https://github.com/kallaballa/FractalDive#after
-    static GLuint load_shader() {
+    static GLuint load_shaders() {
         #if !defined(OPENCV_V4D_USE_ES3)
         const string shaderVersion = "330";
         #else
@@ -198,7 +198,7 @@ private:
     static void init_scene(const cv::Rect& viewport, Handles& handles) {
         GL_CHECK(glEnable(GL_BLEND));
         GL_CHECK(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
-        handles.shaderHdl_ = load_shader();
+        handles.shaderHdl_ = load_shaders();
         load_buffers(handles);
 
         handles.baseColorHdl_ = glGetUniformLocation(handles.shaderHdl_, "base_color");
@@ -223,37 +223,43 @@ private:
 
     //Render the mandelbrot fractal on top of a video
     static void render_scene(const cv::Size& sz, const cv::Rect& viewport, Params& params, Handles& handles) {
-        GL_CHECK(glViewport(viewport.x, viewport.y, viewport.width, viewport.height));
+    	glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    	GL_CHECK(glViewport(viewport.x, viewport.y, viewport.width, viewport.height));
 
-        //bungee zoom
-        if (params.currentZoom_ >= 3) {
-            params.zoomIn = true;
-        } else if (params.currentZoom_ < 0.05) {
-        	params.zoomIn = false;
-        }
+    	{
+    		Global::Scope scope(params);
 
-        params.zoomIncr_ = (params.currentZoom_ / 100);
-    	if(params.zoomIn)
-    		params.zoomIncr_ = -params.zoomIncr_;
+			//bungee zoom
+			if (params.currentZoom_ >= 3) {
+				params.zoomIn = true;
+			} else if (params.currentZoom_ < 0.05) {
+				params.zoomIn = false;
+			}
 
-        GL_CHECK(glUseProgram(handles.shaderHdl_));
-        GL_CHECK(glUniform4f(handles.baseColorHdl_, params.baseColorVal_[0], params.baseColorVal_[1], params.baseColorVal_[2], params.baseColorVal_[3]));
-        GL_CHECK(glUniform1i(handles.contrastBoostHdl_, params.contrastBoost_));
-        GL_CHECK(glUniform1i(handles.maxIterationsHdl_, params.maxIterations_));
-        GL_CHECK(glUniform1f(handles.centerYHdl_, params.centerY_));
-        GL_CHECK(glUniform1f(handles.centerXHdl_, params.centerX_));
-        GL_CHECK(glUniform1f(handles.offsetYHdl_, viewport.x));
-        GL_CHECK(glUniform1f(handles.offsetXHdl_, viewport.y));
+			params.zoomIncr_ = (params.currentZoom_ / 100);
+			if(params.zoomIn)
+				params.zoomIncr_ = -std::fabs(params.zoomIncr_);
 
-        if (!params.manualNavigation_) {
-            params.currentZoom_ += params.zoomIncr_;
-            GL_CHECK(glUniform1f(handles.currentZoomHdl_, easeInOutQuint(params.currentZoom_)));
-        } else {
-            params.currentZoom_ = 1.0 / pow(params.zoomFactor_, 5.0f);
-            GL_CHECK(glUniform1f(handles.currentZoomHdl_, params.currentZoom_));
-        }
-        float res[2] = {float(sz.width), float(sz.height)};
-        GL_CHECK(glUniform2fv(handles.resolutionHdl_, 1, res));
+			GL_CHECK(glUseProgram(handles.shaderHdl_));
+			GL_CHECK(glUniform4f(handles.baseColorHdl_, params.baseColorVal_[0], params.baseColorVal_[1], params.baseColorVal_[2], params.baseColorVal_[3]));
+			GL_CHECK(glUniform1i(handles.contrastBoostHdl_, params.contrastBoost_));
+			GL_CHECK(glUniform1i(handles.maxIterationsHdl_, params.maxIterations_));
+			GL_CHECK(glUniform1f(handles.centerYHdl_, params.centerY_));
+			GL_CHECK(glUniform1f(handles.centerXHdl_, params.centerX_));
+			GL_CHECK(glUniform1f(handles.offsetYHdl_, viewport.x));
+			GL_CHECK(glUniform1f(handles.offsetXHdl_, viewport.y));
+
+
+			if (!params.manualNavigation_) {
+				params.currentZoom_ += params.zoomIncr_;
+				GL_CHECK(glUniform1f(handles.currentZoomHdl_, easeInOutQuint(params.currentZoom_)));
+			} else {
+				params.currentZoom_ = 1.0 / pow(params.zoomFactor_, 5.0f);
+				GL_CHECK(glUniform1f(handles.currentZoomHdl_, params.currentZoom_));
+			}
+			float res[2] = {float(sz.width), float(sz.height)};
+			GL_CHECK(glUniform2fv(handles.resolutionHdl_, 1, res));
+    	}
 
         GL_CHECK(glBindVertexArray(handles.vao_));
         GL_CHECK(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0));
@@ -262,6 +268,10 @@ public:
     ShaderDemoPlan(const cv::Rect& viewport) : Plan(viewport) {
 		Global::registerShared(params_);
 	}
+
+//	string suffix() const override {
+//		return "shader-demo";
+//	}
 
     void gui(cv::Ptr<V4D> window) override {
         window->imgui([](cv::Ptr<V4D> win, Params& params) {
@@ -305,8 +315,7 @@ public:
 
         for(size_t i = 0; i < NUM_CONTEXTS_; ++i) {
             window->gl(i,[](const int32_t& ctxID, const cv::Size& sz, const cv::Rect& viewport, Params& params, Handles& handles) {
-            	Params p = Global::safe_copy(params);
-                render_scene(sz, viewport, p, handles);
+                render_scene(sz, viewport, params, handles);
             }, size(), viewports_[i], params_, handles_[i]);
         }
 
@@ -326,7 +335,7 @@ ShaderDemoPlan::Params ShaderDemoPlan::params_;
 
 int main(int argc, char** argv) {
     if (argc != 2) {
-        cerr << "Usage: shader-demo <video-file>" << endl;
+		cerr << "Usage: shader-demo <video-file>" << endl;
         exit(1);
     }
 

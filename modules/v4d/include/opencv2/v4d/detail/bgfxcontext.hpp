@@ -6,6 +6,8 @@
 #ifndef SRC_OPENCV_BGFXGCONTEXT_HPP_
 #define SRC_OPENCV_BGFXGCONTEXT_HPP_
 
+#define BX_CONFIG_DEBUG 0
+
 #include "framebuffercontext.hpp"
 #include "bgfx/bgfx.h"
 #include "bx/bx.h"
@@ -84,7 +86,7 @@ public:
     BgfxContext(cv::Ptr<FrameBufferContext> fbContext);
     virtual ~BgfxContext() {};
 
-    virtual void execute(std::function<void()> fn) override;
+    virtual int execute(const cv::Rect& vp, std::function<void()> fn) override;
 
     cv::Ptr<FrameBufferContext> fbCtx();
 };

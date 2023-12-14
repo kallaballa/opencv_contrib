@@ -19,7 +19,7 @@ class CV_EXPORTS ExtContext : public V4DContext {
 public:
     ExtContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext);
     virtual ~ExtContext() {};
-    virtual void execute(std::function<void()> fn) override;
+    virtual int execute(const cv::Rect& vp, std::function<void()> fn) override;
     const int32_t& getIndex() const;
     cv::Ptr<FrameBufferContext> fbCtx();
 };

@@ -149,9 +149,9 @@ private:
 	//Renders a rotating rainbow-colored cube on a blueish background
 	static void render_scene(GLuint &vao, GLuint &shaderProgram,
 			GLuint &uniformTransform) {
-		//Clear the background
-		glClearColor(0.2, 0.24, 0.4, 1);
-		glClear(GL_COLOR_BUFFER_BIT);
+		//clear all buffers
+		glClearColor(0.2f, 0.24f, 0.4f, 1.0f);
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		//Use the prepared shader program
 		glUseProgram(shaderProgram);
@@ -214,10 +214,7 @@ public:
 	}
 
 	void infer(cv::Ptr<V4D> window) override {
-		//Render using multiple OpenGL contexts
 		window->gl([](GLuint& v, GLuint& sp, GLuint& ut){
-			glClearColor(0.2f, 0.24f, 0.4f, 1.0f);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 			render_scene(v, sp, ut);
 		}, vao_, shaderProgram_, uniformTransform_);
 
@@ -226,18 +223,18 @@ public:
 			glow_effect(framebuffer, framebuffer, glowKernelSize, cache);
 		}, glowKernelSize_, cache_);
 
-		window->write();
+//		window->write();
 	}
 };
 
 int main() {
-	cv::Ptr<CubeDemoPlan> plan = new CubeDemoPlan(cv::Rect(0, 0, 1280, 720));
-    cv::Ptr<V4D> window = V4D::make(plan->size(), "Cube Demo", AllocateFlags::ALL);
+	cv::Ptr<CubeDemoPlan> plan = new CubeDemoPlan(cv::Rect(0, 0, 1920, 1080));
+    cv::Ptr<V4D> window = V4D::make(plan->size(), "Cube Demo", AllocateFlags::IMGUI);
 
     //Creates a writer sink (which might be hardware accelerated)
     auto sink = Sink::make(window, "cube-demo.mkv", 60, plan->size());
     window->setSink(sink);
-    window->run(plan, 0);
+    window->run(plan, 6);
 
     return 0;
 }

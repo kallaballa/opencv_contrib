@@ -111,15 +111,17 @@ private:
 	    cv::UMat localFg_;
 	} cache_;
 
-	//BGRA
-	cv::UMat background_, down_;
-    inline static cv::UMat foreground_;
-	//BGR
-	cv::UMat result_;
-	//GREY
-	cv::UMat downPrevGrey_, downNextGrey_, downMotionMaskGrey_;
-	vector<cv::Point2f> detectedPoints_;
+	struct Frames {
+		//BGRA
+		cv::UMat background_, down_;
+		inline static cv::UMat foreground_;
+		//BGR
+		cv::UMat result_;
+		//GREY
+		cv::UMat downPrevGrey_, downNextGrey_, downMotionMaskGrey_;
+	} frames_;
 
+	vector<cv::Point2f> detectedPoints_;
 	cv::Ptr<cv::BackgroundSubtractor> bg_subtractor_ = cv::createBackgroundSubtractorMOG2(100, 16.0, false);
 	cv::Ptr<cv::FastFeatureDetector> detector_ = cv::FastFeatureDetector::create(1, false);
 
@@ -315,8 +317,12 @@ private:
 public:
     OptflowDemoPlan(const cv::Rect& viewport) : Plan(viewport) {
 		Global::registerShared(params_);
-		Global::registerShared(foreground_);
+		Global::registerShared(frames_.foreground_);
     }
+
+//	string suffix() const override {
+//		return "optflow-demo";
+//	}
 
     virtual void gui(cv::Ptr<V4D> window) override {
 		window->imgui([](cv::Ptr<V4D> win, Params& params){
@@ -375,58 +381,56 @@ public:
 	virtual void setup(cv::Ptr<V4D> window) override {
 		cache_.rng_ = std::mt19937(cache_.rd_());
 		window->setStretching(params_.stretch_);
-		window->branch(BranchType::ONCE, always_);
-		{
-			window->plain([](const cv::Size& sz, Params& params, cv::UMat& foreground){
-				cerr << "ONCE" << endl;
+		window->branch(BranchType::ONCE, always_)
+			->plain([](const cv::Size& sz, Params& params, cv::UMat& foreground){
 				int diag = hypot(double(sz.width), double(sz.height));
 				params.glowKernelSize_ = std::max(int(diag / 150 % 2 == 0 ? diag / 150 + 1 : diag / 150), 1);
-				params.effectColor_[3] /= (Global::workers_started() - 1);
-				foreground = cv::UMat(sz, CV_8UC4);
-			}, size(), params_, foreground_);
-		}
-		window->endbranch(BranchType::ONCE, always_);
+				params.effectColor_[3] /= ceil(pow(Global::workers_started(), 0.60));
+				foreground.create(sz, CV_8UC4);
+			}, size(), params_, frames_.foreground_)
+			->endBranch();
 	}
 
 	virtual void infer(cv::Ptr<V4D> window) override {
 		window->capture();
 
-		window->fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, cv::UMat& d, cv::UMat& b, const Params& params) {
-			Params p = Global::safe_copy(params);
+		window->fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, Frames& frames, const Params& params) {
+			Params p;
+			Global::safe_copy(params, p);
 			//resize to foreground scale
-			cv::resize(framebuffer, d, cv::Size(viewport.width * p.fgScale_, viewport.height * p.fgScale_));
+			cv::resize(framebuffer, frames.down_, cv::Size(viewport.width * p.fgScale_, viewport.height * p.fgScale_));
 			//save video background
-			framebuffer.copyTo(b);
-		}, viewport(), down_, background_, params_);
+			framebuffer.copyTo(frames.background_);
+		}, viewport(), frames_, params_);
 
-		window->plain([](const cv::UMat& d, cv::UMat& dng, cv::UMat& dmmg, std::vector<cv::Point2f>& dp, cv::Ptr<cv::BackgroundSubtractor>& bg_subtractor, cv::Ptr<cv::FastFeatureDetector>& detector, Cache& cache){
-			cv::cvtColor(d, dng, cv::COLOR_RGBA2GRAY);
+		window->plain([](Frames& frames, std::vector<cv::Point2f>& detected, cv::Ptr<cv::BackgroundSubtractor>& bg_subtractor, cv::Ptr<cv::FastFeatureDetector>& detector, Cache& cache){
+			cv::cvtColor(frames.down_, frames.downNextGrey_, cv::COLOR_RGBA2GRAY);
 			//Subtract the background to create a motion mask
-			prepare_motion_mask(dng, dmmg, bg_subtractor, cache);
+			prepare_motion_mask(frames.downNextGrey_, frames.downMotionMaskGrey_, bg_subtractor, cache);
 			//Detect trackable points in the motion mask
-			detect_points(dmmg, dp, detector, cache);
-		}, down_, downNextGrey_, downMotionMaskGrey_, detectedPoints_, bg_subtractor_, detector_, cache_);
+			detect_points(frames.downMotionMaskGrey_, detected, detector, cache);
+		}, frames_, detectedPoints_, bg_subtractor_, detector_, cache_);
 
-		window->nvg([](const cv::UMat& dmmg, cv::UMat& dpg, const cv::UMat& dng, const std::vector<cv::Point2f>& dp, const Params& params, Cache& cache) {
-			const Params p = Global::safe_copy(params);
+		window->nvg([](Frames& frames, const std::vector<cv::Point2f>& detected, const Params& params, Cache& cache) {
+			Params p;
+			Global::safe_copy(params, p);
 			nvg::clear();
-			if (!dpg.empty()) {
+			if (!frames.downPrevGrey_.empty()) {
 				//We don't want the algorithm to get out of hand when there is a scene change, so we suppress it when we detect one.
-				if (!detect_scene_change(dmmg, p, cache)) {
+				if (!detect_scene_change(frames.downMotionMaskGrey_, p, cache)) {
 					//Visualize the sparse optical flow using nanovg
-					visualize_sparse_optical_flow(dpg, dng, dp, p, cache);
+					visualize_sparse_optical_flow(frames.downPrevGrey_, frames.downNextGrey_, detected, p, cache);
 				}
 			}
-        	dpg = dng.clone();
-		}, downMotionMaskGrey_, downPrevGrey_, downNextGrey_, detectedPoints_, params_, cache_);
+			frames.downPrevGrey_ = frames.downNextGrey_.clone();
+		}, frames_, detectedPoints_, params_, cache_);
 
-        window->fb([](cv::UMat& framebuffer, cv::UMat& background, cv::UMat& foreground, const Params& params, Cache& cache) {
+        window->fb([](cv::UMat& framebuffer, Frames& frames, const Params& params, Cache& cache) {
         	//Put it all together (OpenCL)
-            Global::Scope scope(foreground);
-            copy_shared(foreground, cache.localFg_);
-            composite_layers(background, cache.localFg_, framebuffer, framebuffer, params, cache);
-            copy_shared(cache.localFg_, foreground);
-        }, background_, foreground_, params_, cache_);
+            Global::safe_copy(frames.foreground_, cache.localFg_);
+            composite_layers(frames.background_, cache.localFg_, framebuffer, framebuffer, params, cache);
+            Global::safe_copy(cache.localFg_, frames.foreground_);
+        }, frames_, params_, cache_);
 
         window->write();
 	}
@@ -448,6 +452,6 @@ int main(int argc, char **argv) {
 	window->setSource(src);
 	window->setSink(sink);
 
-	window->run(plan, 0);
+	window->run(plan, 24);
     return 0;
 }

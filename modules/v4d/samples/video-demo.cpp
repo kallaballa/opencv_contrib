@@ -184,6 +184,10 @@ private:
 	    cv::bitwise_not(dst, dst);
 	}
 public:
+//	string suffix() const override {
+//		return "video-demo";
+//	}
+
 	void setup(cv::Ptr<V4D> window) override {
 		int diag = hypot(double(size().width), double(size().height));
 		glowKernelSize_ = std::max(int(diag / 138 % 2 == 0 ? diag / 138 + 1 : diag / 138), 1);

@@ -12,9 +12,11 @@ GLContext::GLContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext) 
         idx_(idx), mainFbContext_(fbContext), glFbContext_(new FrameBufferContext(*fbContext->getV4D(), "OpenGL" + std::to_string(idx), fbContext)) {
 }
 
-void GLContext::execute(std::function<void()> fn) {
+int GLContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
+		CV_UNUSED(vp);
 		fn();
+		return 1;
 }
 
 const int32_t& GLContext::getIndex() const {

@@ -30,9 +30,9 @@ public:
          * Setup NanoVG rendering
          * @param ctx The corresponding #NanoVGContext
          */
-        Scope(NanoVGContext& ctx) :
+        Scope(NanoVGContext& ctx, const cv::Rect& viewport) :
                 ctx_(ctx) {
-            ctx_.begin();
+            ctx_.begin(viewport);
         }
         /*!
          * Tear-down NanoVG rendering
@@ -58,14 +58,14 @@ public:
      * @param fn A function that is passed the size of the framebuffer
      * and performs drawing using cv::viz::nvg
      */
-    virtual void execute(std::function<void()> fn) override;
+    virtual int execute(const cv::Rect& vp, std::function<void()> fn) override;
 
     cv::Ptr<FrameBufferContext> fbCtx();
 private:
     /*!
      * Setup NanoVG context
      */
-    void begin();
+    void begin(const cv::Rect& viewport);
     /*!
      * Tear down NanoVG context
      */

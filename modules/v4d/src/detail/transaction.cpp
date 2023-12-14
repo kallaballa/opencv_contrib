@@ -24,6 +24,14 @@ BranchType::Enum Transaction::getBranchType() {
 	return btype_;
 }
 
+void Transaction::setViewport(const cv::Rect& vp) {
+	viewport_ = vp;
+}
+
+cv::Rect Transaction::getViewport() {
+	return viewport_;
+}
+
 void Transaction::setContext(cv::Ptr<cv::v4d::detail::V4DContext> ctx) {
 	ctx_ = ctx;
 }

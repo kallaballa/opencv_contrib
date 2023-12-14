@@ -30,14 +30,14 @@ class BgfxDemoPlan : public Plan {
 
 	inline static PosColorVertex s_cubeVertices[] =
 	{
-		{-1.0f,  1.0f,  1.0f, 0xff000000 },
-		{ 1.0f,  1.0f,  1.0f, 0xff0000ff },
-		{-1.0f, -1.0f,  1.0f, 0xff00ff00 },
-		{ 1.0f, -1.0f,  1.0f, 0xff00ffff },
-		{-1.0f,  1.0f, -1.0f, 0xffff0000 },
-		{ 1.0f,  1.0f, -1.0f, 0xffff00ff },
-		{-1.0f, -1.0f, -1.0f, 0xffffff00 },
-		{ 1.0f, -1.0f, -1.0f, 0xffffffff },
+		{-3.0f,  3.0f,  3.0f, 0xaa000000 },
+		{ 3.0f,  3.0f,  3.0f, 0xaa0000ff },
+		{-3.0f, -3.0f,  3.0f, 0xaa00ff00 },
+		{ 3.0f, -3.0f,  3.0f, 0xaa00ffff },
+		{-3.0f,  3.0f, -3.0f, 0xaaff0000 },
+		{ 3.0f,  3.0f, -3.0f, 0xaaff00ff },
+		{-3.0f, -3.0f, -3.0f, 0xaaffff00 },
+		{ 3.0f, -3.0f, -3.0f, 0xaaffffff },
 	};
 
 	inline static const uint16_t s_cubeTriList[] =
@@ -139,13 +139,12 @@ public:
 	}
 
 	void setup(cv::Ptr<V4D> window) override {
-		window->branch(BranchType::ONCE, always_);
-		{
-			window->plain([](int64_t& timeOffset) {
+		window->branch(BranchType::ONCE, always_)
+				->plain([](int64_t& timeOffset) {
 				timeOffset = bx::getHPCounter();
-			}, time_offset_);
-		}
-		window->endbranch(BranchType::ONCE, always_);
+			}, time_offset_)
+			->endBranch();
+
 		window->bgfx([](const cv::Rect& vp, Params& params){
 			params.m_width = vp.width;
 			params.m_height = vp.height;
@@ -207,7 +206,9 @@ public:
 	void infer(cv::Ptr<V4D> window) override {
 		window->capture();
 		window->bgfx([](const Params& params, const int64_t& timeOffset){
-			float time = (float)( (bx::getHPCounter()-Global::safe_copy(timeOffset))/double(bx::getHPFrequency() ) );
+			int64_t offset;
+			Global::safe_copy(timeOffset, offset);
+			float time = (float)( (bx::getHPCounter()-offset)/double(bx::getHPFrequency()));
 
 			const bx::Vec3 at  = { 0.0f, 0.0f,   0.0f };
 			const bx::Vec3 eye = { 0.0f, 0.0f, -35.0f };
@@ -242,15 +243,17 @@ public:
 				| s_ptState[params.m_pt]
 				;
 
+
 			// Submit 11x11 cubes.
-			for (uint32_t yy = 0; yy < 11; ++yy)
+			for (uint32_t yy = 0; yy < 170; ++yy)
 			{
-				for (uint32_t xx = 0; xx < 11; ++xx)
+				for (uint32_t xx = 0; xx < 170; ++xx)
 				{
 					float mtx[16];
-					bx::mtxRotateXY(mtx, time + xx*0.21f, time + yy*0.37f);
-					mtx[12] = -15.0f + float(xx)*3.0f;
-					mtx[13] = -15.0f + float(yy)*3.0f;
+					float angle = fmod(float(time) + sin((float(xx * yy / pow(170.0f, 2.0f)) * 2.0f - 1.0f) * CV_PI), 2.0f * CV_PI);
+					bx::mtxRotateXYZ(mtx, angle, angle, angle);
+					mtx[12] = sin((float(xx * yy / pow(170.0f, 2.0f)) * 2.0f - 1.0f) * CV_PI) * 10.0;
+					mtx[13] = cos((float(xx * yy / pow(170.0f, 2.0f)) * 2.0f - 1.0f) * CV_PI) * 10.0;
 					mtx[14] = 0.0f;
 
 					// Set model matrix for rendering.
@@ -279,8 +282,8 @@ public:
 
 int main(int argc, char** argv) {
 	CV_Assert(argc == 3);
-	cv::Ptr<BgfxDemoPlan> plan = new BgfxDemoPlan(cv::Rect(0,0, 1920, 1080));
-	cv::Ptr<V4D> window = V4D::make(plan->size(), "Bgfx Demo", AllocateFlags::ALL);
+	cv::Ptr<BgfxDemoPlan> plan = new BgfxDemoPlan(cv::Rect(0,0, 1280, 720));
+	cv::Ptr<V4D> window = V4D::make(plan->size(), "Bgfx Demo", AllocateFlags::BGFX | AllocateFlags::IMGUI);
 	auto source = Source::make(window, argv[1]);
 	auto sink = Sink::make(window, "bgfx-demo.mkv", 60, plan->size());
 	window->setSource(source);

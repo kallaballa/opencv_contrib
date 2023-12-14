@@ -26,6 +26,7 @@ class CV_EXPORTS Transaction {
 private:
 	cv::Ptr<cv::v4d::detail::V4DContext> ctx_;
 	BranchType::Enum btype_;
+	cv::Rect viewport_;
 public:
 	CV_EXPORTS Transaction();
 	CV_EXPORTS virtual ~Transaction() {}
@@ -36,6 +37,9 @@ public:
 	CV_EXPORTS bool isBranch();
 	CV_EXPORTS void setBranchType(BranchType::Enum btype);
 	CV_EXPORTS BranchType::Enum getBranchType();
+	CV_EXPORTS void setViewport(const cv::Rect& vp);
+	CV_EXPORTS cv::Rect getViewport();
+
 
 	CV_EXPORTS void setContext(cv::Ptr<cv::v4d::detail::V4DContext> ctx);
 	CV_EXPORTS cv::Ptr<cv::v4d::detail::V4DContext> getContext();
@@ -76,7 +80,9 @@ public:
 
     template<bool b>
     typename std::enable_if<b, bool>::type enabled() {
-    	return std::apply(f, args);
+    	bool res = std::apply(f, args);
+    	ran_ = true;
+    	return res;
     }
 
     template<bool b>
@@ -111,11 +117,11 @@ cv::Ptr<Transaction> make_transaction(F f, Args&&... args) {
 }
 
 
-template <typename F, typename Tfb, typename... Args>
-cv::Ptr<Transaction> make_transaction(F f, Tfb&& fb, Args&&... args) {
-	return cv::Ptr<Transaction>(dynamic_cast<Transaction*>(new detail::TransactionImpl<std::decay_t<F>, std::remove_cv_t<Tfb>, std::remove_cv_t<Args>...>
-        (std::forward<F>(f), std::forward<Tfb>(fb), std::forward<Args>(args)...)));
-}
+//template <typename F, typename Tfb, typename... Args>
+//cv::Ptr<Transaction> make_transaction(F f, Tfb&& fb, Args&&... args) {
+//	return cv::Ptr<Transaction>(dynamic_cast<Transaction*>(new detail::TransactionImpl<std::decay_t<F>, std::remove_cv_t<Tfb>, std::remove_cv_t<Args>...>
+//        (std::forward<F>(f), std::forward<Tfb>(fb), std::forward<Args>(args)...)));
+//}
 
 
 }

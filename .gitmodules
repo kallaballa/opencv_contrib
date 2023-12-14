@@ -9,4 +9,4 @@
 	url = https://github.com/kallaballa/doxygen-bootstrapped.git
 [submodule "modules/v4d/third/bgfx.cmake"]
 	path = modules/v4d/third/bgfx.cmake
-	url = https://github.com/bkaradzic/bgfx.cmake.git
+	url = git@github.com:kallaballa/bgfx.cmake.git

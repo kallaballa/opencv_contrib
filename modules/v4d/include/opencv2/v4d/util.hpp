@@ -8,6 +8,8 @@
 
 #include "source.hpp"
 #include "sink.hpp"
+#include "threadsafemap.hpp"
+#include "detail/framebuffercontext.hpp"
 #include <filesystem>
 #include <string>
 #include <iostream>
@@ -25,284 +27,17 @@
 #include <iostream>
 #include <cmath>
 #include <thread>
+#include <latch>
+#include <deque>
+
+using std::cout;
+using std::endl;
 
 namespace cv {
 namespace v4d {
 namespace detail {
 
-using std::cout;
-using std::endl;
 
-inline uint64_t get_epoch_nanos() {
-	return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-}
-
-static thread_local std::mutex mtx_;
-
-class CV_EXPORTS ThreadLocal {
-public:
-	CV_EXPORTS static std::mutex& mutex() {
-    	return mtx_;
-    }
-};
-
-class CV_EXPORTS Global {
-	static std::mutex global_mtx_;
-
-	static std::mutex locking_mtx_;
-	static bool locking_;
-
-	static std::set<string> once_;
-
-	static std::mutex frame_cnt_mtx_;
-	static uint64_t frame_cnt_;
-
-	static std::mutex start_time_mtx_;
-	static uint64_t start_time_;
-
-	static std::mutex fps_mtx_;
-	static double fps_;
-
-	static std::mutex thread_id_mtx_;
-	static const std::thread::id default_thread_id_;
-	static std::thread::id main_thread_id_;
-	static thread_local bool is_main_;
-
-	static uint64_t run_cnt_;
-	static bool first_run_;
-
-	static size_t workers_ready_;
-    static size_t workers_started_;
-    static size_t next_worker_idx_;
-	static std::mutex sharedMtx_;
-
-	static std::map<size_t, std::mutex*> shared_;
-	static std::map<std::thread::id, size_t> thread_worker_id_;
-	typedef typename std::map<size_t, std::mutex*>::iterator Iterator;
-public:
-	template <typename T>
-	class Scope {
-	private:
-		const T& t_;
-public:
-
-		Scope(const T& t) : t_(t) {
-			lock(t_);
-		}
-
-		~Scope() {
-			unlock(t_);
-		}
-	};
-
-	CV_EXPORTS static std::mutex& mutex() {
-    	return global_mtx_;
-    }
-
-	CV_EXPORTS static bool once(string name) {
-	    static std::mutex mtx;
-		std::lock_guard<std::mutex> lock(mtx);
-		string stem = name.substr(0, name.find_last_of("-"));
-		if(once_.empty()) {
-			once_.insert(stem);
-			return true;
-		}
-
-		auto it = once_.find(stem);
-		if(it != once_.end()) {
-			return false;
-		} else {
-			once_.insert(stem);
-			return true;
-		}
-	}
-
-	CV_EXPORTS static const bool& isLocking() {
-		std::lock_guard<std::mutex> lock(locking_mtx_);
-    	return locking_;
-    }
-
-	CV_EXPORTS static void setLocking(bool l) {
-	    std::lock_guard<std::mutex> lock(locking_mtx_);
-    	locking_ = l;
-    }
-
-	CV_EXPORTS static uint64_t next_frame_cnt() {
-	    std::lock_guard<std::mutex> lock(frame_cnt_mtx_);
-    	return frame_cnt_++;
-    }
-
-	CV_EXPORTS static uint64_t frame_cnt() {
-	    std::lock_guard<std::mutex> lock(frame_cnt_mtx_);
-    	return frame_cnt_;
-    }
-
-	CV_EXPORTS static void mul_frame_cnt(const double& factor) {
-	    std::lock_guard<std::mutex> lock(frame_cnt_mtx_);
-    	frame_cnt_ *= factor;
-    }
-
-	CV_EXPORTS static void add_to_start_time(const size_t& st) {
-		std::lock_guard<std::mutex> lock(start_time_mtx_);
-		start_time_ += st;
-    }
-
-	CV_EXPORTS static uint64_t start_time() {
-		std::lock_guard<std::mutex> lock(start_time_mtx_);
-        return start_time_;
-    }
-
-	CV_EXPORTS static double fps() {
-		std::lock_guard<std::mutex> lock(fps_mtx_);
-    	return fps_;
-    }
-
-	CV_EXPORTS static void set_fps(const double& f) {
-		std::lock_guard<std::mutex> lock(fps_mtx_);
-    	fps_ = f;
-    }
-
-	CV_EXPORTS static void set_main_id(const std::thread::id& id) {
-		std::lock_guard<std::mutex> lock(thread_id_mtx_);
-		main_thread_id_ = id;
-    }
-
-	CV_EXPORTS static bool is_main() {
-		std::lock_guard<std::mutex> lock(start_time_mtx_);
-		return (main_thread_id_ == default_thread_id_ || main_thread_id_ == std::this_thread::get_id());
-	}
-
-	CV_EXPORTS static bool is_first_run() {
-		static std::mutex mtx;
-		std::lock_guard<std::mutex> lock(mtx);
-    	bool f = first_run_;
-    	first_run_ = false;
-		return f;
-    }
-
-	CV_EXPORTS static uint64_t next_run_cnt() {
-	    static std::mutex mtx;
-	    std::lock_guard<std::mutex> lock(mtx);
-    	return run_cnt_++;
-    }
-
-	CV_EXPORTS static void set_workers_started(const size_t& ws) {
-	    static std::mutex mtx;
-	    std::lock_guard<std::mutex> lock(mtx);
-		workers_started_ = ws;
-	}
-
-	CV_EXPORTS static size_t workers_started() {
-	    static std::mutex mtx;
-	    std::lock_guard<std::mutex> lock(mtx);
-		return workers_started_;
-	}
-
-	CV_EXPORTS static size_t next_worker_ready() {
-	    static std::mutex mtx;
-	    std::lock_guard<std::mutex> lock(mtx);
-		return ++workers_ready_;
-	}
-
-	CV_EXPORTS static size_t next_worker_idx() {
-	    static std::mutex mtx;
-	    std::lock_guard<std::mutex> lock(mtx);
-	    thread_worker_id_[std::this_thread::get_id()] = next_worker_idx_;
-		return next_worker_idx_++;
-	}
-
-	CV_EXPORTS static size_t worker_id() {
-		CV_Assert(!is_main());
-		return thread_worker_id_[std::this_thread::get_id()];
-	}
-
-	template<typename T>
-	static bool isShared(const T& shared) {
-		std::lock_guard<std::mutex> guard(sharedMtx_);
-		std::cerr << "shared:" << reinterpret_cast<size_t>(&shared) << std::endl;
-		return shared_.find(reinterpret_cast<size_t>(&shared)) != shared_.end();
-	}
-
-	template<typename T>
-	static void registerShared(const T& shared) {
-		std::lock_guard<std::mutex> guard(sharedMtx_);
-		std::cerr << "register:" << reinterpret_cast<size_t>(&shared) << std::endl;
-		shared_.insert(std::make_pair(reinterpret_cast<size_t>(&shared), new std::mutex()));
-	}
-
-	template<typename T>
-	static void lock(const T& shared) {
-		Iterator it, end;
-		std::mutex* mtx = nullptr;
-		{
-			std::lock_guard<std::mutex> guard(sharedMtx_);
-			it = shared_.find(reinterpret_cast<size_t>(&shared));
-			end = shared_.end();
-			if(it != end) {
-				mtx = (*it).second;
-			}
-		}
-
-		if(mtx != nullptr) {
-			mtx->lock();
-			return;
-		}
-		CV_Assert(!"You are trying to lock a non-shared variable");
-	}
-
-	template<typename T>
-	static void unlock(const T& shared) {
-		Iterator it, end;
-		std::mutex* mtx = nullptr;
-		{
-			std::lock_guard<std::mutex> guard(sharedMtx_);
-			it = shared_.find(reinterpret_cast<size_t>(&shared));
-			end = shared_.end();
-			if(it != end) {
-				mtx = (*it).second;
-			}
-		}
-
-		if(mtx != nullptr) {
-			mtx->unlock();
-			return;
-		}
-
-		CV_Assert(!"You are trying to unlock a non-shared variable");
-	}
-
-	template<typename T>
-	static T safe_copy(const T& shared) {
-		std::lock_guard<std::mutex> guard(sharedMtx_);
-		auto it = shared_.find(reinterpret_cast<size_t>(&shared));
-
-		if(it != shared_.end()) {
-			std::lock_guard<std::mutex> guard(*(*it).second);
-			return shared;
-		} else {
-			CV_Assert(!"You are unnecessarily safe copying a variable");
-			//unreachable
-			return shared;
-		}
-	}
-
-	static cv::UMat safe_copy(const cv::UMat& shared) {
-		std::lock_guard<std::mutex> guard(sharedMtx_);
-		cv::UMat copy;
-		auto it = shared_.find(reinterpret_cast<size_t>(&shared));
-		if(it != shared_.end()) {
-			std::lock_guard<std::mutex> guard(*(*it).second);
-			//workaround for context conflicts
-			shared.getMat(cv::ACCESS_READ).copyTo(copy);
-			return copy;
-		} else {
-			CV_Assert(!"You are unnecessarily safe copying a variable");
-			//unreachable
-			shared.getMat(cv::ACCESS_READ).copyTo(copy);
-			return copy;
-		}
-	}
-};
 
 //https://stackoverflow.com/a/27885283/1884837
 template<class T>
@@ -419,13 +154,330 @@ public:
 };
 
 CV_EXPORTS size_t cnz(const cv::UMat& m);
+
 }
 using std::string;
 class V4D;
 
+inline uint64_t get_epoch_nanos() {
+	return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+}
+
+typedef std::latch Latch;
+typedef cv::Ptr<std::latch> LatchPtr;
+
+class CV_EXPORTS Global {
+	friend class cv::v4d::V4D;
+	friend class cv::v4d::detail::FrameBufferContext;
+public:
+	enum Keys {
+		FRAME_COUNT,
+		RUN_COUNT,
+		START_TIME,
+		FPS,
+		WORKERS_READY,
+		WORKERS_STARTED,
+		WORKERS_INDEX,
+		FRAMEBUFFER_INDEX,
+		LOCKING,
+		WORKER_READY_BARRIER,
+	};
+
+	Global() {
+		reset();
+	}
+
+	template <typename T>
+	class Scope {
+	private:
+		const T& t_;
+	public:
+
+		Scope(const T& t) : t_(t) {
+			lock(t_);
+		}
+
+		~Scope() {
+			unlock(t_);
+		}
+	};
+
+	template<typename T>
+	static bool isShared(const T& shared) {
+		std::lock_guard<std::mutex> guard(sharedMtx_);
+		return shared_.find(reinterpret_cast<size_t>(&shared)) != shared_.end();
+	}
+
+	template<typename T>
+	static void registerShared(const T& shared) {
+		std::lock_guard<std::mutex> guard(sharedMtx_);
+		shared_.insert(std::make_pair(reinterpret_cast<size_t>(&shared), new std::mutex()));
+	}
+
+	template<typename T>
+	static void safe_copy(const T& from, T& to) {
+		std::mutex* mtx = nullptr;
+		{
+			std::lock_guard<std::mutex> guard(sharedMtx_);
+			auto itFrom = shared_.find(reinterpret_cast<size_t>(&from));
+			auto itTo = shared_.find(reinterpret_cast<size_t>(&to));
+
+			if(itFrom != shared_.end()) {
+				mtx = (*itFrom).second;
+			} else if(itTo != shared_.end()) {
+				mtx = (*itTo).second;
+			} else {
+				throw std::runtime_error("You are unnecessarily safe-copying a variable or you forgot to register it.");
+			}
+		}
+		{
+			CV_Assert(mtx);
+			std::lock_guard<std::mutex> guard(*mtx);
+			to = copy(from);
+		}
+	}
+
+	static void safe_copy(const cv::UMat& from, cv::UMat& to) {
+		std::mutex* mtx = nullptr;
+		{
+			std::lock_guard<std::mutex> guard(sharedMtx_);
+			auto itFrom = shared_.find(reinterpret_cast<size_t>(&from));
+			auto itTo = shared_.find(reinterpret_cast<size_t>(&to));
+
+			if(itFrom != shared_.end()) {
+				mtx = (*itFrom).second;
+			} else if(itTo != shared_.end()) {
+				mtx = (*itTo).second;
+			} else {
+				throw std::runtime_error("You are unnecessarily safe-copying a variable or you forgot to register it.");
+			}
+		}
+		{
+			CV_Assert(mtx);
+			std::lock_guard<std::mutex> guard(*mtx);
+			if(to.empty())
+				to.create(from.size(), from.type());
+			from.copyTo(to.getMat(cv::ACCESS_WRITE));
+		}
+	}
+
+	template<typename T>
+	static T safe_copy(const T& from) {
+		T to;
+		safe_copy(from, to);
+		return to;
+	}
+
+	static double fps() {
+		return get<double>(FPS);
+	}
+
+	static size_t workers_started() {
+		return get<size_t>(WORKERS_STARTED);
+	}
+private:
+	static ThreadSafeMap<Keys> map_;
+	static std::mutex global_mtx_;
+	static bool is_first_run_;
+	static std::set<string> once_;
+
+	static std::mutex thread_id_mtx_;
+	static const std::thread::id default_thread_id_;
+	static std::thread::id main_thread_id_;
+	static thread_local bool is_main_;
+
+	static std::mutex sharedMtx_;
+	static std::map<size_t, std::mutex*> shared_;
+	static std::mutex node_lock_mtx_;
+	static std::map<string, std::pair<std::thread::id, cv::Ptr<std::mutex>>> node_lock_map_;
+	typedef typename std::map<size_t, std::mutex*>::iterator ThreadWorkerIdIterator;
+
+	template<typename T>
+	static T copy(const T& t) {
+		return t;
+	}
+
+	CV_EXPORTS static void reset() {
+		set<size_t>(FRAME_COUNT, 0);
+		set<size_t>(RUN_COUNT, 0);
+		set<uint64_t>(START_TIME, get_epoch_nanos());
+		set<double>(FPS, 0);
+		set<size_t>(WORKERS_READY, 0);
+		set<size_t>(WORKERS_STARTED, 0);
+		set<size_t>(WORKERS_INDEX, 0);
+		set<size_t>(FRAMEBUFFER_INDEX, 0);
+		set<bool>(LOCKING, false);
+	}
+
+	CV_EXPORTS static cv::Ptr<std::mutex> get_node_lock_internal(const string& name, const bool owned = true) {
+		auto it = node_lock_map_.find(name);
+		if(owned) {
+			if(it == node_lock_map_.end()) {
+				auto mtxPtr = cv::makePtr<std::mutex>();
+				node_lock_map_[name] = {std::this_thread::get_id(), mtxPtr};
+				return mtxPtr;
+			} else {
+				auto entry = *it;
+				if(entry.second.first == std::this_thread::get_id()) {
+					return entry.second.second;
+				}
+			}
+		} else {
+			if(it != node_lock_map_.end()) {
+				auto entry = *it;
+				if(entry.second.first != std::this_thread::get_id()) {
+					return entry.second.second;
+				}
+			}
+		}
+		return nullptr;
+	}
+
+	CV_EXPORTS static bool invalidate_node_lock_internal(const string& name) {
+		auto it = node_lock_map_.find(name);
+		if(it != node_lock_map_.end()) {
+			auto& entry = *it;
+			entry.second.second = nullptr;
+			return true;
+		}
+		return false;
+	}
+	CV_EXPORTS static cv::Ptr<std::mutex> try_get_node_lock(const string& name) {
+		std::lock_guard guard(node_lock_mtx_);
+		return get_node_lock_internal(name, false);
+	}
+
+	CV_EXPORTS static bool lock_node(const string& name) {
+		std::lock_guard guard(node_lock_mtx_);
+		auto lock = get_node_lock_internal(name);
+		if(lock) {
+			lock->lock();
+			return true;
+		} else {
+			return false;
+		}
+	}
+
+	CV_EXPORTS static bool try_unlock_node(const string& name) {
+		std::lock_guard guard(node_lock_mtx_);
+		auto lock = get_node_lock_internal(name);
+		if(lock) {
+			lock->unlock();
+			invalidate_node_lock_internal(name);
+			return true;
+		} else {
+			return false;
+		}
+	}
+
+	CV_EXPORTS static size_t cound_node_locks() {
+		std::lock_guard guard(node_lock_mtx_);
+		size_t cnt = 0;
+		for(auto entry : node_lock_map_) {
+			if(entry.second.first == std::this_thread::get_id() && entry.second.second) {
+				++cnt;
+			}
+		}
+		return cnt;
+	}
+
+	CV_EXPORTS static std::mutex& mutex() {
+    	return global_mtx_;
+    }
+
+	CV_EXPORTS static bool once(string name) {
+	    static std::mutex mtx;
+		std::lock_guard<std::mutex> lock(mtx);
+		string stem = name.substr(0, name.find_last_of("-"));
+		if(once_.empty()) {
+			once_.insert(stem);
+			return true;
+		}
+
+		auto it = once_.find(stem);
+		if(it != once_.end()) {
+			return false;
+		} else {
+			once_.insert(stem);
+			return true;
+		}
+	}
+
+	CV_EXPORTS static void set_main_id(const std::thread::id& id) {
+		std::lock_guard<std::mutex> lock(thread_id_mtx_);
+		main_thread_id_ = id;
+    }
+
+	CV_EXPORTS static bool is_main() {
+		std::lock_guard<std::mutex> lock(thread_id_mtx_);
+		return (main_thread_id_ == default_thread_id_ || main_thread_id_ == std::this_thread::get_id());
+	}
+
+	CV_EXPORTS static bool is_first_run() {
+		static std::mutex mtx;
+		std::lock_guard<std::mutex> lock(mtx);
+    	bool f = is_first_run_;
+    	is_first_run_ = false;
+		return f;
+    }
+
+	template<typename T>
+	static void lock(const T& shared) {
+		ThreadWorkerIdIterator it, end;
+		std::mutex* mtx = nullptr;
+		{
+			std::lock_guard<std::mutex> guard(sharedMtx_);
+			it = shared_.find(reinterpret_cast<size_t>(&shared));
+			end = shared_.end();
+			if(it != end) {
+				mtx = (*it).second;
+			}
+		}
+
+		if(mtx != nullptr) {
+			mtx->lock();
+			return;
+		}
+		throw std::runtime_error("You are trying to lock a non-shared variable");
+	}
+
+	template<typename T>
+	static void unlock(const T& shared) {
+		ThreadWorkerIdIterator it, end;
+		std::mutex* mtx = nullptr;
+		{
+			std::lock_guard<std::mutex> guard(sharedMtx_);
+			it = shared_.find(reinterpret_cast<size_t>(&shared));
+			end = shared_.end();
+			if(it != end) {
+				mtx = (*it).second;
+			}
+		}
+
+		if(mtx != nullptr) {
+			mtx->unlock();
+			return;
+		}
+
+		throw std::runtime_error("You are trying to unlock a non-shared variable");
+	}
+
+	template <typename V> static V get(Keys k) {
+		return map_.get<V>(k);
+	}
+
+	template <typename V> static void set(Keys k, V v) {
+		map_.set(k, v);
+	}
+
+	template <typename V> static V on(Keys k, std::function<V(V&)> f) {
+		return map_.on(k, f);
+	}
+};
 
 
-CV_EXPORTS void copy_shared(const cv::UMat& src, cv::UMat& dst);
+
+CV_EXPORTS void copy_cross(const cv::UMat& src, cv::UMat& dst);
 
 
 /*!
@@ -490,7 +542,7 @@ CV_EXPORTS bool keepRunning();
 
 CV_EXPORTS void requestFinish();
 
-void resizePreserveAspectRatio(const cv::UMat& src, cv::UMat& output, const cv::Size& dstSize, const cv::Scalar& bgcolor = {0,0,0,255});
+CV_EXPORTS void resizePreserveAspectRatio(const cv::UMat& src, cv::UMat& output, const cv::Size& dstSize, const cv::Scalar& bgcolor = {0,0,0,255});
 
 }
 }

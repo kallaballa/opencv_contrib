@@ -16,18 +16,16 @@ namespace v4d {
 
 class CV_EXPORTS Resequence {
 	bool finish_ = false;
-	std::mutex putMtx_;
-	std::mutex waitMtx_;
+	std::mutex mtx_;
 	std::condition_variable cv_;
     uint64_t nextSeq_ = 0;
 public:
-    CV_EXPORTS Resequence() {
+    CV_EXPORTS Resequence(int firstSequenceNumber) : nextSeq_(firstSequenceNumber) {
     }
 
     CV_EXPORTS virtual ~Resequence() {}
     CV_EXPORTS void finish();
-    CV_EXPORTS void notify();
-    CV_EXPORTS void waitFor(const uint64_t& seq);
+    CV_EXPORTS void waitFor(const uint64_t& seq, std::function<void(uint64_t)> completion);
 };
 
 } /* namespace v4d */

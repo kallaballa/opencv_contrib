@@ -139,7 +139,7 @@ void Sink::operator()(const uint64_t& seq, const cv::UMat& frame) {
 	} else {
 		buffer_[seq] = frame;
 	}
-	if(buffer_.size() > 240) {
+	if(buffer_.size() > 2048) {
 		CV_LOG_WARNING(nullptr, "Buffer overrun in sink.");
 		buffer_.clear();
 	}

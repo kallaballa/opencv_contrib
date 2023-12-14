@@ -149,7 +149,7 @@ private:
 
 	//Renders a rotating rainbow-colored cube on a blueish background
 	static void render_scene(const cv::Size& sz, const double& x, const double& y, const double& angleMod, GLuint& vao, GLuint& shaderProgram, GLuint& uniformTransform) {
-	    glViewport(0,0, sz.width, sz.height);
+		glViewport(0,0, sz.width, sz.height);
 		//Use the prepared shader program
 	    glUseProgram(shaderProgram);
 
@@ -231,9 +231,9 @@ public:
 
 	void infer(cv::Ptr<V4D> window) override {
 		window->gl([](){
-			//Clear the background
 			glClearColor(0.2, 0.24, 0.4, 1);
-			glClear(GL_COLOR_BUFFER_BIT);
+			//clear all buffers
+			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 		});
 
 		//Render using multiple OpenGL contexts

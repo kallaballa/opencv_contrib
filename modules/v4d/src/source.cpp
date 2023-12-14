@@ -24,10 +24,16 @@ cv::Ptr<Source> Source::makeVaSource(cv::Ptr<V4D> window, const string& inputFil
     }, fps);
 }
 
-cv::Ptr<Source> Source::makeAnyHWSource(const string& inputFilename) {
-    cv::Ptr<cv::VideoCapture> capture = new cv::VideoCapture(inputFilename, cv::CAP_FFMPEG, {
-            cv::CAP_PROP_HW_ACCELERATION, cv::VIDEO_ACCELERATION_ANY });
+cv::Ptr<Source> Source::makeAnyHWSource(cv::Ptr<V4D> window, const string& inputFilename) {
+//    auto& currentExecContext = ocl::OpenCLExecutionContext::getCurrent();
+//    currentExecContext = ocl::OpenCLExecutionContext::create(currentExecContext.getContext(), currentExecContext.getDevice());
+//    currentExecContext.bind();
+	cv::Ptr<cv::VideoCapture> capture = new cv::VideoCapture(inputFilename, cv::CAP_FFMPEG, {
+//            cv::CAP_PROP_HW_ACCELERATION, cv::VIDEO_ACCELERATION_ANY, cv::CAP_PROP_HW_ACCELERATION_USE_OPENCL, 1
+	});
     float fps = capture->get(cv::CAP_PROP_FPS);
+
+    window->sourceCtx()->copyContext();
 
     return new Source([=](cv::UMat& frame) {
         (*capture) >> frame;
@@ -40,7 +46,7 @@ cv::Ptr<Source> Source::make(cv::Ptr<V4D> window, const string& inputFilename) {
         return makeVaSource(window, inputFilename, 0);
     } else {
         try {
-            return makeAnyHWSource(inputFilename);
+            return makeAnyHWSource(window, inputFilename);
         } catch(...) {
             cerr << "Failed creating hardware source" << endl;
         }
@@ -78,15 +84,9 @@ float Source::fps() {
 std::pair<uint64_t, cv::UMat> Source::operator()() {
 	std::lock_guard<std::mutex> guard(mtx_);
 	static thread_local cv::UMat frame;
-    if(threadSafe_) {
-        static std::mutex mtx_;
-        std::unique_lock<std::mutex> lock(mtx_);
-        open_ = generator_(frame);
-        return {count_++, frame};
-    } else {
-        open_ = generator_(frame);
-        return {count_++, frame};
-    }
+	open_ = generator_(frame);
+	//first frame has the sequence number 1!
+	return {++count_, frame};
 }
 } /* namespace v4d */
 } /* namespace kb */

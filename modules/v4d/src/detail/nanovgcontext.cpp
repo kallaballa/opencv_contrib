@@ -17,9 +17,9 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext) :
                 nullptr) {
 		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
 #if defined(OPENCV_V4D_USE_ES3)
-		context_ = nvgCreateGLES3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+		context_ = nvgCreateGLES3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG);
 #else
-		context_ = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES);
+		context_ = nvgCreateGL3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG);
 #endif
 		if (!context_)
 			CV_Error(Error::StsError, "Could not initialize NanoVG!");
@@ -28,28 +28,27 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext) :
 		nvgCreateFont(context_, "sans-bold", "modules/v4d/assets/fonts/Roboto-Bold.ttf");
 }
 
-void NanoVGContext::execute(std::function<void()> fn) {
+int NanoVGContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 	{
 		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-		NanoVGContext::Scope nvgScope(*this);
+		NanoVGContext::Scope nvgScope(*this, vp);
 		cv::v4d::nvg::detail::NVG::initializeContext(context_);
 		fn();
+		return 1;
 	}
 }
 
 
-void NanoVGContext::begin() {
+void NanoVGContext::begin(const cv::Rect& viewport) {
     float w = fbCtx()->size().width;
     float h = fbCtx()->size().height;
-    cv::Rect vp = fbCtx()->getViewport();
-    float ws = vp.width;
-    float hs = vp.height;
+    float ws = viewport.width;
+    float hs = viewport.height;
     float r = fbCtx()->pixelRatioX();
     CV_UNUSED(ws);
-    CV_UNUSED(hs);
     nvgSave(context_);
-    nvgBeginFrame(context_, ws, hs, r);
+    nvgBeginFrame(context_, w, h, r);
     nvgTranslate(context_, 0, h - hs);
 }
 

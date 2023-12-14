@@ -74,11 +74,11 @@ BgfxContext::BgfxContext(cv::Ptr<FrameBufferContext> fbContext) :
 	bgfx::setDebug(BGFX_DEBUG_NONE);
 }
 
-void BgfxContext::execute(std::function<void()> fn) {
+int BgfxContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 	FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER, 0);
 	fn();
 	CV_Assert(fbCtx()->getGLFWWindow() == glfwGetCurrentContext());
-	glfwSwapBuffers(fbCtx()->getGLFWWindow());
+	return 1;
 }
 
 
