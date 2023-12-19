@@ -20,13 +20,12 @@ public:
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
 			text(sz.width / 2.0, sz.height / 2.0, str.c_str(),
 					str.c_str() + str.size());
-		}, win->fbSize(), hw_);
+		}, R(size()), R(hw_));
 	}
 };
 
 int main() {
-	cv::Ptr<FontRenderingPlan> plan = new FontRenderingPlan(cv::Rect(0, 0, 960, 960));
-	cv::Ptr<V4D> window = V4D::make(plan->size(), "Font Rendering");
-	window->run(plan, 0);
+	cv::Rect viewport(0, 0, 960, 960);
+	cv::Ptr<V4D> window = V4D::make(viewport.size(), "Font Rendering", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+	window->run<FontRenderingPlan>(0, viewport);
 }
-

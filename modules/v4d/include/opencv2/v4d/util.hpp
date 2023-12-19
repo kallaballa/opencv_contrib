@@ -37,8 +37,6 @@ namespace cv {
 namespace v4d {
 namespace detail {
 
-
-
 //https://stackoverflow.com/a/27885283/1884837
 template<class T>
 struct function_traits : function_traits<decltype(&T::operator())> {
@@ -181,6 +179,7 @@ public:
 		FRAMEBUFFER_INDEX,
 		LOCKING,
 		WORKER_READY_BARRIER,
+		DISPLAY_READY
 	};
 
 	Global() {
@@ -237,34 +236,30 @@ public:
 		}
 	}
 
-	static void safe_copy(const cv::UMat& from, cv::UMat& to) {
-		std::mutex* mtx = nullptr;
-		{
-			std::lock_guard<std::mutex> guard(sharedMtx_);
-			auto itFrom = shared_.find(reinterpret_cast<size_t>(&from));
-			auto itTo = shared_.find(reinterpret_cast<size_t>(&to));
+	template<typename T>
+	static void copy(const T& from, T& to) {
+			to = copy_construct(from);
+	}
 
-			if(itFrom != shared_.end()) {
-				mtx = (*itFrom).second;
-			} else if(itTo != shared_.end()) {
-				mtx = (*itTo).second;
-			} else {
-				throw std::runtime_error("You are unnecessarily safe-copying a variable or you forgot to register it.");
-			}
-		}
-		{
-			CV_Assert(mtx);
-			std::lock_guard<std::mutex> guard(*mtx);
-			if(to.empty())
-				to.create(from.size(), from.type());
-			from.copyTo(to.getMat(cv::ACCESS_WRITE));
-		}
+	static void copy(const cv::UMat& from, cv::UMat& to) {
+		if(from.empty())
+			return;
+		if(to.empty())
+			to.create(from.size(), from.type());
+		from.copyTo(to.getMat(cv::ACCESS_WRITE));
 	}
 
 	template<typename T>
 	static T safe_copy(const T& from) {
 		T to;
 		safe_copy(from, to);
+		return to;
+	}
+
+	template<typename T>
+	static T copy(const T& from) {
+		T to;
+		copy(from, to);
 		return to;
 	}
 
@@ -293,7 +288,7 @@ private:
 	typedef typename std::map<size_t, std::mutex*>::iterator ThreadWorkerIdIterator;
 
 	template<typename T>
-	static T copy(const T& t) {
+	static T copy_construct(const T& t) {
 		return t;
 	}
 
@@ -307,6 +302,7 @@ private:
 		set<size_t>(WORKERS_INDEX, 0);
 		set<size_t>(FRAMEBUFFER_INDEX, 0);
 		set<bool>(LOCKING, false);
+		set<bool>(DISPLAY_READY, false);
 	}
 
 	CV_EXPORTS static cv::Ptr<std::mutex> get_node_lock_internal(const string& name, const bool owned = true) {

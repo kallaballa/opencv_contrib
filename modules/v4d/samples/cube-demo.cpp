@@ -12,16 +12,13 @@ class CubeDemoPlan : public Plan {
 public:
 	using Plan::Plan;
 
-	/* Demo Parameters */
-	int glowKernelSize_ = 0;
-
 	/* OpenGL constants */
 	constexpr static GLuint TRIANGLES_ = 12;
 	constexpr static GLuint VERTICES_INDEX_ = 0;
 	constexpr static GLuint COLOR_INDEX_ = 1;
 
 	//Cube vertices, colors and indices
-	constexpr static float VERTICES[24] = {
+	constexpr static float VERTICES_[24] = {
 			// Front face
 	        0.5, 0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5,
 	        // Back face
@@ -53,15 +50,14 @@ public:
 	        5, 1, 0, 0, 4, 5
 	};
 private:
-	struct Cache {
-	    cv::UMat down_;
-	    cv::UMat up_;
-	    cv::UMat blur_;
-	    cv::UMat dst16_;
-	} cache_;
-	GLuint vao_ = 0;
-	GLuint shaderProgram_ = 0;
-	GLuint uniformTransform_= 0;
+	struct Handles {
+		GLuint vao_ = 0;
+		GLuint program_ = 0;
+		GLuint uniform_= 0;
+		GLuint trianglesEbo_ = 0;
+		GLuint verticesVbo_ = 0;
+		GLuint colorsVbo_ = 0;
+	} handles_;
 
 	//Simple transform & pass-through shaders
 	static GLuint load_shader() {
@@ -109,29 +105,24 @@ private:
 	}
 
 	//Initializes objects, buffers, shaders and uniforms
-	static void init_scene(const cv::Size& sz, GLuint& vao, GLuint& shaderProgram, GLuint& uniformTransform) {
+	static void init_scene(const cv::Size& sz, Handles& handles) {
 	    glEnable (GL_DEPTH_TEST);
 
-	    glGenVertexArrays(1, &vao);
-	    glBindVertexArray(vao);
+	    glGenVertexArrays(1, &handles.vao_);
+	    glBindVertexArray(handles.vao_);
 
-	    unsigned int triangles_ebo;
-	    glGenBuffers(1, &triangles_ebo);
-	    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, triangles_ebo);
+	    glGenBuffers(1, &handles.trianglesEbo_);
+	    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, handles.trianglesEbo_);
 	    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof TRIANGLE_INDICES_, TRIANGLE_INDICES_,
 	            GL_STATIC_DRAW);
-
-	    unsigned int verticies_vbo;
-	    glGenBuffers(1, &verticies_vbo);
-	    glBindBuffer(GL_ARRAY_BUFFER, verticies_vbo);
-	    glBufferData(GL_ARRAY_BUFFER, sizeof VERTICES, VERTICES, GL_STATIC_DRAW);
+	    glGenBuffers(1, &handles.verticesVbo_);
+	    glBindBuffer(GL_ARRAY_BUFFER, handles.verticesVbo_);
+	    glBufferData(GL_ARRAY_BUFFER, sizeof VERTICES_, VERTICES_, GL_STATIC_DRAW);
 
 	    glVertexAttribPointer(VERTICES_INDEX_, 3, GL_FLOAT, GL_FALSE, 0, NULL);
 	    glEnableVertexAttribArray(VERTICES_INDEX_);
-
-	    unsigned int colors_vbo;
-	    glGenBuffers(1, &colors_vbo);
-	    glBindBuffer(GL_ARRAY_BUFFER, colors_vbo);
+	    glGenBuffers(1, &handles.colorsVbo_);
+	    glBindBuffer(GL_ARRAY_BUFFER, handles.colorsVbo_);
 	    glBufferData(GL_ARRAY_BUFFER, sizeof VERTEX_COLORS_, VERTEX_COLORS_, GL_STATIC_DRAW);
 
 	    glVertexAttribPointer(COLOR_INDEX_, 3, GL_FLOAT, GL_FALSE, 0, NULL);
@@ -141,20 +132,26 @@ private:
 	    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-	    shaderProgram = load_shader();
-	    uniformTransform = glGetUniformLocation(shaderProgram, "transform");
+	    handles.program_ = load_shader();
+	    handles.uniform_ = glGetUniformLocation(handles.program_, "transform");
 	    glViewport(0,0, sz.width, sz.height);
+		glClearColor(0.2, 0.24, 0.4, 1);
+	}
+
+	static void destroy_scene(const Handles& handles) {
+		glDeleteProgram(handles.program_);
+		glDeleteBuffers(1, &handles.colorsVbo_);
+		glDeleteBuffers(1, &handles.verticesVbo_);
+		glDeleteBuffers(1, &handles.trianglesEbo_);
+		glDeleteVertexArrays(1, &handles.vao_);
 	}
 
 	//Renders a rotating rainbow-colored cube on a blueish background
-	static void render_scene(GLuint &vao, GLuint &shaderProgram,
-			GLuint &uniformTransform) {
-		//clear all buffers
-		glClearColor(0.2f, 0.24f, 0.4f, 1.0f);
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+	static void render_scene(const Handles& handles) {
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		//Use the prepared shader program
-		glUseProgram(shaderProgram);
+		glUseProgram(handles.program_);
 
 		//Scale and rotate the cube depending on the current time.
 		float angle = fmod(
@@ -177,64 +174,40 @@ private:
 		//calculate the transform
 		cv::Matx44f transform = scaleMat * rotXMat * rotYMat * rotZMat;
 		//set the corresponding uniform
-		glUniformMatrix4fv(uniformTransform, 1, GL_FALSE, transform.val);
+		glUniformMatrix4fv(handles.uniform_, 1, GL_FALSE, transform.val);
 		//Bind the prepared vertex array object
-		glBindVertexArray(vao);
+		glBindVertexArray(handles.vao_);
 		//Draw
 		glDrawElements(GL_TRIANGLES, TRIANGLES_ * 3, GL_UNSIGNED_SHORT, NULL);
 	}
-
-	//applies a glow effect to an image
-	static void glow_effect(const cv::UMat& src, cv::UMat& dst, const int ksize, Cache& cache) {
-		cv::bitwise_not(src, dst);
-
-	    //Resize for some extra performance
-	    cv::resize(dst, cache.down_, cv::Size(), 0.5, 0.5);
-	    //Cheap blur
-	    cv::boxFilter(cache.down_, cache.blur_, -1, cv::Size(ksize, ksize), cv::Point(-1, -1), true,
-	            cv::BORDER_REPLICATE);
-	    //Back to original size
-	    cv::resize(cache.blur_, cache.up_, src.size());
-
-	    //Multiply the src image with a blurred version of itself
-	    cv::multiply(dst, cache.up_, cache.dst16_, 1, CV_16U);
-	    //Normalize and convert back to CV_8U
-	    cv::divide(cache.dst16_, cv::Scalar::all(255.0), dst, 1, CV_8U);
-
-	    cv::bitwise_not(dst, dst);
-	}
-
 public:
 	void setup(cv::Ptr<V4D> window) override {
-		int diag = hypot(double(size().width), double(size().height));
-		glowKernelSize_ = std::max(int(diag / 138 % 2 == 0 ? diag / 138 + 1 : diag / 138), 1);
-		window->gl([](const cv::Size& sz, GLuint& v, GLuint& sp, GLuint& ut){
-			init_scene(sz, v, sp, ut);
-		}, size(), vao_, shaderProgram_, uniformTransform_);
+		window->gl([](const cv::Size& sz, Handles& handles){
+			init_scene(sz, handles);
+		}, R(size()), RW(handles_));
 	}
 
 	void infer(cv::Ptr<V4D> window) override {
-		window->gl([](GLuint& v, GLuint& sp, GLuint& ut){
-			render_scene(v, sp, ut);
-		}, vao_, shaderProgram_, uniformTransform_);
+		window->gl([](const Handles& handles){
+			render_scene(handles);
+		}, R(handles_));
+	}
 
-		//Aquire the frame buffer for use by OpenCV
-		window->fb([](cv::UMat& framebuffer, int glowKernelSize, Cache& cache) {
-			glow_effect(framebuffer, framebuffer, glowKernelSize, cache);
-		}, glowKernelSize_, cache_);
-
-//		window->write();
+	void teardown(cv::Ptr<V4D> window) override {
+		window->gl([](const Handles& handles){
+			destroy_scene(handles);
+		}, R(handles_));
 	}
 };
 
 int main() {
-	cv::Ptr<CubeDemoPlan> plan = new CubeDemoPlan(cv::Rect(0, 0, 1920, 1080));
-    cv::Ptr<V4D> window = V4D::make(plan->size(), "Cube Demo", AllocateFlags::IMGUI);
+	cv::Rect viewport(0, 0, 1280, 720);
+    cv::Ptr<V4D> window = V4D::make(viewport.size(), "Cube Demo");
 
     //Creates a writer sink (which might be hardware accelerated)
-    auto sink = Sink::make(window, "cube-demo.mkv", 60, plan->size());
+    auto sink = Sink::make(window, "cube-demo.mkv", 60, viewport.size());
     window->setSink(sink);
-    window->run(plan, 6);
+    window->run<CubeDemoPlan>(0, viewport);
 
     return 0;
 }

@@ -29,12 +29,12 @@ public:
 			imageSize(handle, &img.w_, &img.h_);
 			//Create a simple image_ pattern with the image dimensions
 			img.paint_ = imagePattern(0, 0, img.w_, img.h_, 0.0f/180.0f*NVG_PI, handle, 1.0);
-		}, image_);
+		}, RW(image_));
 	}
 
 	void infer(Ptr<V4D> win) override{
 		//Creates a NanoVG context to draw the loaded image_ over again to the screen.
-		win->nvg([](const Image_t& img, const cv::Size& sz) {
+		win->nvg([](const cv::Size& sz, const Image_t& img) {
 			using namespace cv::v4d::nvg;
 			beginPath();
 			//Scale all further calls to window size
@@ -46,12 +46,12 @@ public:
 			//Fill the rounded rectangle with our picture
 			fillPaint(img.paint_);
 			fill();
-		}, image_, win->fbSize());
+		}, R(size()), R(image_));
 	}
 };
 
 int main() {
-    Ptr<DisplayImageNVG> plan = new DisplayImageNVG(cv::Rect(0, 0, 960,960));
-	Ptr<V4D> window = V4D::make(plan->size(), "Display an Image using NanoVG");
-    window->run(plan, 0);
+	cv::Rect viewport(0, 0, 960, 960);
+	Ptr<V4D> window = V4D::make(viewport.size(), "Display an image using NanoVG", AllocateFlags::NANOVG);
+    window->run<DisplayImageNVG>(0, viewport);
 }

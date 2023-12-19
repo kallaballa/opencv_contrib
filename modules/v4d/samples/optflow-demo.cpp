@@ -114,7 +114,7 @@ private:
 	struct Frames {
 		//BGRA
 		cv::UMat background_, down_;
-		inline static cv::UMat foreground_;
+
 		//BGR
 		cv::UMat result_;
 		//GREY
@@ -124,6 +124,8 @@ private:
 	vector<cv::Point2f> detectedPoints_;
 	cv::Ptr<cv::BackgroundSubtractor> bg_subtractor_ = cv::createBackgroundSubtractorMOG2(100, 16.0, false);
 	cv::Ptr<cv::FastFeatureDetector> detector_ = cv::FastFeatureDetector::create(1, false);
+
+	inline static cv::UMat foreground_;
 
     //Uses background subtraction to generate a "motion mask"
 	static void prepare_motion_mask(const cv::UMat& srcGrey, cv::UMat& motionMaskGrey, cv::Ptr<cv::BackgroundSubtractor> bg_subtractor, Cache& cache) {
@@ -317,12 +319,9 @@ private:
 public:
     OptflowDemoPlan(const cv::Rect& viewport) : Plan(viewport) {
 		Global::registerShared(params_);
-		Global::registerShared(frames_.foreground_);
+		Global::registerShared(foreground_);
+		cache_.rng_ = std::mt19937(cache_.rd_());
     }
-
-//	string suffix() const override {
-//		return "optflow-demo";
-//	}
 
     virtual void gui(cv::Ptr<V4D> window) override {
 		window->imgui([](cv::Ptr<V4D> win, Params& params){
@@ -379,7 +378,6 @@ public:
 	}
 
 	virtual void setup(cv::Ptr<V4D> window) override {
-		cache_.rng_ = std::mt19937(cache_.rd_());
 		window->setStretching(params_.stretch_);
 		window->branch(BranchType::ONCE, always_)
 			->plain([](const cv::Size& sz, Params& params, cv::UMat& foreground){
@@ -387,21 +385,19 @@ public:
 				params.glowKernelSize_ = std::max(int(diag / 150 % 2 == 0 ? diag / 150 + 1 : diag / 150), 1);
 				params.effectColor_[3] /= ceil(pow(Global::workers_started(), 0.60));
 				foreground.create(sz, CV_8UC4);
-			}, size(), params_, frames_.foreground_)
+			}, R(size()), RW_C(params_), RW_C(foreground_))
 			->endBranch();
 	}
 
 	virtual void infer(cv::Ptr<V4D> window) override {
 		window->capture();
 
-		window->fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, Frames& frames, const Params& params) {
-			Params p;
-			Global::safe_copy(params, p);
+		window->fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, Frames& frames, const Params params) {
 			//resize to foreground scale
-			cv::resize(framebuffer, frames.down_, cv::Size(viewport.width * p.fgScale_, viewport.height * p.fgScale_));
+			cv::resize(framebuffer, frames.down_, cv::Size(viewport.width * params.fgScale_, viewport.height * params.fgScale_));
 			//save video background
 			framebuffer.copyTo(frames.background_);
-		}, viewport(), frames_, params_);
+		}, R(viewport()), RW(frames_), R_C(params_));
 
 		window->plain([](Frames& frames, std::vector<cv::Point2f>& detected, cv::Ptr<cv::BackgroundSubtractor>& bg_subtractor, cv::Ptr<cv::FastFeatureDetector>& detector, Cache& cache){
 			cv::cvtColor(frames.down_, frames.downNextGrey_, cv::COLOR_RGBA2GRAY);
@@ -409,30 +405,24 @@ public:
 			prepare_motion_mask(frames.downNextGrey_, frames.downMotionMaskGrey_, bg_subtractor, cache);
 			//Detect trackable points in the motion mask
 			detect_points(frames.downMotionMaskGrey_, detected, detector, cache);
-		}, frames_, detectedPoints_, bg_subtractor_, detector_, cache_);
+		}, RW(frames_), RW(detectedPoints_), RW(bg_subtractor_), RW(detector_), RW(cache_));
 
-		window->nvg([](Frames& frames, const std::vector<cv::Point2f>& detected, const Params& params, Cache& cache) {
-			Params p;
-			Global::safe_copy(params, p);
+		window->nvg([](Frames& frames, const std::vector<cv::Point2f>& detected, const Params params, Cache& cache) {
 			nvg::clear();
 			if (!frames.downPrevGrey_.empty()) {
 				//We don't want the algorithm to get out of hand when there is a scene change, so we suppress it when we detect one.
-				if (!detect_scene_change(frames.downMotionMaskGrey_, p, cache)) {
+				if (!detect_scene_change(frames.downMotionMaskGrey_, params, cache)) {
 					//Visualize the sparse optical flow using nanovg
-					visualize_sparse_optical_flow(frames.downPrevGrey_, frames.downNextGrey_, detected, p, cache);
+					visualize_sparse_optical_flow(frames.downPrevGrey_, frames.downNextGrey_, detected, params, cache);
 				}
 			}
 			frames.downPrevGrey_ = frames.downNextGrey_.clone();
-		}, frames_, detectedPoints_, params_, cache_);
+		}, RW(frames_), R(detectedPoints_), R_C(params_), RW(cache_));
 
-        window->fb([](cv::UMat& framebuffer, Frames& frames, const Params& params, Cache& cache) {
+        window->fb([](cv::UMat& framebuffer, cv::UMat& foreground, cv::UMat& background, const Params params, Cache& cache) {
         	//Put it all together (OpenCL)
-            Global::safe_copy(frames.foreground_, cache.localFg_);
-            composite_layers(frames.background_, cache.localFg_, framebuffer, framebuffer, params, cache);
-            Global::safe_copy(cache.localFg_, frames.foreground_);
-        }, frames_, params_, cache_);
-
-        window->write();
+            composite_layers(background, foreground, framebuffer, framebuffer, params, cache);
+        }, RW_C(foreground_), RW(frames_.background_), R_C(params_), RW(cache_));
 	}
 };
 
@@ -444,14 +434,10 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    cv::Ptr<OptflowDemoPlan> plan = new OptflowDemoPlan(cv::Rect(0, 0, 1280, 720));
-	cv::Ptr<V4D> window = V4D::make(plan->size(), "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-
+    cv::Rect viewport(0, 0, 1280, 720);
+	cv::Ptr<V4D> window = V4D::make(viewport.size(), "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 	auto src = Source::make(window, argv[1]);
-	auto sink = Sink::make(window, "optflow-demo.mkv", src->fps(), plan->size());
 	window->setSource(src);
-	window->setSink(sink);
-
-	window->run(plan, 24);
+	window->run<OptflowDemoPlan>(0, viewport);
     return 0;
 }

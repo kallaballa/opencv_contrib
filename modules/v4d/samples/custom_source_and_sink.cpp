@@ -5,7 +5,7 @@ using namespace cv;
 using namespace cv::v4d;
 
 class CustomSourceAndSinkPlan : public Plan {
-	string hr_ = "Hello Rainbow!";
+	const string hr_ = "Hello Rainbow!";
 public:
 	using Plan::Plan;
 	void infer(cv::Ptr<V4D> win) override {
@@ -20,34 +20,52 @@ public:
 			fillColor(Scalar(255, 0, 0, 255));
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
 			text(sz.width / 2.0, sz.height / 2.0, str.c_str(), str.c_str() + str.size());
-		}, win->fbSize(), hr_);
+		}, R(size()), R(hr_));
 
 		win->write();
 	}
 };
 
 int main() {
-	Ptr<CustomSourceAndSinkPlan> plan = new CustomSourceAndSinkPlan(cv::Rect(0, 0, 960, 960));
-    Ptr<V4D> window = V4D::make(plan->size(), "Custom Source/Sink");
+	cv::Rect viewport(0, 0, 960, 960);
+    Ptr<V4D> window = V4D::make(viewport.size(), "Custom Source/Sink", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
 	//Make a source that generates rainbow frames.
 	cv::Ptr<Source> src = new Source([](cv::UMat& frame){
-		static long cnt = 0;
 	    //The source is responsible for initializing the frame..
-		if(frame.empty())
-		    frame.create(Size(960, 960), CV_8UC3);
-	    frame = colorConvert(Scalar(++cnt % 180, 128, 128, 255), COLOR_HLS2BGR);
+		if(frame.empty()) {
+			//you may pass a BGR or a BGRA image because BGR is automatically converted to BGRA.
+		    frame.create(Size(960, 960), CV_8UC4);
+		}
+	    frame = colorConvert(Scalar(int64_t(60 * cv::getTickCount() / cv::getTickFrequency()) % 180, 128, 128, 255), COLOR_HLS2BGR);
 	    return true;
 	}, 60.0f);
 
-	//Make a sink the saves each frame to a PNG file (does nothing in case of WebAssembly).
+	//Make a sink that prints blue, red or green when the current frame is closest to those colors.
 	cv::Ptr<Sink> sink = new Sink([](const uint64_t& seq, const cv::UMat& frame){
-	    try {
-			imwrite(std::to_string(seq) + ".png", frame);
-	    } catch(std::exception& ex) {
-	        cerr << "Unable to write frame: " << ex.what() << endl;
-	        return false;
-	    }
+		static cv::Vec4b last;
+
+		//GPU-copy the top-left pixel to a 1x1 UMat
+		cv::UMat onePix;
+		frame(cv::Rect(0, 0, 1, 1)).copyTo(onePix);
+
+		//Retrieve the pixel
+		const Vec4b topLeft = onePix
+				.getMat(cv::ACCESS_READ) // download it
+				.at<cv::Vec4b>(0,0); // access it as Vec4b
+
+		//Print only if the top-left pixel has changed and is "pastel" blue, green or red.
+		if(topLeft != last) {
+			if(topLeft == Vec4b(192, 64, 64, 255)) {
+				std::cerr << "Blue" << std::endl;
+			} else if(topLeft == Vec4b(64, 192, 64, 255)) {
+				std::cerr << "Green" << std::endl;
+			} else if(topLeft == Vec4b(64, 64, 192, 255)) {
+				std::cerr << "Red" << std::endl;
+			}
+			last = topLeft;
+		}
+
         return true;
 	});
 
@@ -55,6 +73,6 @@ int main() {
 	window->setSource(src);
 	window->setSink(sink);
 
-	window->run(plan, 0);
+	window->run<CustomSourceAndSinkPlan>(0, viewport);
 }
 

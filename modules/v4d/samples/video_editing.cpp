@@ -21,7 +21,7 @@ public:
 			fillColor(Scalar(255, 0, 0, 255));
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
 			text(sz.width / 2.0, sz.height / 2.0, str.c_str(), str.c_str() + str.size());
-		}, size(), hv_);
+		}, R(size()), R(hv_));
 
 		//Write video to the sink
 		win->write();
@@ -33,19 +33,19 @@ int main(int argc, char** argv) {
         cerr << "Usage: video_editing <input-video-file> <output-video-file>" << endl;
         exit(1);
     }
-    Ptr<VideoEditingPlan> plan = new VideoEditingPlan(cv::Rect(0, 0, 960, 960));
-    Ptr<V4D> window = V4D::make(plan->size(), "Video Editing");
+    cv::Rect viewport(0, 0, 960, 960);
+    Ptr<V4D> window = V4D::make(viewport.size(), "Video Editing", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
     //Make the video source
     auto src = Source::make(window, argv[1]);
 
     //Make the video sink
-    auto sink = Sink::make(window, argv[2], src->fps(), plan->size());
+    auto sink = Sink::make(window, argv[2], src->fps(), viewport.size());
 
     //Attach source and sink
     window->setSource(src);
     window->setSink(sink);
 
-    window->run(plan, 0);
+    window->run<VideoEditingPlan>(0, viewport);
 }
 

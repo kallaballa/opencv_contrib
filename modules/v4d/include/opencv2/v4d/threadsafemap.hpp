@@ -16,57 +16,29 @@
 namespace cv {
 namespace v4d {
 
-//template<typename T>
-//concept Hashable = requires(T a) {
-//    { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
-//};
-//
-//template<typename T>
-//concept Mappable = requires(T a) {
-//    { std::any_cast<T>(std::any{}) } -> std::same_as<T>;
-//};
-
 template<typename K>
-class ThreadSafeMap {
+class AnyHashMap {
 private:
     std::unordered_map<K, std::any> map;
-    std::unordered_map<K, std::shared_mutex> mutexes;
-    std::shared_mutex map_mutex;
-
 public:
     template<typename V>
     void set(K key, V value) {
-        std::unique_lock<std::shared_mutex> map_lock(map_mutex);
+    	map[key] = value;
+    }
 
-        if (map.find(key) == map.end()) {
-            std::unique_lock<std::shared_mutex> key_lock(mutexes[key]);
-            map[key] = value;
-            mutexes[key];
-        } else {
-            std::unique_lock<std::shared_mutex> key_lock(mutexes[key]);
-            map[key] = value;
-        }
+    bool has(K key) {
+        return map.find(key) != map.end();
     }
 
     template<typename V>
     V get(K key) {
-        std::shared_lock<std::shared_mutex> map_lock(map_mutex);
-        if (map.find(key) == map.end()) {
-            CV_Error(Error::StsError, "Key not found in map");
-        }
-
-        std::shared_lock<std::shared_mutex> key_lock(mutexes[key]);
         return std::any_cast<V>(map[key]);
     }
 
     template<typename V> V on(K key, std::function<V(V&)> func) {
-        std::shared_lock<std::shared_mutex> map_lock(map_mutex);
-
-        if (map.find(key) == map.end()) {
+        if (!has(key)) {
             CV_Error(Error::StsError, "Key not found in map");
         }
-
-        std::unique_lock<std::shared_mutex> key_lock(mutexes[key]);
 
         std::any& value = map[key];
         V ret = func(*std::any_cast<V>(&value));
@@ -78,6 +50,50 @@ public:
     template<typename V>
     V* ptr(K key) {
         return std::any_cast<V>(&map[key]);
+    }
+};
+
+template<typename K>
+class ThreadSafeMap : public AnyHashMap<K> {
+private:
+    std::unordered_map<K, std::shared_mutex> mutexes;
+    std::shared_mutex map_mutex;
+    using parent_t = AnyHashMap<K>;
+public:
+    template<typename V>
+    void set(K key, V value) {
+        std::unique_lock<std::shared_mutex> map_lock(map_mutex);
+        std::unique_lock<std::shared_mutex> key_lock(mutexes[key]);
+        parent_t::set(key, value);
+    }
+
+    template<typename V>
+    V get(K key) {
+        std::shared_lock<std::shared_mutex> map_lock(map_mutex);
+        if (!parent_t::has(key)) {
+            CV_Error(Error::StsError, "Key not found in map");
+        }
+
+        std::shared_lock<std::shared_mutex> key_lock(mutexes[key]);
+        return parent_t::template get<V>(key);
+    }
+
+    template<typename V> V on(K key, std::function<V(V&)> func) {
+        std::shared_lock<std::shared_mutex> map_lock(map_mutex);
+
+        if (!parent_t::has(key)) {
+            CV_Error(Error::StsError, "Key not found in map");
+        }
+
+        std::unique_lock<std::shared_mutex> key_lock(mutexes[key]);
+        return parent_t::template on<V>(key, func);
+    }
+
+    // A method to get a pointer to the value for a given key
+    // Note: This function is not thread-safe
+    template<typename V>
+    V* ptr(K key) {
+        return parent_t::template ptr<V>(key);
     }
 };
 

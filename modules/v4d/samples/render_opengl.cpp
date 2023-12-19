@@ -22,8 +22,8 @@ public:
 };
 
 int main() {
-	Ptr<RenderOpenGLPlan> plan = new RenderOpenGLPlan(cv::Rect(0, 0, 960, 960));
-    Ptr<V4D> window = V4D::make(plan->size(), "GL Blue Screen");
-    window->run(plan, 0);
+	cv::Rect viewport(0, 0, 960, 960);
+    Ptr<V4D> window = V4D::make(viewport.size(), "GL Blue Screen");
+    window->run<RenderOpenGLPlan>(0, viewport);
 }
 

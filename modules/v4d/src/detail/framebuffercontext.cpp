@@ -147,7 +147,7 @@ void FrameBufferContext::initBlend(const size_t& index) {
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
     GL_CHECK(
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size().width, size().height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_BGRA, size().width, size().height, 0, GL_BGRA, GL_UNSIGNED_BYTE, 0));
     GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, copyTextures_[index], 0));
     assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
     loadShaders(index);
@@ -413,10 +413,9 @@ void FrameBufferContext::setup() {
         GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferFlippedID_));
         GL_CHECK(glGenTextures(1, &textureFlippedID_));
         GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureFlippedID_));
-        textureFlipped_ = new cv::ogl::Texture2D(sz, cv::ogl::Texture2D::RGBA, textureFlippedID_);
         GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
         GL_CHECK(
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_BGRA, GL_UNSIGNED_BYTE, 0));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
         GL_CHECK(
@@ -431,10 +430,9 @@ void FrameBufferContext::setup() {
 
         GL_CHECK(glGenTextures(1, &textureID_));
         GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
-        texture_ = new cv::ogl::Texture2D(sz, cv::ogl::Texture2D::RGBA, textureID_);
         GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
         GL_CHECK(
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_BGRA, GL_UNSIGNED_BYTE, 0));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
         GL_CHECK(
@@ -451,10 +449,9 @@ void FrameBufferContext::setup() {
         GL_CHECK(glGenFramebuffers(1, &framebufferID_));
         GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferID_));
         GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
-        texture_ = new cv::ogl::Texture2D(sz, cv::ogl::Texture2D::RGBA, textureID_);
         GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
         GL_CHECK(
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_BGRA, GL_UNSIGNED_BYTE, 0));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
         GL_CHECK(
@@ -499,8 +496,7 @@ void FrameBufferContext::teardown() {
     glGetError();
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glGetError();
-    CV_Assert(texture_ != nullptr);
-    delete texture_;
+
     GL_CHECK(glDeleteRenderbuffers(1, &renderBufferID_));
     GL_CHECK(glDeleteTextures(1, &textureID_));
     GL_CHECK(glDeleteFramebuffers(1, &framebufferID_));
@@ -523,7 +519,8 @@ void FrameBufferContext::unflip() {
 }
 
 #ifdef HAVE_OPENCL
-void FrameBufferContext::toGLTexture2D(cv::UMat& u, cv::ogl::Texture2D& texture) {
+void FrameBufferContext::toGLTexture2D(cv::UMat& u, const GLuint& texID) {
+	CV_UNUSED(texID);
     CV_Assert(clImage_ != nullptr);
 	using namespace cv::ocl;
 
@@ -548,28 +545,17 @@ void FrameBufferContext::toGLTexture2D(cv::UMat& u, cv::ogl::Texture2D& texture)
 //        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
 }
 
-void FrameBufferContext::fromGLTexture2D(const cv::ogl::Texture2D& texture, cv::UMat& u) {
+void FrameBufferContext::fromGLTexture2D(const GLuint& texID, cv::UMat& u) {
     using namespace cv::ocl;
     const int dtype = CV_8UC4;
     int textureType = dtype;
     cl_command_queue q = (cl_command_queue) context_.getQueue().ptr();
     cl_int status = 0;
 
-    CV_Assert(u.size() == texture.size() || u.type() == textureType);
-//    if (clImage_ != nullptr) {
-////    	CV_Assert(false);
-////        u.create(texture.size(), textureType);
-//		status = clReleaseMemObject(clImage_); // TODO RAII
-//		if (status != CL_SUCCESS)
-//			CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clReleaseMemObject failed: %d", status));
-//		clImage_ = nullptr;
-//
-//    }
-
     if(clImage_ == nullptr) {
 		Context& ctx = context_.getContext();
 		cl_context context = (cl_context) ctx.ptr();
-		clImage_ = clCreateFromGLTexture(context, CL_MEM_READ_ONLY, 0x0DE1, 0, texture.texId(),
+		clImage_ = clCreateFromGLTexture(context, CL_MEM_READ_ONLY, 0x0DE1, 0, texID,
 				&status);
     }
 	if (status != CL_SUCCESS)
@@ -628,15 +614,6 @@ void FrameBufferContext::copyToRootWindow() {
 	GL_CHECK(glActiveTexture(GL_TEXTURE0));
 	GL_CHECK(glBindTexture(GL_TEXTURE_2D, onscreenTextureID_));
 	GL_CHECK(glCopyTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 0, 0, size().width, size().height));
-}
-
-cv::ogl::Texture2D& FrameBufferContext::getTexture2D() {
-    return *texture_;
-}
-
-cv::ogl::Texture2D& FrameBufferContext::getFlippedTexture2D() {
-    CV_Assert(textureFlipped_);
-	return *textureFlipped_;
 }
 
 GLFWwindow* FrameBufferContext::getGLFWWindow() const {
@@ -738,7 +715,7 @@ void FrameBufferContext::end() {
 void FrameBufferContext::download(cv::UMat& m) {
     cv::Mat tmp = m.getMat(cv::ACCESS_WRITE);
     assert(tmp.data != nullptr);
-    GL_CHECK(glReadPixels(0, 0, tmp.cols, tmp.rows, GL_RGBA, GL_UNSIGNED_BYTE, tmp.data));
+    GL_CHECK(glReadPixels(0, 0, tmp.cols, tmp.rows, GL_BGRA, GL_UNSIGNED_BYTE, tmp.data));
     tmp.release();
 
 }
@@ -747,7 +724,7 @@ void FrameBufferContext::upload(const cv::UMat& m) {
     cv::Mat tmp = m.getMat(cv::ACCESS_READ);
     assert(tmp.data != nullptr);
     GL_CHECK(
-            glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, tmp.cols, tmp.rows, GL_RGBA, GL_UNSIGNED_BYTE, tmp.data));
+            glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, tmp.cols, tmp.rows, GL_BGRA, GL_UNSIGNED_BYTE, tmp.data));
     tmp.release();
 }
 
@@ -756,7 +733,7 @@ void FrameBufferContext::acquireFromGL(cv::UMat& m) {
 	if (cv::ocl::useOpenCL() && clglSharing_) {
         try {
             flip();
-        	GL_CHECK(fromGLTexture2D(getFlippedTexture2D(), m));
+        	GL_CHECK(fromGLTexture2D(textureFlippedID_, m));
             return;
         } catch(...) {
         	CV_LOG_WARNING(nullptr, "CL-GL failed to acquire.");
@@ -778,7 +755,7 @@ void FrameBufferContext::releaseToGL(cv::UMat& m) {
     if (cv::ocl::useOpenCL() && clglSharing_) {
         try
         {
-        	GL_CHECK(toGLTexture2D(m, getFlippedTexture2D()));
+        	GL_CHECK(toGLTexture2D(m, textureFlippedID_));
         	unflip();
         	return;
         } catch(...) {

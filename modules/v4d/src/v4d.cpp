@@ -92,10 +92,6 @@ const int32_t& V4D::workerIndex() const {
 	return workerIdx_;
 }
 
-cv::ogl::Texture2D& V4D::texture() {
-    return mainFbContext_->getTexture2D();
-}
-
 std::string V4D::title() const {
     return fbCtx()->title_;
 }
@@ -218,25 +214,6 @@ cv::Ptr<Source> V4D::getSource() {
 
 bool V4D::hasSource() const {
     return source_ != nullptr;
-}
-
-void V4D::feed(cv::UMat& in) {
-	static thread_local cv::UMat frame;
-
-	plain([](cv::UMat& src, cv::UMat& f) {
-		src.copyTo(f);
-	}, in, frame);
-
-    fb([](cv::UMat& framebuffer, const cv::UMat& f) {
-		cv::UMat rgb;
-
-		if(f.size() != framebuffer.size())
-			resizePreserveAspectRatio(f, rgb, framebuffer.size());
-		else
-			rgb = f;
-
-		cv::cvtColor(rgb, framebuffer, cv::COLOR_RGB2BGRA);
-    }, frame);
 }
 
 void V4D::setSink(cv::Ptr<Sink> sink) {
@@ -389,7 +366,6 @@ void V4D::swapContextBuffers() {
 }
 
 bool V4D::display() {
-    bool result = true;
     if(!Global::is_main()) {
     	Global::on<size_t>(Global::FRAME_COUNT, [](size_t& v){ return v++; });
 
@@ -428,12 +404,24 @@ bool V4D::display() {
 		}
 		TimeTracker::getInstance()->newCount();
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
+		Global::set(Global::DISPLAY_READY, true);
 		GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
 		GL_CHECK(glViewport(0, 0, size().width, size().height));
 		GL_CHECK(glClearColor(0,0,0,1));
 		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
+		return !glfwWindowShouldClose(getGLFWWindow());
 	} else {
-		fbCtx()->copyToRootWindow();
+		if(Global::on<bool>(Global::DISPLAY_READY, [](bool& v){
+			if(!v)
+				return v;
+			else {
+				bool ret = v;
+				v = !v;
+				return ret;
+			}
+		})) {
+			fbCtx()->copyToRootWindow();
+		}
 		if(debugFlags() & DebugFlags::ONSCREEN_CONTEXTS) {
 			FrameBufferContext::GLScope glScope(fbCtx(), GL_READ_FRAMEBUFFER);
 			fbCtx()->blitFrameBufferToFrameBuffer(viewport(), fbCtx()->getWindowSize(), 0, isStretching());
@@ -441,9 +429,7 @@ bool V4D::display() {
 		}
 	}
 
-	result = !glfwWindowShouldClose(getGLFWWindow());
-
-    return result;
+    return true;
 }
 
 void V4D::setSequenceNumber(size_t seq) {

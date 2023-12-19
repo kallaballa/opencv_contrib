@@ -32,12 +32,12 @@ cv::Rect Transaction::getViewport() {
 	return viewport_;
 }
 
-void Transaction::setContext(cv::Ptr<cv::v4d::detail::V4DContext> ctx) {
-	ctx_ = ctx;
+void Transaction::setContextCallback(std::function<cv::Ptr<cv::v4d::detail::V4DContext>()> cb) {
+	ctxCallback_ = cb;
 }
 
-cv::Ptr<cv::v4d::detail::V4DContext> Transaction::getContext() {
-	return ctx_;
+std::function<cv::Ptr<cv::v4d::detail::V4DContext>()> Transaction::getContextCallback() {
+	return ctxCallback_;
 }
 
 }

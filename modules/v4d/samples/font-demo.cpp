@@ -65,12 +65,8 @@ public:
 		Global::registerShared(stars_);
 	}
 
-//	std::string suffix() const override {
-//		return "font-demo";
-//	}
-
 	void gui(cv::Ptr<V4D> window) override {
-        window->imgui([](cv::Ptr<V4D> win, Params& params){
+        window->imgui([](cv::Ptr<V4D> win, Params& params) {
         	CV_UNUSED(win);
         	using namespace ImGui;
             Begin("Effect");
@@ -97,134 +93,102 @@ public:
 
     void setup(cv::Ptr<V4D> window) override {
 		window->branch(BranchType::ONCE, always_)
-			->plain([](const cv::Size& sz, TextVars& textVars, Params& params){
+			->plain([](const cv::Size& sz, TextVars& textVars, Params& params) {
 				//The text to display
 				string txt = cv::getBuildInformation();
 				//Save the text to a vector
 				std::istringstream iss(txt);
 
 				double fontSize = hypot(sz.width, sz.height) / 60.0;
-				{
-					Global::Scope scope(textVars);
-					for (std::string line; std::getline(iss, line); ) {
-						textVars.lines_.push_back(line);
-					}
-					textVars.numLines_ = textVars.lines_.size();
-					textVars.textHeight_ = (textVars.numLines_ * fontSize);
+				for (std::string line; std::getline(iss, line); ) {
+					textVars.lines_.push_back(line);
 				}
-				{
-					Global::Scope scope(params);
-					params.fontSize_ = fontSize;
-				}
-			}, size(), textVars_, params_)
+				textVars.numLines_ = textVars.lines_.size();
+				textVars.textHeight_ = (textVars.numLines_ * fontSize);
+				params.fontSize_ = fontSize;
+			}, R(size()), RW_C(textVars_), RW_C(params_))
 		->endBranch();
     }
 
     void infer(cv::Ptr<V4D> window) override {
-		window->branch(BranchType::SINGLE, [](const Params& params){
-			Params p = Global::safe_copy(params);
-			return p.updateStars_;
-		}, params_)
-			->nvg([](const cv::Size& sz, cv::RNG& rng, const Params& params) {
-				Params p = Global::safe_copy(params);
+		window->branch(BranchType::SINGLE, [](const Params params) {
+			return params.updateStars_;
+		}, R_C(params_))
+			->nvg([](const cv::Size& sz, cv::RNG& rng, const Params params) {
 				using namespace cv::v4d::nvg;
 				clear();
 
 				//draw stars
-				int numStars = rng.uniform(p.minStarCount_, p.maxStarCount_);
+				int numStars = rng.uniform(params.minStarCount_, params.maxStarCount_);
 				for(int i = 0; i < numStars; ++i) {
 					beginPath();
-					const auto size = rng.uniform(p.minStarSize_, p.maxStarSize_);
+					const auto size = rng.uniform(params.minStarSize_, params.maxStarSize_);
 					strokeWidth(size);
-					strokeColor(cv::Scalar(255, 255, 255, p.starAlpha_ * 255.0f));
+					strokeColor(cv::Scalar(255, 255, 255, params.starAlpha_ * 255.0f));
 					circle(rng.uniform(0, sz.width) , rng.uniform(0, sz.height), size / 2.0);
 					stroke();
 				}
-			}, size(), rng_, params_)
+			}, R(size()), RW(rng_), R_C(params_))
 			->fb([](const cv::UMat& framebuffer, cv::UMat& stars, Params& params) {
-				{
-					Global::Scope scope(stars);
-					framebuffer.copyTo(stars);
-				}
-				{
-					Global::Scope scope(params);
-					params.updateStars_ = false;
-				}
-			}, stars_, params_)
+				params.updateStars_ = false;
+
+				Global::Scope scope(stars);
+				framebuffer.copyTo(stars);
+			}, RW_S(stars_), RW_C(params_))
 		->endBranch();
 
-		window->branch(BranchType::SINGLE, [](const Params& params){
-			Params p = Global::safe_copy(params);
-			return p.updatePerspective_;
-		}, params_)
+		window->branch(BranchType::SINGLE, [](const Params params){
+			return params.updatePerspective_;
+		}, R_C(params_))
 			->plain([](const cv::Size& sz, cv::Mat& tm, Params& params) {
-				Params p =	Global::safe_copy(params);
 				//Derive the transformation matrix tm for the pseudo 3D effect from quad1 and quad2.
 				vector<cv::Point2f> quad1 = {cv::Point2f(0,0),cv::Point2f(sz.width,0),
 						cv::Point2f(sz.width,sz.height),cv::Point2f(0,sz.height)};
-				float l = (sz.width - (sz.width * p.warpRatio_)) / 2.0;
+				float l = (sz.width - (sz.width * params.warpRatio_)) / 2.0;
 				float r = sz.width - l;
 
 				vector<cv::Point2f> quad2 = {cv::Point2f(l, 0.0f),cv::Point2f(r, 0.0f),
 						cv::Point2f(sz.width,sz.height), cv::Point2f(0,sz.height)};
-				{
-					Global::Scope scope(tm);
-					tm = cv::getPerspectiveTransform(quad1.data(), quad2.data());
-				}
-				{
-					Global::Scope scope(params);
-					params.updatePerspective_ = false;
-				}
-			}, size(), tm_, params_)
+				tm = cv::getPerspectiveTransform(quad1.data(), quad2.data());
+				params.updatePerspective_ = false;
+			}, R(size()), RW_C(tm_), RW_C(params_))
 		->endBranch();
 
-		window->nvg([](const cv::Size& sz, double& translateY, double& y, const TextVars& textVars, const Params& params) {
-			Params p;
-			Global::safe_copy(params, p);
-			TextVars txt;
-			Global::safe_copy(textVars, txt);
-			double time = (cv::getTickCount() / cv::getTickFrequency()) - p.timeOffset_;
+		window->nvg([](const cv::Size& sz, double& translateY, double& y, const TextVars textVars, const Params params) {
+			double time = (cv::getTickCount() / cv::getTickFrequency()) - params.timeOffset_;
 			//How many pixels to translate the text up.
 			translateY = double(sz.height) - round(time * 20.0);
 			using namespace cv::v4d::nvg;
 			clear();
-			fontSize(p.fontSize_);
+			fontSize(params.fontSize_);
 			fontFace("sans-bold");
-			fillColor(p.textColor_ * 255);
+			fillColor(params.textColor_ * 255);
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
 
 			/** only draw lines that are visible **/
 			translate(0, translateY);
 
-			for (size_t i = 0; i < txt.lines_.size(); ++i) {
-				y = (i * p.fontSize_);
-				if (y + translateY < txt.textHeight_ && y + translateY + p.fontSize_ > 0) {
-					text(sz.width / 2.0, y, txt.lines_[i].c_str(), txt.lines_[i].c_str() + txt.lines_[i].size());
+			for (size_t i = 0; i < textVars.lines_.size(); ++i) {
+				y = (i * params.fontSize_);
+				if (y + translateY < textVars.textHeight_ && y + translateY + params.fontSize_ > 0) {
+					text(sz.width / 2.0, y, textVars.lines_[i].c_str(), textVars.lines_[i].c_str() + textVars.lines_[i].size());
 				}
 			}
-		}, size(), translateY_, y_, textVars_, params_);
+		}, R(size()), RW(translateY_), RW(y_), R_C(textVars_), R_C(params_));
 
-		window->fb([](cv::UMat& framebuffer, cv::UMat& warped, cv::UMat& stars, cv::Mat& tm) {
-			{
-				Global::Scope scope(tm);
-				cv::warpPerspective(framebuffer, warped, tm, framebuffer.size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar());
-			}
-			{
-				Global::Scope scope(stars);
-				cv::add(stars.clone(), warped, framebuffer);
-			}
-		},  warped_, stars_, tm_);
+		window->fb([](cv::UMat& framebuffer, cv::UMat& warped, cv::UMat& stars, cv::Mat tm) {
+			cv::warpPerspective(framebuffer, warped, tm, framebuffer.size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar());
 
-		window->write();
+			Global::Scope scope(stars);
+			cv::add(stars.clone(), warped, framebuffer);
+		},  RW(warped_), RW_S(stars_), RW_C(tm_));
 
-		window->plain([](const double& translateY, TextVars& textVars, Params& params) {
-			TextVars txt = Global::safe_copy(textVars);
-			Global::Scope scope(params);
-			if(-translateY > txt.textHeight_) {
+		window->plain([](const double& translateY, const TextVars textVars, Params& params) {
+			if(-translateY > textVars.textHeight_) {
 				//reset the timeOffset once the text is out of the picture
 				params.timeOffset_ = cv::getTickCount() / cv::getTickFrequency();
 			}
-		}, translateY_, textVars_, params_);
+		}, R(translateY_), R_C(textVars_), RW_C(params_));
     }
 };
 
@@ -232,11 +196,9 @@ FontDemoPlan::Params FontDemoPlan::params_;
 FontDemoPlan::TextVars FontDemoPlan::textVars_;
 
 int main() {
-	cv::Ptr<FontDemoPlan> plan = new FontDemoPlan(cv::Rect(0, 0, 1280, 720));
-	cv::Ptr<V4D> window = V4D::make(plan->size(), "Font Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+	cv::Rect viewport(0, 0, 1280, 720);
+	cv::Ptr<V4D> window = V4D::make(viewport.size(), "Font Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
-	auto sink = Sink::make(window, "font-demo.mkv", 60, plan->size());
-	window->setSink(sink);
-	window->run(plan, 3);
+	window->run<FontDemoPlan>(0, viewport);
     return 0;
 }

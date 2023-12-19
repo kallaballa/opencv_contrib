@@ -97,13 +97,13 @@ public:
 			ellipse(rx, ry, ex, ey);
 			fillPaint(gloss);
 			fill();
-		}, size());
+		}, R(size()));
 	}
 };
 
 int main() {
-    Ptr<VectorGraphicsPlan> plan = new VectorGraphicsPlan(cv::Rect(0,0, 960, 960));
-	Ptr<V4D> window = V4D::make(plan->size(), "Vector Graphics");
-    window->run(plan, 0);
+    cv::Rect viewport(0,0, 960, 960);
+	Ptr<V4D> window = V4D::make(viewport.size(), "Vector Graphics", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    window->run<VectorGraphicsPlan>(0, viewport);
 }
 

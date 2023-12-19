@@ -90,19 +90,19 @@ public:
 			ellipse(rx, ry, ex, ey);
 			fillPaint(gloss);
 			fill();
-		}, window->fbSize());
+		}, R(size()));
 
 		//Provides the framebuffer as left-off by the nvg context.
-		window->fb([](UMat& framebuffer) {
+		window->fb([](UMat& framebuffer, const cv::Size& sz) {
 			//Heavily blurs the eyes using a cheap boxFilter
 			boxFilter(framebuffer, framebuffer, -1, Size(15, 15), Point(-1,-1), true, BORDER_REPLICATE);
-		});
+		}, R(size()));
 	}
 };
 int main() {
-    Ptr<VectorGraphicsAndFBPlan> plan = new VectorGraphicsAndFBPlan(cv::Rect(0, 0, 960, 960));
-    Ptr<V4D> window = V4D::make(plan->size(), "Vector Graphics and Framebuffer");
-    window->run(plan, 0);
+    cv::Rect viewport(0, 0, 960, 960);
+    Ptr<V4D> window = V4D::make(viewport.size(), "Vector Graphics and Framebuffer", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    window->run<VectorGraphicsAndFBPlan>(0, viewport);
 }
 
 

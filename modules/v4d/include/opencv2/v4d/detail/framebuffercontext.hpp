@@ -295,8 +295,6 @@ protected:
     void teardown();
     void flip();
     void unflip();
-    cv::ogl::Texture2D& getTexture2D();
-    cv::ogl::Texture2D& getFlippedTexture2D();
     GLFWwindow* getGLFWWindow() const;
 public:
     CV_EXPORTS int configFlags();
@@ -334,8 +332,8 @@ public:
      * @param m The UMat the framebuffer is bound to.
      */
     void releaseToGL(cv::UMat& m);
-    void toGLTexture2D(cv::UMat& u, cv::ogl::Texture2D& texture);
-    void fromGLTexture2D(const cv::ogl::Texture2D& texture, cv::UMat& u);
+    void toGLTexture2D(cv::UMat& u, const GLuint& texID);
+    void fromGLTexture2D(const GLuint& texID, cv::UMat& u);
 
     template<typename _Tp>
     struct RectLessCompare
@@ -355,11 +353,6 @@ public:
     cv::UMat framebuffer_;
     std::map<cv::Rect, cv::UMat, RectLessCompare<int>> views_;
     GLint currentFBOTarget_ = -1;
-    /*!
-     * The texture bound to the OpenGL framebuffer.
-     */
-    cv::ogl::Texture2D* texture_ = nullptr;
-    cv::ogl::Texture2D* textureFlipped_ = nullptr;
 };
 }
 }

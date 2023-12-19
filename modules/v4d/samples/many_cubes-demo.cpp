@@ -12,57 +12,57 @@ public:
 	using Plan::Plan;
 
 	/* Demo Parameters */
-	constexpr static size_t NUMBER_OF_CUBES_ = 10;
+	constexpr static size_t NUMBER_OF_CONTEX_ = 10;
 
-	int glowKernelSize_;
 
-	/* OpenGL constants and variables */
+	/* OpenGL constants */
 	constexpr static GLuint TRIANGLES_ = 12;
 	constexpr static GLuint VERTICES_INDEX_ = 0;
-	constexpr static GLuint COLORS_INDEX_ = 1;
+	constexpr static GLuint COLOR_INDEX_ = 1;
 
 	//Cube vertices, colors and indices
 	constexpr static float VERTICES_[24] = {
-		// Front face
-        0.5, 0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5,
-        // Back face
-        0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5
+			// Front face
+	        0.5, 0.5, 0.5, -0.5, 0.5, 0.5, -0.5, -0.5, 0.5, 0.5, -0.5, 0.5,
+	        // Back face
+	        0.5, 0.5, -0.5, -0.5, 0.5, -0.5, -0.5, -0.5, -0.5, 0.5, -0.5, -0.5
 	};
 
 	constexpr static float VERTEX_COLORS_[24] = {
-		1.0, 0.4, 0.6, 1.0, 0.9, 0.2, 0.7, 0.3, 0.8, 0.5, 0.3, 1.0,
-		0.2, 0.6, 1.0, 0.6, 1.0, 0.4, 0.6, 0.8, 0.8, 0.4, 0.8, 0.8
+			1.0, 0.4, 0.6, 1.0, 0.9, 0.2, 0.7, 0.3, 0.8, 0.5, 0.3, 1.0,
+			0.2, 0.6, 1.0, 0.6, 1.0, 0.4, 0.6, 0.8, 0.8, 0.4, 0.8, 0.8
 	};
 
 	constexpr static unsigned short TRIANGLE_INDICES_[36] = {
-		// Front
-        0, 1, 2, 2, 3, 0,
+			// Front
+	        0, 1, 2, 2, 3, 0,
 
-        // Right
-        0, 3, 7, 7, 4, 0,
+	        // Right
+	        0, 3, 7, 7, 4, 0,
 
-        // Bottom
-        2, 6, 7, 7, 3, 2,
+	        // Bottom
+	        2, 6, 7, 7, 3, 2,
 
-        // Left
-        1, 5, 6, 6, 2, 1,
+	        // Left
+	        1, 5, 6, 6, 2, 1,
 
-        // Back
-        4, 7, 6, 6, 5, 4,
+	        // Back
+	        4, 7, 6, 6, 5, 4,
 
-        // Top
-        5, 1, 0, 0, 4, 5
+	        // Top
+	        5, 1, 0, 0, 4, 5
 	};
 private:
-	struct Cache {
-	    cv::UMat down_;
-	    cv::UMat up_;
-	    cv::UMat blur_;
-	    cv::UMat dst16_;
-	} cache_;
-	GLuint vao_[NUMBER_OF_CUBES_];
-	GLuint shaderProgram_[NUMBER_OF_CUBES_];
-	GLuint uniformTransform_[NUMBER_OF_CUBES_];
+	struct Handles {
+		GLuint vao_ = 0;
+		GLuint program_ = 0;
+		GLuint uniform_= 0;
+		GLuint trianglesEbo_ = 0;
+		GLuint verticesVbo_ = 0;
+		GLuint colorsVbo_ = 0;
+	} handles_[NUMBER_OF_CONTEX_];
+
+	size_t currentGlCtx_ = 0;
 
 	//Simple transform & pass-through shaders
 	static GLuint load_shader() {
@@ -110,159 +110,112 @@ private:
 	}
 
 	//Initializes objects, buffers, shaders and uniforms
-	static void init_scene(const cv::Size& sz, GLuint& vao, GLuint& shaderProgram, GLuint& uniformTransform) {
+	static void init_scene(const cv::Size& sz, Handles& handles) {
 	    glEnable (GL_DEPTH_TEST);
 
-	    glGenVertexArrays(1, &vao);
-	    glBindVertexArray(vao);
+	    glGenVertexArrays(1, &handles.vao_);
+	    glBindVertexArray(handles.vao_);
 
-	    unsigned int triangles_ebo;
-	    glGenBuffers(1, &triangles_ebo);
-	    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, triangles_ebo);
+	    glGenBuffers(1, &handles.trianglesEbo_);
+	    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, handles.trianglesEbo_);
 	    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof TRIANGLE_INDICES_, TRIANGLE_INDICES_,
 	            GL_STATIC_DRAW);
-
-	    unsigned int verticies_vbo;
-	    glGenBuffers(1, &verticies_vbo);
-	    glBindBuffer(GL_ARRAY_BUFFER, verticies_vbo);
+	    glGenBuffers(1, &handles.verticesVbo_);
+	    glBindBuffer(GL_ARRAY_BUFFER, handles.verticesVbo_);
 	    glBufferData(GL_ARRAY_BUFFER, sizeof VERTICES_, VERTICES_, GL_STATIC_DRAW);
 
 	    glVertexAttribPointer(VERTICES_INDEX_, 3, GL_FLOAT, GL_FALSE, 0, NULL);
 	    glEnableVertexAttribArray(VERTICES_INDEX_);
-
-	    unsigned int colors_vbo;
-	    glGenBuffers(1, &colors_vbo);
-	    glBindBuffer(GL_ARRAY_BUFFER, colors_vbo);
+	    glGenBuffers(1, &handles.colorsVbo_);
+	    glBindBuffer(GL_ARRAY_BUFFER, handles.colorsVbo_);
 	    glBufferData(GL_ARRAY_BUFFER, sizeof VERTEX_COLORS_, VERTEX_COLORS_, GL_STATIC_DRAW);
 
-	    glVertexAttribPointer(COLORS_INDEX_, 3, GL_FLOAT, GL_FALSE, 0, NULL);
-	    glEnableVertexAttribArray(COLORS_INDEX_);
+	    glVertexAttribPointer(COLOR_INDEX_, 3, GL_FLOAT, GL_FALSE, 0, NULL);
+	    glEnableVertexAttribArray(COLOR_INDEX_);
 
 	    glBindVertexArray(0);
 	    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
 	    glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-	    shaderProgram = load_shader();
-	    uniformTransform = glGetUniformLocation(shaderProgram, "transform");
+	    handles.program_ = load_shader();
+	    handles.uniform_ = glGetUniformLocation(handles.program_, "transform");
 	    glViewport(0,0, sz.width, sz.height);
+		glClearColor(0.2, 0.24, 0.4, 1);
+	}
+
+	static void destroy_scene(const Handles& handles) {
+		glDeleteProgram(handles.program_);
+		glDeleteBuffers(1, &handles.colorsVbo_);
+		glDeleteBuffers(1, &handles.verticesVbo_);
+		glDeleteBuffers(1, &handles.trianglesEbo_);
+		glDeleteVertexArrays(1, &handles.vao_);
 	}
 
 	//Renders a rotating rainbow-colored cube on a blueish background
-	static void render_scene(const cv::Size& sz, const double& x, const double& y, const double& angleMod, GLuint& vao, GLuint& shaderProgram, GLuint& uniformTransform) {
-		glViewport(0,0, sz.width, sz.height);
+	static void render_scene(const Handles& handles) {
+		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
 		//Use the prepared shader program
-	    glUseProgram(shaderProgram);
+		glUseProgram(handles.program_);
 
-	    //Scale and rotate the cube depending on the current time.
-	    float angle =  fmod(double(cv::getTickCount()) / double(cv::getTickFrequency()) + angleMod, 2 * M_PI);
-	    double scale = 0.25;
-	    cv::Matx44f scaleMat(
-	            scale, 0.0, 0.0, 0.0,
-	            0.0, scale, 0.0, 0.0,
-	            0.0, 0.0, scale, 0.0,
-	            0.0, 0.0, 0.0, 1.0);
+		//Scale and rotate the cube depending on the current time.
+	    float angle =  fmod(double(cv::getTickCount()) / double(cv::getTickFrequency()), 2 * M_PI);
+		float scale = 0.25;
 
-	    cv::Matx44f rotXMat(
-	            1.0, 0.0, 0.0, 0.0,
-	            0.0, cos(angle), -sin(angle), 0.0,
-	            0.0, sin(angle), cos(angle), 0.0,
-	            0.0, 0.0, 0.0, 1.0);
+		cv::Matx44f scaleMat(scale, 0.0, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 0.0,
+				scale, 0.0, 0.0, 0.0, 0.0, 1.0);
 
-	    cv::Matx44f rotYMat(
-	            cos(angle), 0.0, sin(angle), 0.0,
-	            0.0, 1.0, 0.0, 0.0,
-	            -sin(angle), 0.0,cos(angle), 0.0,
-	            0.0, 0.0, 0.0, 1.0);
+		cv::Matx44f rotXMat(1.0, 0.0, 0.0, 0.0, 0.0, cos(angle), -sin(angle), 0.0,
+				0.0, sin(angle), cos(angle), 0.0, 0.0, 0.0, 0.0, 1.0);
 
-	    cv::Matx44f rotZMat(
-	            cos(angle), -sin(angle), 0.0, 0.0,
-	            sin(angle), cos(angle), 0.0, 0.0,
-	            0.0, 0.0, 1.0, 0.0,
-	            0.0, 0.0, 0.0, 1.0);
+		cv::Matx44f rotYMat(cos(angle), 0.0, sin(angle), 0.0, 0.0, 1.0, 0.0, 0.0,
+				-sin(angle), 0.0, cos(angle), 0.0, 0.0, 0.0, 0.0, 1.0);
 
-	    cv::Matx44f translateMat(
-	            1.0, 0.0, 0.0, 0.0,
-	            0.0, 1.0, 0.0, 0.0,
-	            0.0, 0.0, 1.0, 0.0,
-	              x,   y, 0.0, 1.0);
+		cv::Matx44f rotZMat(cos(angle), -sin(angle), 0.0, 0.0, sin(angle),
+				cos(angle), 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0);
 
 	    //calculate the transform
-	    cv::Matx44f transform = scaleMat * rotXMat * rotYMat * rotZMat * translateMat;
-	    //set the corresponding uniform
-	    glUniformMatrix4fv(uniformTransform, 1, GL_FALSE, transform.val);
-	    //Bind our vertex array
-	    glBindVertexArray(vao);
-	    //Draw
-	    glDrawElements(GL_TRIANGLES, TRIANGLES_ * 3, GL_UNSIGNED_SHORT, NULL);
+		cv::Matx44f transform = scaleMat * rotXMat * rotYMat * rotZMat;
+		//set the corresponding uniform
+		glUniformMatrix4fv(handles.uniform_, 1, GL_FALSE, transform.val);
+		//Bind the prepared vertex array object
+		glBindVertexArray(handles.vao_);
+		//Draw
+		glDrawElements(GL_TRIANGLES, TRIANGLES_ * 3, GL_UNSIGNED_SHORT, NULL);
 	}
-
-	//applies a glow effect to an image
-	static void glow_effect(const cv::UMat& src, cv::UMat& dst, const int ksize, Cache& cache) {
-	    cv::bitwise_not(src, dst);
-
-	    //Resize for some extra performance
-	    cv::resize(dst, cache.down_, cv::Size(), 0.5, 0.5);
-	    //Cheap blur
-	    cv::boxFilter(cache.down_, cache.blur_, -1, cv::Size(ksize, ksize), cv::Point(-1, -1), true,
-	            cv::BORDER_REPLICATE);
-	    //Back to original size
-	    cv::resize(cache.blur_, cache.up_, src.size());
-
-	    //Multiply the src image with a blurred version of itself
-	    cv::multiply(dst, cache.up_, cache.dst16_, 1, CV_16U);
-	    //Normalize and convert back to CV_8U
-	    cv::divide(cache.dst16_, cv::Scalar::all(255.0), dst, 1, CV_8U);
-
-	    cv::bitwise_not(dst, dst);
-	}
-
 public:
 	void setup(cv::Ptr<V4D> window) override {
-		int diag = hypot(double(size().width), double(size().height));
-		glowKernelSize_ = std::max(int(diag / 138 % 2 == 0 ? diag / 138 + 1 : diag / 138), 1);
-
-		for(size_t i = 0; i < NUMBER_OF_CUBES_; ++i) {
-			window->gl(i, [](const size_t& ctxIdx, const cv::Size& sz, GLuint& vao, GLuint& shader, GLuint& uniformTrans){
-				CV_UNUSED(ctxIdx);
-				init_scene(sz, vao, shader, uniformTrans);
-			}, size(), vao_[i], shaderProgram_[i], uniformTransform_[i]);
+		for(size_t i = 0; i < NUMBER_OF_CONTEXT_; ++i) {
+			window->gl(TMP(i), [](const size_t& ctxIdx, const cv::Size& sz, Handles* handles) {
+				init_scene(sz, handles[ctxIdx]);
+			}, R(size()), RW(handles_));
 		}
 	}
 
 	void infer(cv::Ptr<V4D> window) override {
-		window->gl([](){
-			glClearColor(0.2, 0.24, 0.4, 1);
-			//clear all buffers
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-		});
-
 		//Render using multiple OpenGL contexts
-		for(size_t i = 0; i < NUMBER_OF_CUBES_; ++i) {
-			window->gl(i, [](const int32_t& ctxIdx, const cv::Size& sz, GLuint& vao, GLuint& shader, GLuint& uniformTrans){
-				double x = sin((double(ctxIdx) / NUMBER_OF_CUBES_) * 2 * M_PI) / 1.5;
-				double y = cos((double(ctxIdx) / NUMBER_OF_CUBES_) * 2 * M_PI) / 1.5;
-				double angle = sin((double(ctxIdx) / NUMBER_OF_CUBES_) * 2 * M_PI);
-				render_scene(sz, x, y, angle, vao, shader, uniformTrans);
-			}, size(), vao_[i], shaderProgram_[i], uniformTransform_[i]);
+		window->gl(R(currentGlCtx_), [](const size_t& ctxIdx, const Handles* handles) {
+			render_scene(handles[ctxIdx]);
+		}, R(handles_));
+
+		window->plain([](size_t& currentGlCtx) {
+			currentGlCtx = ((currentGlCtx + 1) % NUMBER_OF_CONTEX_);
+		}, RW(currentGlCtx_));
+	}
+
+	void teardown(cv::Ptr<V4D> window) override {
+		for(size_t i = 0; i < NUMBER_OF_CONTEX_; ++i) {
+			window->gl(TMP(i), [](const size_t& ctxIdx, const Handles* handles) {
+				destroy_scene(handles[ctxIdx]);
+			}, R(handles_));
 		}
-
-		//Aquire the frame buffer for use by OpenCV
-		window->fb([](cv::UMat& framebuffer, int glowKernelSize, Cache& cache) {
-			glow_effect(framebuffer, framebuffer, glowKernelSize, cache);
-		}, glowKernelSize_, cache_);
-
-		window->write();
 	}
 };
 
 int main() {
-	cv::Ptr<ManyCubesDemoPlan> plan = new ManyCubesDemoPlan(cv::Rect(0, 0, 1280, 720));
-    cv::Ptr<V4D> window = V4D::make(plan->size(), "Many Cubes Demo", AllocateFlags::IMGUI);
-
-    //Creates a writer sink (which might be hardware accelerated)
-    auto sink = Sink::make(window, "many_cubes-demo.mkv", 60, plan->size());
-    window->setSink(sink);
-    window->run(plan, 0);
+	cv::Rect viewport(0, 0, 1280, 720);
+    cv::Ptr<V4D> window = V4D::make(viewport.size(), "Many Cubes Demo", AllocateFlags::IMGUI);
+    window->run<ManyCubesDemoPlan>(0, viewport);
 
     return 0;
 }

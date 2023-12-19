@@ -8,12 +8,6 @@
 using namespace cv::v4d;
 
 class ShaderDemoPlan : public Plan {
-public:
-	using Plan::Plan;
-
-	//A value greater 1 will enable experimental tiling with one context per tile.
-	constexpr static size_t TILING_ = 1;
-    constexpr static size_t NUM_CONTEXTS_ = TILING_ * TILING_;
 private:
     // vertex position, color
     constexpr static float vertices[12] = {
@@ -52,8 +46,6 @@ private:
         GLint maxIterationsHdl_;
         GLint centerXHdl_;
         GLint centerYHdl_;
-        GLint offsetXHdl_;
-        GLint offsetYHdl_;
         GLint currentZoomHdl_;
         GLint resolutionHdl_;
 
@@ -63,16 +55,7 @@ private:
         /* Object handles */
         GLuint vao_;
         GLuint vbo_, ebo_;
-    } handles_[NUM_CONTEXTS_];
-
-    cv::Rect viewports_[NUM_CONTEXTS_];
-
-    struct Cache {
-        cv::UMat down;
-        cv::UMat up;
-        cv::UMat blur;
-        cv::UMat dst16;
-    } cache_;
+    } handles_;
 
     //easing function for the bungee zoom
     static float easeInOutQuint(float x) {
@@ -131,8 +114,6 @@ private:
         uniform float current_zoom;
         uniform float center_y;
         uniform float center_x;
-        uniform float offset_y;
-        uniform float offset_x;
 
         uniform vec2 resolution;
 
@@ -194,8 +175,28 @@ private:
         return handles[0];
     }
 
+    static void update_params(Params& params) {
+    	cerr << params.currentZoom_ << endl;
+		//bungee zoom
+		if (params.currentZoom_ >= 3) {
+			params.zoomIn = true;
+		} else if (params.currentZoom_ < 0.05) {
+			params.zoomIn = false;
+		}
+
+		params.zoomIncr_ = (params.currentZoom_ / 100);
+		if(params.zoomIn)
+			params.zoomIncr_ = -std::fabs(params.zoomIncr_);
+
+		if (!params.manualNavigation_) {
+			params.currentZoom_ += params.zoomIncr_;
+		} else {
+			params.currentZoom_ = 1.0 / pow(params.zoomFactor_, 5.0f);
+		}
+    }
+
     //Initialize shaders, objects, buffers and uniforms
-    static void init_scene(const cv::Rect& viewport, Handles& handles) {
+    static void init_scene(Handles& handles) {
         GL_CHECK(glEnable(GL_BLEND));
         GL_CHECK(glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA));
         handles.shaderHdl_ = load_shaders();
@@ -207,14 +208,11 @@ private:
         handles.currentZoomHdl_ = glGetUniformLocation(handles.shaderHdl_, "current_zoom");
         handles.centerXHdl_ = glGetUniformLocation(handles.shaderHdl_, "center_x");
         handles.centerYHdl_ = glGetUniformLocation(handles.shaderHdl_, "center_y");
-        handles.offsetXHdl_ = glGetUniformLocation(handles.shaderHdl_, "offset_x");
-        handles.offsetYHdl_ = glGetUniformLocation(handles.shaderHdl_, "offset_y");
         handles.resolutionHdl_ = glGetUniformLocation(handles.shaderHdl_, "resolution");
-        GL_CHECK(glViewport(viewport.x, viewport.y, viewport.width, viewport.height));
     }
 
     //Free OpenGL resources
-    static void destroy_scene(Handles& handles) {
+    static void destroy_scene(const Handles& handles) {
         glDeleteShader(handles.shaderHdl_);
         glDeleteBuffers(1, &handles.vbo_);
         glDeleteBuffers(1, &handles.ebo_);
@@ -222,56 +220,32 @@ private:
     }
 
     //Render the mandelbrot fractal on top of a video
-    static void render_scene(const cv::Size& sz, const cv::Rect& viewport, Params& params, Handles& handles) {
+    static void render_scene(const cv::Size& sz, const Params& params, const Handles& handles) {
     	glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-    	GL_CHECK(glViewport(viewport.x, viewport.y, viewport.width, viewport.height));
 
-    	{
-    		Global::Scope scope(params);
-
-			//bungee zoom
-			if (params.currentZoom_ >= 3) {
-				params.zoomIn = true;
-			} else if (params.currentZoom_ < 0.05) {
-				params.zoomIn = false;
-			}
-
-			params.zoomIncr_ = (params.currentZoom_ / 100);
-			if(params.zoomIn)
-				params.zoomIncr_ = -std::fabs(params.zoomIncr_);
-
-			GL_CHECK(glUseProgram(handles.shaderHdl_));
-			GL_CHECK(glUniform4f(handles.baseColorHdl_, params.baseColorVal_[0], params.baseColorVal_[1], params.baseColorVal_[2], params.baseColorVal_[3]));
-			GL_CHECK(glUniform1i(handles.contrastBoostHdl_, params.contrastBoost_));
-			GL_CHECK(glUniform1i(handles.maxIterationsHdl_, params.maxIterations_));
-			GL_CHECK(glUniform1f(handles.centerYHdl_, params.centerY_));
-			GL_CHECK(glUniform1f(handles.centerXHdl_, params.centerX_));
-			GL_CHECK(glUniform1f(handles.offsetYHdl_, viewport.x));
-			GL_CHECK(glUniform1f(handles.offsetXHdl_, viewport.y));
-
-
-			if (!params.manualNavigation_) {
-				params.currentZoom_ += params.zoomIncr_;
-				GL_CHECK(glUniform1f(handles.currentZoomHdl_, easeInOutQuint(params.currentZoom_)));
-			} else {
-				params.currentZoom_ = 1.0 / pow(params.zoomFactor_, 5.0f);
-				GL_CHECK(glUniform1f(handles.currentZoomHdl_, params.currentZoom_));
-			}
-			float res[2] = {float(sz.width), float(sz.height)};
-			GL_CHECK(glUniform2fv(handles.resolutionHdl_, 1, res));
-    	}
-
+		GL_CHECK(glUseProgram(handles.shaderHdl_));
+		GL_CHECK(glUniform4f(handles.baseColorHdl_, params.baseColorVal_[0], params.baseColorVal_[1], params.baseColorVal_[2], params.baseColorVal_[3]));
+		GL_CHECK(glUniform1i(handles.contrastBoostHdl_, params.contrastBoost_));
+		GL_CHECK(glUniform1i(handles.maxIterationsHdl_, params.maxIterations_));
+		GL_CHECK(glUniform1f(handles.centerYHdl_, params.centerY_));
+		GL_CHECK(glUniform1f(handles.centerXHdl_, params.centerX_));
+		if(params.manualNavigation_) {
+			GL_CHECK(glUniform1f(handles.currentZoomHdl_, params.currentZoom_));
+		}
+		else {
+			GL_CHECK(glUniform1f(handles.currentZoomHdl_, easeInOutQuint(params.currentZoom_)));
+		}
+		float res[2] = {float(sz.width), float(sz.height)};
+		GL_CHECK(glUniform2fv(handles.resolutionHdl_, 1, res));
         GL_CHECK(glBindVertexArray(handles.vao_));
         GL_CHECK(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0));
     }
 public:
+	using Plan::Plan;
+
     ShaderDemoPlan(const cv::Rect& viewport) : Plan(viewport) {
 		Global::registerShared(params_);
-	}
-
-//	string suffix() const override {
-//		return "shader-demo";
-//	}
+    }
 
     void gui(cv::Ptr<V4D> window) override {
         window->imgui([](cv::Ptr<V4D> win, Params& params) {
@@ -292,42 +266,29 @@ public:
     }
 
     void setup(cv::Ptr<V4D> window) override {
-        float w = size().width;
-        float h = size().height;
-        float tw = w / TILING_;
-        float th = h / TILING_;
-
-        for(size_t i = 0; i < TILING_; ++i) {
-            for(size_t j = 0; j < TILING_; ++j) {
-            	viewports_[i * TILING_ + j] = cv::Rect(tw * i, th * j, tw - 1, th - 1);
-            }
-        }
-
-        for(size_t i = 0; i < NUM_CONTEXTS_; ++i) {
-            window->gl(i, [](const int32_t& ctxID, const cv::Rect& viewport, Handles& handles) {
-                init_scene(viewport, handles);
-            }, viewports_[i], handles_[i]);
-        }
+		window->gl([](Handles& handles) {
+			init_scene(handles);
+		}, RW(handles_));
     }
 
     void infer(cv::Ptr<V4D> window) override {
         window->capture();
 
-        for(size_t i = 0; i < NUM_CONTEXTS_; ++i) {
-            window->gl(i,[](const int32_t& ctxID, const cv::Size& sz, const cv::Rect& viewport, Params& params, Handles& handles) {
-                render_scene(sz, viewport, params, handles);
-            }, size(), viewports_[i], params_, handles_[i]);
-        }
+		window->plain([](Params& params) {
+			update_params(params);
+		}, RW_C(params_));
+
+        window->gl([](const cv::Size& sz, const Params params, const Handles& handles) {
+        	render_scene(sz, params, handles);
+		}, R(size()), R_C(params_), R(handles_));
 
         window->write();
     }
 
     void teardown(cv::Ptr<V4D> window) override {
-        for(size_t i = 0; i < NUM_CONTEXTS_; ++i) {
-            window->gl(i, [](const int32_t& ctxID, Handles& handles) {
-                destroy_scene(handles);
-            }, handles_[i]);
-        }
+		window->gl([](const Handles& handles) {
+			destroy_scene(handles);
+		}, R(handles_));
     }
 };
 
@@ -339,15 +300,15 @@ int main(int argc, char** argv) {
         exit(1);
     }
 
-    cv::Ptr<ShaderDemoPlan> plan = new ShaderDemoPlan(cv::Rect(0, 0, 1280, 720));
-	cv::Ptr<V4D> window = V4D::make(plan->size(), "Mandelbrot Shader Demo", AllocateFlags::IMGUI);
+    cv::Rect viewport(0, 0, 1280, 720);
+	cv::Ptr<V4D> window = V4D::make(viewport.size(), "Mandelbrot Shader Demo", AllocateFlags::IMGUI);
 
 	auto src = Source::make(window, argv[1]);
-	auto sink = Sink::make(window, "shader-demo.mkv", src->fps(), plan->size());
+	auto sink = Sink::make(window, "shader-demo.mkv", src->fps(), viewport.size());
 	window->setSource(src);
 	window->setSink(sink);
 
-	window->run(plan, 0);
+	window->run<ShaderDemoPlan>(0, viewport);
 
 	return 0;
 }

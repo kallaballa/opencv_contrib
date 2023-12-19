@@ -11,29 +11,29 @@ public:
 	using Plan::Plan;
 
 	void setup(cv::Ptr<V4D> win) override {
-		win->plain([](cv::UMat& image, cv::UMat& converted, const cv::Size& sz){
+		win->plain([](const cv::Size& sz, cv::UMat& image, cv::UMat& converted) {
 			//Loads an image as a UMat (just in case we have hardware acceleration available)
-			image = imread(samples::findFile("lena.jpg")).getUMat(ACCESS_READ);
+			imread(samples::findFile("lena.jpg")).copyTo(image);
 
 			//We have to manually resize and color convert the image when using direct frambuffer access.
 			resize(image, converted, sz);
 			cvtColor(converted, converted, COLOR_RGB2BGRA);
-		}, image_, converted_, win->fbSize());
+		}, R(size()), RW(image_), RW(converted_));
 	}
 
 	void infer(Ptr<V4D> win) override {
-		//Create a fb context and copy the prepared image to the framebuffer. The fb context
+		//Create a fb context and copies the prepared image to the framebuffer. The fb context
 		//takes care of retrieving and storing the data on the graphics card (using CL-GL
 		//interop if available), ready for other contexts to use
 		win->fb([](UMat& framebuffer, const cv::UMat& c){
 			c.copyTo(framebuffer);
-		}, converted_);
+		}, R(converted_));
 	}
 };
 
 int main() {
-	Ptr<DisplayImageFB> plan = new DisplayImageFB(cv::Rect(0, 0, 960,960));
+	cv::Rect viewport(0, 0, 960,960);
 	//Creates a V4D object
-    Ptr<V4D> window = V4D::make(plan->size(), "Display an Image through direct FB access");
-    window->run(plan, 0);
+    Ptr<V4D> window = V4D::make(viewport.size(), "Display an Image through direct FB access", AllocateFlags::IMGUI);
+    window->run<DisplayImageFB>(0, viewport);
 }

@@ -118,9 +118,6 @@ class NanoVGDemoPlan : public Plan {
 	double hue_ = 0;
 public:
 	using Plan::Plan;
-//	string suffix() const override {
-//		return "nanovg-demo";
-//	}
 
 	void infer(cv::Ptr<V4D> window) override {
 		window->plain([](double& hue){

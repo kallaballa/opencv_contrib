@@ -193,7 +193,6 @@ if(NOT (TARGET ${the_module}))
 
   #Add sample targets
   if(BUILD_EXAMPLES)
-      add_binary_sample(example_v4d_display_image samples/display_image.cpp)
       add_binary_sample(example_v4d_display_image_fb samples/display_image_fb.cpp)
       add_binary_sample(example_v4d_display_image_nvg samples/display_image_nvg.cpp)
       add_binary_sample(example_v4d_vector_graphics samples/vector_graphics.cpp)
