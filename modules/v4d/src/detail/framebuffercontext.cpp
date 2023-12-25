@@ -316,7 +316,6 @@ void FrameBufferContext::init() {
 				return false;
 			}, [](GLFWwindow *window, int w, int h) {
 				V4D::instance()->set(V4D::Keys::WINDOW_SIZE, cv::Size(w, h), false);
-				std::cerr << "EVENT: " << V4D::instance()->get<cv::Size>(V4D::Keys::WINDOW_SIZE) << std::endl;
 				return false;
 			}
     	);
