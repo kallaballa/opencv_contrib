@@ -271,16 +271,8 @@ public:
 
     void infer() override {
         capture();
-        set(V4D::Keys::WINDOW_SIZE, [](){
-        	double time = cv::getTickCount() / cv::getTickFrequency();
-        	if(int(ceil(time)) % 2 == 1) {
-        		return cv::Size(640, 360);
-        	} else {
-        		return cv::Size(320, 180);
-        	}
-        });
 
-		plain([](Params& params) {
+        plain([](Params& params) {
 			update_params(params);
 		}, RW_S(params_));
 
