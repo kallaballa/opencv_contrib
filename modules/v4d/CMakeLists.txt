@@ -124,8 +124,11 @@ endif()
 # Add the opencv module
 if(NOT (TARGET ${the_module}))
   ocv_add_module(v4d opencv_core opencv_imgproc opencv_videoio opencv_video)
-  ocv_module_include_directories("${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/" "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bimg/include/")
-  ocv_glob_module_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/imguicontext.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_glfw.cpp")
+  file(GLOB imgui_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/imguicontext.cpp")
+  file(GLOB imgui_backend_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3*.cpp")
+  file(GLOB imgui_glfw_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_glfw.cpp")
+  ocv_glob_module_sources("${CMAKE_CURRENT_SOURCE_DIR}/src" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/" ${imgui_sources} ${imgui_backend_sources} ${imgui_glfw_sources})
+  ocv_module_include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/glad/include" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui" "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/" "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bgfx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bx/include/" "${CMAKE_CURRENT_SOURCE_DIR}/third/bgfx.cmake/bimg/include/")
   ocv_create_module()
   set_target_properties(${the_module} PROPERTIES LINKER_LANGUAGE CXX)
 
