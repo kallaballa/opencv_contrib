@@ -890,8 +890,8 @@ public:
     }
 
 	template<typename T>
-	struct Property : detail::Edge<const T, false, true> {
-		using parent_t = detail::Edge<const T, false, true>;
+	struct Property : detail::Edge<const T, false, true, true> {
+		using parent_t = detail::Edge<const T, false, true, true>;
 		Property(Plan& plan, const T& val) : parent_t(parent_t::make(plan, val, false)) {
 		}
 	};
