@@ -17,7 +17,12 @@ cmake -DCMAKE_CXX_FLAGS="-DBGFX_CONFIG_MULTITHREADED=0 -DBGFX_CONFIG_PASSIVE=1 -
 #build
 make -j8
 
-#videos CONVERT TO MP4 FOR MORE PERFORMANCE ON NVIDIA
-wget -O bunny.webm https://upload.wikimedia.org/wikipedia/commons/transcoded/f/f3/Big_Buck_Bunny_first_23_seconds_1080p.ogv/Big_Buck_Bunny_first_23_seconds_1080p.ogv.1080p.vp9.webm
+#videos
+## NOTES
+* yt-dlp seem broken on jammy
+* convert to mp4 for more performance on nvidia. intel doesn't care.
+
+## URLS
+wget -O bunny.webm https://upload.wikimedia.org/wikipedia/commons/transcoded/f/f3/Big_Buck_Bunny_first_23_seconds_1080p.ogv/Big_Buck_Bunny_first_23_seconds_1080p.ogv.720p.vp9.webm/Big_Buck_Bunny_first_23_seconds_1080p.ogv.1080p.vp9.webm
 yt-dlp -o dance.webm "https://www.youtube.com/watch?v=yg6LZtNeO_8"
 yt-dlp -o kristen.webm "https://www.youtube.com/watch?v=hUAT8Jm_dvw&t=11s"
