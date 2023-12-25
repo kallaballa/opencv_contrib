@@ -116,25 +116,24 @@ class NanoVGDemoPlan : public Plan {
 	cv::UMat hsv_;
 	cv::UMat hueChannel_;
 	double hue_ = 0;
+	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	using Plan::Plan;
-
-	void infer(cv::Ptr<V4D> window) override {
-		window->plain([](double& hue){
+	void infer() override {
+		plain([](double& hue){
 			//we use time to calculate the current hue
 			double t = cv::getTickCount() / cv::getTickFrequency();
 			//nanovg hue fading depending on t
 			hue = (sinf(t * 0.12) + 1.0) * 127.5;
-		},  hue_);
+		},  RW(hue_));
 
-		window->capture();
+		capture();
 
 		//Acquire the framebuffer and convert it to RGB
-		window->fb([](const cv::UMat &framebuffer, cv::UMat& rgb) {
+		fb([](const cv::UMat &framebuffer, cv::UMat& rgb) {
 			cvtColor(framebuffer, rgb, cv::COLOR_BGRA2RGB);
-		}, rgb_);
+		}, RW(rgb_));
 
-		window->plain([](cv::UMat& rgb, cv::UMat& hsv, std::vector<cv::UMat>& hsvChannels, double& hue){
+		plain([](cv::UMat& rgb, cv::UMat& hsv, std::vector<cv::UMat>& hsvChannels, const double& hue){
 			//Color-conversion from RGB to HSV
 			cv::cvtColor(rgb, hsv, cv::COLOR_RGB2HSV_FULL);
 
@@ -147,38 +146,31 @@ public:
 
 			//Color-conversion from HSV to RGB
 			cv::cvtColor(hsv, rgb, cv::COLOR_HSV2RGB_FULL);
-		}, rgb_, hsv_, hsvChannels_, hue_);
+		}, RW(rgb_), RW(hsv_), RW(hsvChannels_), R(hue_));
 
 		//Acquire the framebuffer and convert the rgb_ into it
-		window->fb([](cv::UMat& framebuffer, const cv::UMat& rgb) {
+		fb([](cv::UMat& framebuffer, const cv::UMat& rgb) {
 			cv::cvtColor(rgb, framebuffer, cv::COLOR_BGR2BGRA);
-		}, rgb_);
+		}, R(rgb_));
 
 		//Render using nanovg
-		window->nvg([](const cv::Size &sz, const double& h) {
-			draw_color_wheel(sz.width - (sz.width / 5), sz.height - (sz.width / 5), sz.width / 6, sz.width / 6, h);
-		}, size(), hue_);
-
-		window->write();
+		nvg([](const cv::Rect &vp, const double& h) {
+			draw_color_wheel(vp.width - (vp.width / 5), vp.height - (vp.width / 5), vp.width / 6, vp.width / 6, h);
+		}, vp_, R(hue_));
 	}
 };
 
 int main(int argc, char **argv) {
 	if (argc != 2) {
-        cerr << "Usage: nanovg-demo <video-file>" << endl;
+        std::cerr << "Usage: nanovg-demo <video-file>" << std::endl;
         exit(1);
 	}
 
-    cv::Ptr<NanoVGDemoPlan> plan = new NanoVGDemoPlan(cv::Rect(0, 0, 1920, 1080));
-    cv::Ptr<V4D> window = V4D::make(plan->size(), "NanoVG Demo", AllocateFlags::NANOVG);
-    window->printSystemInfo();
-
-    auto src = Source::make(window, argv[1]);
-    auto sink = Sink::make(window, "nanovg-demo.mkv", src->fps(), plan->size());
-    window->setSource(src);
-    window->setSink(sink);
-
-    window->run(plan, 0);
+    cv::Rect viewport(0, 0, 1280, 720);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "NanoVG Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    auto src = Source::make(runtime, argv[1]);
+    runtime->setSource(src);
+    Plan::run<NanoVGDemoPlan>(0);
 
     return 0;
 }

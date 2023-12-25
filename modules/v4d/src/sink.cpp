@@ -20,7 +20,8 @@ cv::Ptr<Sink> Sink::makeVaSink(cv::Ptr<V4D> window, const string& outputFilename
 
     window->sourceCtx()->copyContext();
 
-    cerr << "Using a VA sink" << endl;
+    CV_LOG_INFO(nullptr, "Using a VA sink");
+
     if(writer->isOpened()) {
 		return new Sink([=](const uint64_t& seq, const cv::UMat& frame) {
 			CV_UNUSED(seq);
@@ -76,7 +77,7 @@ cv::Ptr<Sink> Sink::make(cv::Ptr<V4D> window, const string& outputFilename, cons
         try {
             return makeAnyHWSink(outputFilename, fourcc, fps, frameSize);
         } catch(...) {
-            cerr << "Failed creating hardware source" << endl;
+            CV_LOG_INFO(nullptr, "Failed creating hardware source");
         }
     }
 

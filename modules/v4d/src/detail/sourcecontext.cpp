@@ -18,8 +18,8 @@ int SourceContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 	CV_UNUSED(vp);
     if (hasContext()) {
         CLExecScope_t scope(getCLExecContext());
-        if (mainFbContext_->getV4D()->hasSource()) {
-        	auto src = mainFbContext_->getV4D()->getSource();
+        if (V4D::instance()->hasSource()) {
+        	auto src = V4D::instance()->getSource();
 
         	if(src->isOpen()) {
 				auto p = src->operator ()();
@@ -40,8 +40,8 @@ int SourceContext::execute(const cv::Rect& vp, std::function<void()> fn) {
         }
         return 0;
     } else {
-        if (mainFbContext_->getV4D()->hasSource()) {
-        	auto src = mainFbContext_->getV4D()->getSource();
+        if (V4D::instance()->hasSource()) {
+        	auto src = V4D::instance()->getSource();
 
         	if(src->isOpen()) {
 				auto p = src->operator ()();

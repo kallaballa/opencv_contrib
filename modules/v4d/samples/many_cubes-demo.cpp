@@ -9,10 +9,8 @@
 using namespace cv::v4d;
 class ManyCubesDemoPlan : public Plan {
 public:
-	using Plan::Plan;
-
 	/* Demo Parameters */
-	constexpr static size_t NUMBER_OF_CONTEX_ = 10;
+	constexpr static size_t NUMBER_OF_CONTEXTS_ = 1;
 
 
 	/* OpenGL constants */
@@ -60,9 +58,11 @@ private:
 		GLuint trianglesEbo_ = 0;
 		GLuint verticesVbo_ = 0;
 		GLuint colorsVbo_ = 0;
-	} handles_[NUMBER_OF_CONTEX_];
+	} handles_[NUMBER_OF_CONTEXTS_];
 
 	size_t currentGlCtx_ = 0;
+
+	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 
 	//Simple transform & pass-through shaders
 	static GLuint load_shader() {
@@ -184,28 +184,28 @@ private:
 		glDrawElements(GL_TRIANGLES, TRIANGLES_ * 3, GL_UNSIGNED_SHORT, NULL);
 	}
 public:
-	void setup(cv::Ptr<V4D> window) override {
-		for(size_t i = 0; i < NUMBER_OF_CONTEXT_; ++i) {
-			window->gl(TMP(i), [](const size_t& ctxIdx, const cv::Size& sz, Handles* handles) {
-				init_scene(sz, handles[ctxIdx]);
-			}, R(size()), RW(handles_));
+	void setup() override {
+		for(size_t i = 0; i < NUMBER_OF_CONTEXTS_; ++i) {
+			gl(VAL(i), [](const size_t& ctxIdx, const cv::Rect& vp, Handles* handles) {
+				init_scene(vp.size(), handles[ctxIdx]);
+			}, vp_, RW(handles_));
 		}
 	}
 
-	void infer(cv::Ptr<V4D> window) override {
+	void infer() override {
 		//Render using multiple OpenGL contexts
-		window->gl(R(currentGlCtx_), [](const size_t& ctxIdx, const Handles* handles) {
+		gl(R(currentGlCtx_), [](const size_t& ctxIdx, const Handles* handles) {
 			render_scene(handles[ctxIdx]);
 		}, R(handles_));
 
-		window->plain([](size_t& currentGlCtx) {
-			currentGlCtx = ((currentGlCtx + 1) % NUMBER_OF_CONTEX_);
+		plain([](size_t& currentGlCtx) {
+			currentGlCtx = ((currentGlCtx + 1) % NUMBER_OF_CONTEXTS_);
 		}, RW(currentGlCtx_));
 	}
 
-	void teardown(cv::Ptr<V4D> window) override {
-		for(size_t i = 0; i < NUMBER_OF_CONTEX_; ++i) {
-			window->gl(TMP(i), [](const size_t& ctxIdx, const Handles* handles) {
+	void teardown() override {
+		for(size_t i = 0; i < NUMBER_OF_CONTEXTS_; ++i) {
+			gl(VAL(i), [](const size_t& ctxIdx, const Handles* handles) {
 				destroy_scene(handles[ctxIdx]);
 			}, R(handles_));
 		}
@@ -214,8 +214,8 @@ public:
 
 int main() {
 	cv::Rect viewport(0, 0, 1280, 720);
-    cv::Ptr<V4D> window = V4D::make(viewport.size(), "Many Cubes Demo", AllocateFlags::IMGUI);
-    window->run<ManyCubesDemoPlan>(0, viewport);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Many Cubes Demo", AllocateFlags::IMGUI);
+    Plan::run<ManyCubesDemoPlan>(0);
 
     return 0;
 }

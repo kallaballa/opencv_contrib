@@ -9,7 +9,7 @@ namespace cv {
 namespace v4d {
 namespace detail {
 ExtContext::ExtContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext) :
-        idx_(idx), mainFbContext_(fbContext), extFbContext_(new FrameBufferContext(*fbContext->getV4D(), "ExtOpenGL" + std::to_string(idx), fbContext)) {
+        idx_(idx), mainFbContext_(fbContext), extFbContext_(new FrameBufferContext("ExtOpenGL" + std::to_string(idx), fbContext)) {
 }
 
 int ExtContext::execute(const cv::Rect& vp, std::function<void()> fn) {

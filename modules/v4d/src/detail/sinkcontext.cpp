@@ -23,7 +23,7 @@ int SinkContext::execute(const cv::Rect& vp, std::function<void()> fn) {
     } else {
     	fn();
     }
-	auto v4d = mainFbContext_->getV4D();
+	auto v4d = V4D::instance();
 	if(v4d->hasSink() && v4d->getSink()->isOpen()) {
 			v4d->getSink()->operator ()(v4d->getSequenceNumber(), sinkBuffer());
 			return 1;

@@ -9,11 +9,10 @@ using namespace cv::v4d;
 
 
 class DisplayImageBgfx : public Plan {
+	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	using Plan::Plan;
-
-	void setup(cv::Ptr<V4D> window) override {
-		window->bgfx([](const cv::Rect& viewport) {
+	void setup() override {
+		bgfx([](const cv::Rect& vp) {
 			// Set view 0 clear state.
 			bgfx::setViewClear(0
 				, BGFX_CLEAR_COLOR|BGFX_CLEAR_DEPTH
@@ -23,12 +22,12 @@ public:
 				);
 
 			// Set view 0 default viewport.
-			bgfx::setViewRect(0, viewport.x, viewport.y, uint16_t(viewport.width), uint16_t(viewport.height));
-		}, R(viewport));
+			bgfx::setViewRect(0, vp.x, vp.y, uint16_t(vp.width), uint16_t(vp.height));
+		}, vp_);
 	}
 
-	void infer(cv::Ptr<V4D> window) override {
-		window->bgfx([](const cv::Rect& vp) {
+	void infer() override {
+		bgfx([](const cv::Rect& vp) {
 
 			// This dummy draw call is here to make sure that view 0 is cleared
 			// if no other draw calls are submitted to view 0.
@@ -62,14 +61,15 @@ public:
 			// process submitted rendering primitives.
 			bgfx::frame();
 
-		}, R(viewport()));
+		}, vp_);
 	}
 };
 
 
 int main(int argc, char** argv) {
 	cv::Rect viewport(0,0, 1280, 720);
-	cv::Ptr<V4D> window = V4D::make(viewport.size(), "Display an image using bgfx", AllocateFlags::BGFX | AllocateFlags::IMGUI);
-    window->run<DisplayImageBgfx>(0, viewport);
+	cv::Ptr<V4D> runtime = V4D::init(viewport, "Display an image using bgfx", AllocateFlags::BGFX | AllocateFlags::IMGUI);
+    Plan::run<DisplayImageBgfx>(0);
+
     return 0;
 }

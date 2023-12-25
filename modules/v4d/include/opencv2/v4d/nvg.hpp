@@ -501,7 +501,7 @@ CV_EXPORTS void intersectScissor(float x, float y, float w, float h);
  */
 CV_EXPORTS void resetScissor();
 
-CV_EXPORTS void clear(const cv::Scalar& bgra = cv::Scalar(0, 0, 0, 255));
+CV_EXPORTS void clearScreen(const cv::Scalar& bgra = cv::Scalar(0, 0, 0, 255));
 }
 }
 }

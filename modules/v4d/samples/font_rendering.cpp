@@ -5,27 +5,28 @@ using namespace cv::v4d;
 
 class FontRenderingPlan: public Plan {
 	//The text to render
-	string hw_ = "Hello World";
+	string text_ = "Hello World";
+	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	using Plan::Plan;
-
-	void infer(Ptr<V4D> win) override {
+	void infer() override {
 		//Render the text at the center of the screen. Note that you can load you own fonts.
-		win->nvg([](const Size &sz, const string &str) {
+		nvg([](const Rect& vp, const string& str) {
 			using namespace cv::v4d::nvg;
-			clear();
+			clearScreen();
 			fontSize(40.0f);
 			fontFace("sans-bold");
 			fillColor(Scalar(255, 0, 0, 255));
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
-			text(sz.width / 2.0, sz.height / 2.0, str.c_str(),
+			text(vp.width / 2.0, vp.height / 2.0, str.c_str(),
 					str.c_str() + str.size());
-		}, R(size()), R(hw_));
+		}, vp_, R(text_));
 	}
 };
 
 int main() {
 	cv::Rect viewport(0, 0, 960, 960);
-	cv::Ptr<V4D> window = V4D::make(viewport.size(), "Font Rendering", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-	window->run<FontRenderingPlan>(0, viewport);
+	cv::Ptr<V4D> runtime = V4D::init(viewport, "Font Rendering", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+	Plan::run<FontRenderingPlan>(0);
+
+	return 0;
 }

@@ -12,14 +12,16 @@
 using std::vector;
 using std::string;
 
+
 using namespace cv::v4d;
 
 class PedestrianDemoPlan : public Plan {
-public:
-	using Plan::Plan;
 private:
-	cv::Size downSize_;
-	cv::Size_<float> scale_;
+	struct Params {
+		cv::Size downSize_;
+		cv::Size_<float> scale_;
+		cv::Rect newTracked_;
+	} params_;
 
 	struct Frames {
 		//BGRA
@@ -51,7 +53,10 @@ private:
 
     inline static cv::Rect tracked_ = cv::Rect(0,0,0,0);
 
-	constexpr static auto doRedect_ = [](const Detection& detection){ return !detection.trackerInit_ || detection.redetect_; };
+    constexpr static auto dontRedect_ = [](const Detection& detection){ return detection.trackerInit_ && !detection.redetect_; };
+    constexpr static auto doRedect_ = [](const Detection& detection){ return !detection.trackerInit_ || detection.redetect_; };
+
+	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 
 	//adapted from cv::dnn_objdetect::InferBbox
 	static inline bool pair_comparator(std::pair<double, size_t> l1, std::pair<double, size_t> l2) {
@@ -123,45 +128,44 @@ private:
 	    return keep;
 	}
 public:
-    PedestrianDemoPlan(const cv::Rect& viewport) : Plan(viewport) {
-    	Global::registerShared(tracked_);
-    	int w = size().width;
-    	int h = size().height;
-    	downSize_ = { 640 , 360 };
-    	scale_ = { float(w) / downSize_.width, float(h) / downSize_.height };
+    PedestrianDemoPlan() {
+    	_shared(tracked_);
     }
 
-    void setup(cv::Ptr<V4D> window) override {
-    	window->plain([](Detection& detection){
+
+    void setup() override {
+    	plain([](const cv::Rect& vp, Detection& detection, Params& params){
     		detection.params_.desc_pca = cv::TrackerKCF::GRAY;
     		detection.params_.compress_feature = false;
     		detection.params_.compressed_size = 1;
     		detection.tracker_ = cv::TrackerKCF::create(detection.params_);
     		detection.hog_.setSVMDetector(cv::HOGDescriptor::getDefaultPeopleDetector());
-		}, RW(detection_));
+    		params.downSize_ = { 640 , 360 };
+    		params.scale_ = { float(vp.width) / params.downSize_.width, float(vp.height) / params.downSize_.height };
+    	}, vp_, RW(detection_), RW(params_));
 	}
 
-	void infer(cv::Ptr<V4D> window) override {
-		window->capture();
+	void infer() override {
+		capture();
 
-		window->fb([](const cv::UMat& framebuffer, cv::UMat& videoFrame){
+		fb([](const cv::UMat& framebuffer, cv::UMat& videoFrame){
 			//copy video frame
 			cvtColor(framebuffer,videoFrame,cv::COLOR_BGRA2RGB);
 		}, RW(frames_.videoFrame_));
 
-		window->plain([](const cv::Size& downSize, Frames &frames){
-			cv::resize(frames.videoFrame_, frames.videoFrameDown_, downSize);
+		plain([](const Params& params, Frames &frames){
+			cv::resize(frames.videoFrame_, frames.videoFrameDown_, params.downSize_);
 			cv::cvtColor(frames.videoFrameDown_, frames.videoFrameDownGrey_, cv::COLOR_RGB2GRAY);
 			cv::cvtColor(frames.videoFrame_, frames.background_, cv::COLOR_RGB2BGRA);
-		}, R(downSize_), RW(frames_));
+		}, R(params_), RW(frames_));
 
 		//Try to track the pedestrian (if we currently are tracking one), else re-detect using HOG descriptor
-		window->branch(doRedect_, R(detection_))
-			->plain([](const cv::UMat& videoFrameDownGrey, Detection& detection, cv::Rect& tracked) {
+		branch(doRedect_, R(detection_))
+			->plain([](const cv::UMat& videoFrameDownGrey, Detection& detection, Params& params, const cv::Rect& tracked) {
+				detection.redetect_ = true;
 				//Detect pedestrians
 				detection.hog_.detectMultiScale(videoFrameDownGrey, detection.locations_, 0, cv::Size(), cv::Size(), 1.15, 2.0, true);
 				if (!detection.locations_.empty()) {
-					cerr << "detected" << endl;
 					detection.boxes_.clear();
 					detection.probs_.clear();
 					//collect all found boxes
@@ -173,62 +177,57 @@ public:
 					//use nms to filter overlapping boxes (https://medium.com/analytics-vidhya/non-max-suppression-nms-6623e6572536)
 					vector<bool> keep = non_maximal_suppression(&detection.boxes_, &detection.probs_, 0.1);
 					for (size_t i = 0; i < keep.size(); ++i) {
+						//only track the first pedestrian found
 						if (keep[i]) {
-							//only track the first pedestrian found
-							if(tracked.width == 0 || tracked.height == 0) {
-								tracked = detection.locations_[i];
-							} else {
-								tracked.x = (detection.locations_[i].x + tracked.x) / 2.0;
-								tracked.y = (detection.locations_[i].y + tracked.y) / 2.0;
-								tracked.width = (detection.locations_[i].width + tracked.width) / 2.0;
-								tracked.height = (detection.locations_[i].height + tracked.height) / 2.0;
-							}
+							params.newTracked_= detection.locations_[i];
 							detection.redetect_ = false;
 							break;
 						}
 					}
 
-					if(!detection.trackerInit_){
+					if(!detection.trackerInit_ && !detection.redetect_){
 						//initialize the tracker once
-						detection.tracker_->init(videoFrameDownGrey, tracked);
+						detection.tracker_->init(videoFrameDownGrey, params.newTracked_);
 						detection.trackerInit_ = true;
 					}
 				}
-				cerr << "redectend: " << tracked << endl;
-			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW_C(tracked_))
+			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), R_C(tracked_))
 		->elseBranch()
-			->plain([](const cv::UMat& videoFrameDownGrey, Detection& detection, cv::Rect& tracked) {
-				cv::Rect newTracked = tracked;
-				if(newTracked.width == 0 || newTracked.height == 0 || !detection.tracker_->update(videoFrameDownGrey, newTracked)) {
+			->plain([](const cv::UMat& videoFrameDownGrey, Detection& detection, Params& params, const cv::Rect& tracked) {
+				params.newTracked_ = tracked;
+				if(params.newTracked_.width == 0 || params.newTracked_.height == 0 || !detection.tracker_->update(videoFrameDownGrey, params.newTracked_)) {
 					detection.redetect_ = true;
 				} else {
-					tracked.x = (newTracked.x + tracked.x) / 2.0;
-					tracked.y = (newTracked.y + tracked.y) / 2.0;
-					tracked.width = (newTracked.width + tracked.width) / 2.0;
-					tracked.height = (newTracked.height+ tracked.height) / 2.0;
+					detection.redetect_ = false;
 				}
-			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW_C(tracked_))
+			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), R_C(tracked_))
 		->endBranch();
 
-		//Draw an ellipse around the tracked pedestrian
-		window->nvg([](const cv::Size& sz, const cv::Size_<float>& scale, const cv::Rect tracked) {
-			using namespace cv::v4d::nvg;
-			float width = tracked.width * scale.width;
-			float height = tracked.height * scale.height;
-			float cx = (scale.width * tracked.x + (width / 2.0));
-			float cy = (scale.height * tracked.y + ((height) / 2.0));
+		plain([](const Params& params, cv::Rect& tracked) {
+			tracked.x = (params.newTracked_.x + tracked.x) / 2.0;
+			tracked.y = (params.newTracked_.y + tracked.y) / 2.0;
+			tracked.width = (params.newTracked_.width + tracked.width) / 2.0;
+			tracked.height = (params.newTracked_.height+ tracked.height) / 2.0;
+		}, R(params_), RW_S(tracked_));
 
-			clear();
+		nvg([](const cv::Rect& vp, const Params& params, const cv::Rect& tracked) {
+			//Draw an ellipse around the tracked pedestrian
+			using namespace cv::v4d::nvg;
+			float width = tracked.width * params.scale_.width;
+			float height = tracked.height * params.scale_.height;
+			float cx = (params.scale_.width * tracked.x + (width / 2.0));
+			float cy = (params.scale_.height * tracked.y + ((height) / 2.0));
+			clearScreen();
 			beginPath();
-			strokeWidth(std::fmax(5.0, sz.width / 960.0));
+			strokeWidth(std::fmax(5.0, vp.width / 960.0));
 			strokeColor(cv::v4d::colorConvert(cv::Scalar(0, 127, 255, 200), cv::COLOR_HLS2BGR));
 			ellipse(cx, cy, (width), (height));
 			stroke();
-		}, R(size()), R(scale_), R_C(tracked_));
+		}, vp_, R(params_), R_C(tracked_));
 
-		//Put it all together
-		window->fb([](cv::UMat& framebuffer, const cv::UMat& background) {
-	        cv::add(background, framebuffer, framebuffer);
+		fb([](cv::UMat& framebuffer, const cv::UMat& background) {
+			//Put it all together
+			cv::add(background, framebuffer, framebuffer);
 		}, R(frames_.background_));
 	}
 };
@@ -236,14 +235,14 @@ public:
 
 int main(int argc, char **argv) {
     if (argc != 2) {
-        std::cerr << "Usage: pedestrian-demo <video-input>" << endl;
+        std::cerr << "Usage: pedestrian-demo <video-input>" << std::endl;
         exit(1);
     }
 
     cv::Rect viewport(0, 0, 1280, 720);
-    cv::Ptr<V4D> window = V4D::make(viewport.size(), "Pedestrian Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-    auto src = Source::make(window, argv[1]);
-    window->setSource(src);
-    window->run<PedestrianDemoPlan>(0, viewport);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Pedestrian Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    auto src = Source::make(runtime, argv[1]);
+    runtime->setSource(src);
+    Plan::run<PedestrianDemoPlan>(0);
     return 0;
 }

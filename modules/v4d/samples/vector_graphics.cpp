@@ -4,24 +4,24 @@ using namespace cv;
 using namespace cv::v4d;
 
 class VectorGraphicsPlan: public Plan {
-using Plan::Plan;
+Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	void infer(Ptr<V4D> win) override {
+	void infer() override {
 		//Creates a NanoVG context and draws googly eyes that occasionally blink.
-		win->nvg([](const Size &sz) {
+		nvg([](const Rect &vp) {
 			//Calls from this namespace may only be used inside a nvg context.
 			//Nvg calls work exactly like their c-funtion counterparts.
 			//Please refer to the NanoVG documentation for details.
 			using namespace cv::v4d::nvg;
-			clear();
+			clearScreen();
 
 			static long start = cv::getTickCount() / cv::getTickFrequency();
 			float t = cv::getTickCount() / cv::getTickFrequency() - start;
 			float x = 0;
 			float y = 0;
-			float w = sz.width / 4;
-			float h = sz.height / 4;
-			translate((sz.width / 2.0f) - (w / 2.0f), (sz.height / 2.0f) - (h / 2.0f));
+			float w = vp.width / 4;
+			float h = vp.height / 4;
+			translate((vp.width / 2.0f) - (w / 2.0f), (vp.height / 2.0f) - (h / 2.0f));
 			float mx = w / 2.0;
 			float my = h / 2.0;
 			Paint gloss, bg;
@@ -97,13 +97,13 @@ public:
 			ellipse(rx, ry, ex, ey);
 			fillPaint(gloss);
 			fill();
-		}, R(size()));
+		}, vp_);
 	}
 };
 
 int main() {
     cv::Rect viewport(0,0, 960, 960);
-	Ptr<V4D> window = V4D::make(viewport.size(), "Vector Graphics", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-    window->run<VectorGraphicsPlan>(0, viewport);
+	Ptr<V4D> runtime = V4D::init(viewport, "Vector Graphics", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    Plan::run<VectorGraphicsPlan>(0);
 }
 

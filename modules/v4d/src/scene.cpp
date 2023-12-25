@@ -42,17 +42,11 @@ static BoundingBox calculateBoundingBox(const aiMesh* m) {
     		std::max(center[1] - min[1], max[1] - center[1]),
 			std::max(center[2] - min[2], max[2] - center[2]));
 
-    cerr << "min: " << min << endl;
-    cerr << "max: " << max << endl;
-    cerr << "center: " << center << endl;
-    cerr << "size: " << size << endl;
-    cerr << "span: " << span << endl;
     return {min, max, center, size, span};
 }
 
 static float calculateAutoScale(BoundingBox bbox) {
 	float maxDimension = std::max(bbox.span_[0], std::max(bbox.span_[1], bbox.span_[2]));
-	cerr << "scale: " << 1.0f	/maxDimension << endl;
     return 0.1f / (maxDimension * 2.0);
 }
 

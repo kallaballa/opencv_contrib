@@ -13,7 +13,7 @@ namespace v4d {
 namespace detail {
 
 NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext) :
-        mainFbContext_(fbContext), nvgFbContext_(new FrameBufferContext(*fbContext->getV4D(), "NanoVG", fbContext)), context_(
+        mainFbContext_(fbContext), nvgFbContext_(new FrameBufferContext("NanoVG", fbContext)), context_(
                 nullptr) {
 		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
 #if defined(OPENCV_V4D_USE_ES3)
@@ -32,6 +32,7 @@ int NanoVGContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 	{
 		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+		glViewport(vp.x, vp.y, vp.width, vp.height);
 		NanoVGContext::Scope nvgScope(*this, vp);
 		cv::v4d::nvg::detail::NVG::initializeContext(context_);
 		fn();
@@ -48,8 +49,8 @@ void NanoVGContext::begin(const cv::Rect& viewport) {
     float r = fbCtx()->pixelRatioX();
     CV_UNUSED(ws);
     nvgSave(context_);
-    nvgBeginFrame(context_, w, h, r);
-    nvgTranslate(context_, 0, h - hs);
+    nvgBeginFrame(context_, ws, hs, r);
+//    nvgTranslate(context_, 0, h - hs);
 }
 
 void NanoVGContext::end() {

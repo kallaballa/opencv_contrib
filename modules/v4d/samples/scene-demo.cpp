@@ -414,15 +414,15 @@ private:
 //
 //	gl::Scene scene_;
 public:
-	SceneDemoPlan(const cv::Rect& viewport, const string& filename) : Plan(viewport), filename_(filename)
+//	SceneDemoPlan(const cv::Rect& viewport, const string& filename) : Plan(viewport), filename_(filename)
 //	, scene_(viewport)
-	{
+//	{
 //		Global::registerShared(camera_);
 //		Global::registerShared(params_);
 //		Global::registerShared(transform_);
-	}
+//	}
 
-	void setup(cv::Ptr<V4D> window) override {
+	void setup() override {
 //		window->ext([](gl::Scene& scene, const string& filename) {
 //			CV_Assert(scene.load(filename));
 //		}, scene_, filename_);
@@ -445,7 +445,7 @@ public:
 	}
 
 
-	void infer(cv::Ptr<V4D> window) override {
+	void infer() override {
 //		window->branch(0, always_);
 //		{
 //			window->plain([](Transform& transform, Camera& camera, Params& params){
@@ -545,13 +545,13 @@ public:
 
 int main(int argc, char** argv) {
 	CV_Assert(argc == 2);
-	string filename = argv[1];
-	cv::Ptr<SceneDemoPlan> plan = new SceneDemoPlan(cv::Rect(0,0, 1920, 1080), filename);
-	cv::Ptr<V4D> window = V4D::make(plan->size(), "Scene Demo", AllocateFlags::IMGUI);
-	window->setFullscreen(true);
-    auto sink = Sink::make(window, "scene-demo.mkv", 60, plan->size());
-    window->setSink(sink);
-    window->run(plan, 0, filename);
+//	string filename = argv[1];
+//	cv::Ptr<SceneDemoPlan> plan = new SceneDemoPlan(cv::Rect(0,0, 1920, 1080), filename);
+//	cv::Ptr<V4D> window = V4D::make(plan->size(), "Scene Demo", AllocateFlags::IMGUI);
+//	window->setFullscreen(true);
+//    auto sink = Sink::make(window, "scene-demo.mkv", 60, plan->size());
+//    window->setSink(sink);
+//    window->run(plan, 0, filename);
 
     return 0;
 }

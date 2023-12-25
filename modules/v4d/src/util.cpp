@@ -58,20 +58,9 @@ size_t cnz(const cv::UMat& m) {
     return cv::countNonZero(grey);
 }
 }
-ThreadSafeMap<Global::Keys> Global::map_;
-std::mutex Global::global_mtx_;
-bool Global::is_first_run_ = true;
-std::set<string> Global::once_;
-std::mutex Global::thread_id_mtx_;
-const std::thread::id Global::default_thread_id_;
-std::thread::id Global::main_thread_id_;
-thread_local bool Global::is_main_;
-std::mutex Global::sharedMtx_;
-std::map<size_t, std::mutex*> Global::shared_;
-std::mutex Global::node_lock_mtx_;
-std::map<string, std::pair<std::thread::id, cv::Ptr<std::mutex>>> Global::node_lock_map_;
 
-Global global;
+Global* Global::instance_ = nullptr;
+RunState* RunState::instance_ = nullptr;
 
 CV_EXPORTS void copy_cross(const cv::UMat& src, cv::UMat& dst) {
 	if(dst.empty())

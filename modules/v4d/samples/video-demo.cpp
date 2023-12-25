@@ -11,8 +11,6 @@ using std::endl;
 using namespace cv::v4d;
 
 class VideoDemoPlan: public Plan {
-public:
-	using Plan::Plan;
 private:
 	/* Scene constants */
 	constexpr static GLuint TRIANGLES_ = 12;
@@ -165,28 +163,28 @@ private:
 	    glDrawElements(GL_TRIANGLES, TRIANGLES_ * 3, GL_UNSIGNED_SHORT, NULL);
 	}
 public:
-	void setup(cv::Ptr<V4D> window) override {
-		window->gl([](Handles& handles) {
+	void setup() override {
+		gl([](Handles& handles) {
 			init_scene(handles);
 		}, RW(handles_));
 	}
 
-	void infer(cv::Ptr<V4D> window) override {
-		window->gl([]() {
+	void infer() override {
+		gl([]() {
 			glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 		});
 
-		window->capture();
+		capture();
 
-		window->gl([](const Handles& handles) {
+		gl([](const Handles& handles) {
 			render_scene(handles);
 		}, R(handles_));
 
-		window->write();
+		write();
 	}
 
-	void teardown(cv::Ptr<V4D> window) override {
-		window->gl([](const Handles& handles) {
+	void teardown() override {
+		gl([](const Handles& handles) {
 			destroy_scene(handles);
 		}, R(handles_));
 	}
@@ -200,14 +198,12 @@ int main(int argc, char** argv) {
     }
 
 	cv::Rect viewport(0,0,1280,720);
-    cv::Ptr<V4D> window = V4D::make(viewport.size(), "Video Demo");
-
-    auto src = Source::make(window, argv[1]);
-    auto sink = Sink::make(window, "video-demo.mkv", src->fps(), viewport.size());
-    window->setSource(src);
-    window->setSink(sink);
-
-    window->run<VideoDemoPlan>(0, viewport);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Video Demo", AllocateFlags::IMGUI);
+    auto src = Source::make(runtime, argv[1]);
+    auto sink = Sink::make(runtime, "video-demo.mkv", src->fps(), viewport.size());
+    runtime->setSource(src);
+    runtime->setSink(sink);
+    Plan::run<VideoDemoPlan>(0);
 
     return 0;
 }

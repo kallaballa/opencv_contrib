@@ -8,11 +8,12 @@
 
 #include "source.hpp"
 #include "sink.hpp"
-#include "threadsafemap.hpp"
 #include "detail/framebuffercontext.hpp"
 #include <filesystem>
 #include <string>
 #include <iostream>
+
+#include "threadsafeanymap.hpp"
 #ifdef __GNUG__
 #include <cstdlib>
 #include <memory>
@@ -156,74 +157,40 @@ CV_EXPORTS size_t cnz(const cv::UMat& m);
 }
 using std::string;
 class V4D;
+class Plan;
 
 inline uint64_t get_epoch_nanos() {
 	return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-typedef std::latch Latch;
-typedef cv::Ptr<std::latch> LatchPtr;
-
-class CV_EXPORTS Global {
-	friend class cv::v4d::V4D;
-	friend class cv::v4d::detail::FrameBufferContext;
+class Locking {
+	std::mutex sharedVarsMtx_;
+	std::map<size_t, std::mutex*> sharedVars_;
+	typedef typename std::map<size_t, std::mutex*>::iterator SharedVarsIter;
 public:
-	enum Keys {
-		FRAME_COUNT,
-		RUN_COUNT,
-		START_TIME,
-		FPS,
-		WORKERS_READY,
-		WORKERS_STARTED,
-		WORKERS_INDEX,
-		FRAMEBUFFER_INDEX,
-		LOCKING,
-		WORKER_READY_BARRIER,
-		DISPLAY_READY
-	};
-
-	Global() {
-		reset();
-	}
-
-	template <typename T>
-	class Scope {
-	private:
-		const T& t_;
-	public:
-
-		Scope(const T& t) : t_(t) {
-			lock(t_);
-		}
-
-		~Scope() {
-			unlock(t_);
-		}
-	};
-
 	template<typename T>
-	static bool isShared(const T& shared) {
-		std::lock_guard<std::mutex> guard(sharedMtx_);
-		return shared_.find(reinterpret_cast<size_t>(&shared)) != shared_.end();
+	bool isShared(const T& shared) {
+		std::lock_guard<std::mutex> guard(sharedVarsMtx_);
+		return sharedVars_.find(reinterpret_cast<size_t>(&shared)) != sharedVars_.end();
 	}
 
 	template<typename T>
-	static void registerShared(const T& shared) {
-		std::lock_guard<std::mutex> guard(sharedMtx_);
-		shared_.insert(std::make_pair(reinterpret_cast<size_t>(&shared), new std::mutex()));
+	void registerShared(const T& shared) {
+		std::lock_guard<std::mutex> guard(sharedVarsMtx_);
+		sharedVars_.insert(std::make_pair(reinterpret_cast<size_t>(&shared), new std::mutex()));
 	}
 
 	template<typename T>
-	static void safe_copy(const T& from, T& to) {
+	void safe_copy(const T& from, T& to) {
 		std::mutex* mtx = nullptr;
 		{
-			std::lock_guard<std::mutex> guard(sharedMtx_);
-			auto itFrom = shared_.find(reinterpret_cast<size_t>(&from));
-			auto itTo = shared_.find(reinterpret_cast<size_t>(&to));
+			std::lock_guard<std::mutex> guard(sharedVarsMtx_);
+			auto itFrom = sharedVars_.find(reinterpret_cast<size_t>(&from));
+			auto itTo = sharedVars_.find(reinterpret_cast<size_t>(&to));
 
-			if(itFrom != shared_.end()) {
+			if(itFrom != sharedVars_.end()) {
 				mtx = (*itFrom).second;
-			} else if(itTo != shared_.end()) {
+			} else if(itTo != sharedVars_.end()) {
 				mtx = (*itTo).second;
 			} else {
 				throw std::runtime_error("You are unnecessarily safe-copying a variable or you forgot to register it.");
@@ -263,54 +230,61 @@ public:
 		return to;
 	}
 
-	static double fps() {
-		return get<double>(FPS);
-	}
-
-	static size_t workers_started() {
-		return get<size_t>(WORKERS_STARTED);
-	}
-private:
-	static ThreadSafeMap<Keys> map_;
-	static std::mutex global_mtx_;
-	static bool is_first_run_;
-	static std::set<string> once_;
-
-	static std::mutex thread_id_mtx_;
-	static const std::thread::id default_thread_id_;
-	static std::thread::id main_thread_id_;
-	static thread_local bool is_main_;
-
-	static std::mutex sharedMtx_;
-	static std::map<size_t, std::mutex*> shared_;
-	static std::mutex node_lock_mtx_;
-	static std::map<string, std::pair<std::thread::id, cv::Ptr<std::mutex>>> node_lock_map_;
-	typedef typename std::map<size_t, std::mutex*>::iterator ThreadWorkerIdIterator;
-
 	template<typename T>
 	static T copy_construct(const T& t) {
 		return t;
 	}
 
-	CV_EXPORTS static void reset() {
-		set<size_t>(FRAME_COUNT, 0);
-		set<size_t>(RUN_COUNT, 0);
-		set<uint64_t>(START_TIME, get_epoch_nanos());
-		set<double>(FPS, 0);
-		set<size_t>(WORKERS_READY, 0);
-		set<size_t>(WORKERS_STARTED, 0);
-		set<size_t>(WORKERS_INDEX, 0);
-		set<size_t>(FRAMEBUFFER_INDEX, 0);
-		set<bool>(LOCKING, false);
-		set<bool>(DISPLAY_READY, false);
+
+	template<typename T>
+	std::mutex* getMutexPtr(const T& shared) {
+		SharedVarsIter it, end;
+		std::mutex* mtx = nullptr;
+			std::lock_guard<std::mutex> guard(sharedVarsMtx_);
+			it = sharedVars_.find(reinterpret_cast<size_t>(&shared));
+			end = sharedVars_.end();
+			if(it != end) {
+				mtx = (*it).second;
+			}
+
+			if(mtx == nullptr)
+				throw std::runtime_error("You are trying to lock a non-shared variable");
+
+			return mtx;
 	}
 
-	CV_EXPORTS static cv::Ptr<std::mutex> get_node_lock_internal(const string& name, const bool owned = true) {
-		auto it = node_lock_map_.find(name);
+	template<typename T>
+	void lock(const T& shared) {
+		getMutexPtr(shared)->lock();
+	}
+
+	template<typename T>
+	void unlock(const T& shared) {
+		getMutexPtr(shared)->unlock();
+	}
+
+	template<typename T>
+	bool tryLock(const T& shared) {
+		return getMutexPtr(shared)->try_lock();
+	}
+};
+
+CV_EXPORTS class Global : public Locking {
+	CV_EXPORTS static Global* instance_;
+	std::mutex threadIDMtx_;
+	const std::thread::id defaultThreadID_;
+	std::thread::id mainThreadID_;
+	bool isFirstRun_ = true;
+	std::set<string> once_;
+	std::mutex nodeLockMtx_;
+	std::map<string, std::pair<std::thread::id, cv::Ptr<std::mutex>>> nodeLockMap_;
+
+	CV_EXPORTS cv::Ptr<std::mutex> getNodeLockInternal(const string& name, const bool owned = true) {
+		auto it = nodeLockMap_.find(name);
 		if(owned) {
-			if(it == node_lock_map_.end()) {
+			if(it == nodeLockMap_.end()) {
 				auto mtxPtr = cv::makePtr<std::mutex>();
-				node_lock_map_[name] = {std::this_thread::get_id(), mtxPtr};
+				nodeLockMap_[name] = {std::this_thread::get_id(), mtxPtr};
 				return mtxPtr;
 			} else {
 				auto entry = *it;
@@ -319,7 +293,7 @@ private:
 				}
 			}
 		} else {
-			if(it != node_lock_map_.end()) {
+			if(it != nodeLockMap_.end()) {
 				auto entry = *it;
 				if(entry.second.first != std::this_thread::get_id()) {
 					return entry.second.second;
@@ -329,23 +303,51 @@ private:
 		return nullptr;
 	}
 
-	CV_EXPORTS static bool invalidate_node_lock_internal(const string& name) {
-		auto it = node_lock_map_.find(name);
-		if(it != node_lock_map_.end()) {
+	CV_EXPORTS bool invalidateNodeLockInternal(const string& name) {
+		auto it = nodeLockMap_.find(name);
+		if(it != nodeLockMap_.end()) {
 			auto& entry = *it;
 			entry.second.second = nullptr;
 			return true;
 		}
 		return false;
 	}
-	CV_EXPORTS static cv::Ptr<std::mutex> try_get_node_lock(const string& name) {
-		std::lock_guard guard(node_lock_mtx_);
-		return get_node_lock_internal(name, false);
+public:
+	CV_EXPORTS void setMainID(const std::thread::id& id) {
+		std::lock_guard<std::mutex> lock(threadIDMtx_);
+		mainThreadID_ = id;
+    }
+
+	CV_EXPORTS bool isMain() {
+		std::lock_guard<std::mutex> lock(threadIDMtx_);
+		return (mainThreadID_ == defaultThreadID_ || mainThreadID_ == std::this_thread::get_id());
 	}
 
-	CV_EXPORTS static bool lock_node(const string& name) {
-		std::lock_guard guard(node_lock_mtx_);
-		auto lock = get_node_lock_internal(name);
+	CV_EXPORTS bool isFirstRun() {
+		static std::mutex mtx;
+		std::lock_guard<std::mutex> lock(mtx);
+    	bool f = isFirstRun_;
+    	isFirstRun_ = false;
+		return f;
+    }
+
+	CV_EXPORTS static Global& instance() {
+		static std::mutex mtx;
+		std::lock_guard guard(mtx);
+		if(instance_ == nullptr) {
+			instance_ = new Global();
+		}
+		return *instance_;
+	}
+
+	CV_EXPORTS cv::Ptr<std::mutex> tryGetNodeLock(const string& name) {
+		std::lock_guard guard(nodeLockMtx_);
+		return getNodeLockInternal(name, false);
+	}
+
+	CV_EXPORTS bool lockNode(const string& name) {
+		std::lock_guard guard(nodeLockMtx_);
+		auto lock = getNodeLockInternal(name);
 		if(lock) {
 			lock->lock();
 			return true;
@@ -354,22 +356,22 @@ private:
 		}
 	}
 
-	CV_EXPORTS static bool try_unlock_node(const string& name) {
-		std::lock_guard guard(node_lock_mtx_);
-		auto lock = get_node_lock_internal(name);
+	CV_EXPORTS bool tryUnlockNode(const string& name) {
+		std::lock_guard guard(nodeLockMtx_);
+		auto lock = getNodeLockInternal(name);
 		if(lock) {
 			lock->unlock();
-			invalidate_node_lock_internal(name);
+			invalidateNodeLockInternal(name);
 			return true;
 		} else {
 			return false;
 		}
 	}
 
-	CV_EXPORTS static size_t cound_node_locks() {
-		std::lock_guard guard(node_lock_mtx_);
+	CV_EXPORTS size_t countNodeLocks() {
+		std::lock_guard guard(nodeLockMtx_);
 		size_t cnt = 0;
-		for(auto entry : node_lock_map_) {
+		for(auto entry : nodeLockMap_) {
 			if(entry.second.first == std::this_thread::get_id() && entry.second.second) {
 				++cnt;
 			}
@@ -377,97 +379,80 @@ private:
 		return cnt;
 	}
 
-	CV_EXPORTS static std::mutex& mutex() {
-    	return global_mtx_;
-    }
-
-	CV_EXPORTS static bool once(string name) {
+	CV_EXPORTS bool once(string name) {
 	    static std::mutex mtx;
 		std::lock_guard<std::mutex> lock(mtx);
 		string stem = name.substr(0, name.find_last_of("-"));
-		if(once_.empty()) {
-			once_.insert(stem);
-			return true;
-		}
 
 		auto it = once_.find(stem);
 		if(it != once_.end()) {
+			std::cerr << "DENIED" << std::endl;
 			return false;
 		} else {
 			once_.insert(stem);
+			std::cerr << "GRANTED" << std::endl;
 			return true;
 		}
 	}
+};
 
-	CV_EXPORTS static void set_main_id(const std::thread::id& id) {
-		std::lock_guard<std::mutex> lock(thread_id_mtx_);
-		main_thread_id_ = id;
-    }
 
-	CV_EXPORTS static bool is_main() {
-		std::lock_guard<std::mutex> lock(thread_id_mtx_);
-		return (main_thread_id_ == default_thread_id_ || main_thread_id_ == std::this_thread::get_id());
+class RunState {
+	CV_EXPORTS static RunState* instance_;
+public:
+	struct Keys {
+		enum Enum {
+			FRAME_COUNT,
+			RUN_COUNT,
+			START_TIME,
+			FPS,
+			WORKERS_READY,
+			WORKERS_STARTED,
+			WORKERS_INDEX,
+			FRAMEBUFFER_INDEX,
+			LOCKING,
+			DISPLAY_READY
+		};
+	};
+private:
+	ThreadSafeAnyMap<Keys::Enum> map_;
+public:
+	RunState() {
+		create<false, size_t>(Keys::FRAME_COUNT, 0);
+		create<false, size_t>(Keys::RUN_COUNT, 0);
+		create<false, uint64_t>(Keys::START_TIME, get_epoch_nanos());
+		create<false, double>(Keys::FPS, 0);
+		create<false, size_t>(Keys::WORKERS_READY, 0);
+		create<false, size_t>(Keys::WORKERS_STARTED, 0);
+		create<false, size_t>(Keys::WORKERS_INDEX, 0);
+		create<false, size_t>(Keys::FRAMEBUFFER_INDEX, 0);
+		create<false, bool>(Keys::LOCKING, false);
+		create<false, bool>(Keys::DISPLAY_READY, false);
 	}
 
-	CV_EXPORTS static bool is_first_run() {
+	static RunState& instance() {
 		static std::mutex mtx;
-		std::lock_guard<std::mutex> lock(mtx);
-    	bool f = is_first_run_;
-    	is_first_run_ = false;
-		return f;
-    }
-
-	template<typename T>
-	static void lock(const T& shared) {
-		ThreadWorkerIdIterator it, end;
-		std::mutex* mtx = nullptr;
-		{
-			std::lock_guard<std::mutex> guard(sharedMtx_);
-			it = shared_.find(reinterpret_cast<size_t>(&shared));
-			end = shared_.end();
-			if(it != end) {
-				mtx = (*it).second;
-			}
+		std::lock_guard guard(mtx);
+		if(instance_ == nullptr) {
+			instance_ = new RunState();
 		}
-
-		if(mtx != nullptr) {
-			mtx->lock();
-			return;
-		}
-		throw std::runtime_error("You are trying to lock a non-shared variable");
+		return *instance_;
 	}
 
-	template<typename T>
-	static void unlock(const T& shared) {
-		ThreadWorkerIdIterator it, end;
-		std::mutex* mtx = nullptr;
-		{
-			std::lock_guard<std::mutex> guard(sharedMtx_);
-			it = shared_.find(reinterpret_cast<size_t>(&shared));
-			end = shared_.end();
-			if(it != end) {
-				mtx = (*it).second;
-			}
-		}
-
-		if(mtx != nullptr) {
-			mtx->unlock();
-			return;
-		}
-
-		throw std::runtime_error("You are trying to unlock a non-shared variable");
-	}
-
-	template <typename V> static V get(Keys k) {
+	template <typename V> const V& get(Keys::Enum k) {
 		return map_.get<V>(k);
 	}
 
-	template <typename V> static void set(Keys k, V v) {
+	template <typename V> void set(Keys::Enum k, V v) {
 		map_.set(k, v);
 	}
 
-	template <typename V> static V on(Keys k, std::function<V(V&)> f) {
-		return map_.on(k, f);
+	template <bool Tread, typename V> void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
+		map_.create<Tread>(k, v, cb);
+	}
+
+	template <typename V> V apply(Keys::Enum k, std::function<V(V&)> f) {
+		return map_.apply(k, f);
 	}
 };
 

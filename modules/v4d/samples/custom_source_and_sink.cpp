@@ -6,29 +6,29 @@ using namespace cv::v4d;
 
 class CustomSourceAndSinkPlan : public Plan {
 	const string hr_ = "Hello Rainbow!";
+	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	using Plan::Plan;
-	void infer(cv::Ptr<V4D> win) override {
-		win->capture();
+	void infer() override {
+		capture();
 
 		//Render "Hello Rainbow!" over the video
-		win->nvg([](const Size& sz, const string& str) {
+		nvg([](const Rect& vp, const string& str) {
 			using namespace cv::v4d::nvg;
 
 			fontSize(40.0f);
 			fontFace("sans-bold");
 			fillColor(Scalar(255, 0, 0, 255));
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
-			text(sz.width / 2.0, sz.height / 2.0, str.c_str(), str.c_str() + str.size());
-		}, R(size()), R(hr_));
+			text(vp.width / 2.0, vp.height / 2.0, str.c_str(), str.c_str() + str.size());
+		}, vp_, R(hr_));
 
-		win->write();
+		write();
 	}
 };
 
 int main() {
 	cv::Rect viewport(0, 0, 960, 960);
-    Ptr<V4D> window = V4D::make(viewport.size(), "Custom Source/Sink", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    Ptr<V4D> runtime = V4D::init(viewport, "Custom Source/Sink", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
 	//Make a source that generates rainbow frames.
 	cv::Ptr<Source> src = new Source([](cv::UMat& frame){
@@ -70,9 +70,9 @@ int main() {
 	});
 
 	//Attach source and sink
-	window->setSource(src);
-	window->setSink(sink);
+	runtime->setSource(src);
+	runtime->setSink(sink);
 
-	window->run<CustomSourceAndSinkPlan>(0, viewport);
+	Plan::run<CustomSourceAndSinkPlan>(0);
 }
 

@@ -57,6 +57,8 @@ private:
         GLuint vbo_, ebo_;
     } handles_;
 
+    Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+
     //easing function for the bungee zoom
     static float easeInOutQuint(float x) {
         return x < 0.5f ? 16.0f * x * x * x * x * x : 1.0f - std::pow(-2.0f * x + 2.0f, 5.0f) / 2.0f;
@@ -176,7 +178,6 @@ private:
     }
 
     static void update_params(Params& params) {
-    	cerr << params.currentZoom_ << endl;
 		//bungee zoom
 		if (params.currentZoom_ >= 3) {
 			params.zoomIn = true;
@@ -220,7 +221,7 @@ private:
     }
 
     //Render the mandelbrot fractal on top of a video
-    static void render_scene(const cv::Size& sz, const Params& params, const Handles& handles) {
+    static void render_scene(const cv::Rect& vp, const Params& params, const Handles& handles) {
     	glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
 		GL_CHECK(glUseProgram(handles.shaderHdl_));
@@ -235,21 +236,18 @@ private:
 		else {
 			GL_CHECK(glUniform1f(handles.currentZoomHdl_, easeInOutQuint(params.currentZoom_)));
 		}
-		float res[2] = {float(sz.width), float(sz.height)};
+		float res[2] = {float(vp.width), float(vp.height)};
 		GL_CHECK(glUniform2fv(handles.resolutionHdl_, 1, res));
         GL_CHECK(glBindVertexArray(handles.vao_));
         GL_CHECK(glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0));
     }
 public:
-	using Plan::Plan;
+	ShaderDemoPlan() {
+		_shared(params_);
+	}
 
-    ShaderDemoPlan(const cv::Rect& viewport) : Plan(viewport) {
-		Global::registerShared(params_);
-    }
-
-    void gui(cv::Ptr<V4D> window) override {
-        window->imgui([](cv::Ptr<V4D> win, Params& params) {
-            CV_UNUSED(win);
+	void gui() override {
+        imgui([](Params& params) {
             using namespace ImGui;
             Begin("Fractal");
             Text("Navigation");
@@ -265,28 +263,36 @@ public:
         }, params_);
     }
 
-    void setup(cv::Ptr<V4D> window) override {
-		window->gl([](Handles& handles) {
+    void setup() override {
+    	gl([](Handles& handles) {
 			init_scene(handles);
 		}, RW(handles_));
     }
 
-    void infer(cv::Ptr<V4D> window) override {
-        window->capture();
+    void infer() override {
+        capture();
+        set(V4D::Keys::WINDOW_SIZE, [](){
+        	double time = cv::getTickCount() / cv::getTickFrequency();
+        	if(int(ceil(time)) % 2 == 1) {
+        		return cv::Size(640, 360);
+        	} else {
+        		return cv::Size(320, 180);
+        	}
+        });
 
-		window->plain([](Params& params) {
+		plain([](Params& params) {
 			update_params(params);
-		}, RW_C(params_));
+		}, RW_S(params_));
 
-        window->gl([](const cv::Size& sz, const Params params, const Handles& handles) {
-        	render_scene(sz, params, handles);
-		}, R(size()), R_C(params_), R(handles_));
+		gl([](const cv::Rect& vp, const Params params, const Handles& handles) {
+        	render_scene(vp, params, handles);
+		}, vp_, R_C(params_), R(handles_));
 
-        window->write();
+        write();
     }
 
-    void teardown(cv::Ptr<V4D> window) override {
-		window->gl([](const Handles& handles) {
+    void teardown() override {
+		gl([](const Handles& handles) {
 			destroy_scene(handles);
 		}, R(handles_));
     }
@@ -296,19 +302,18 @@ ShaderDemoPlan::Params ShaderDemoPlan::params_;
 
 int main(int argc, char** argv) {
     if (argc != 2) {
-		cerr << "Usage: shader-demo <video-file>" << endl;
+		std::cerr << "Usage: shader-demo <video-file>" << std::endl;
         exit(1);
     }
 
     cv::Rect viewport(0, 0, 1280, 720);
-	cv::Ptr<V4D> window = V4D::make(viewport.size(), "Mandelbrot Shader Demo", AllocateFlags::IMGUI);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Mandelbrot Shader Demo", AllocateFlags::IMGUI);
+	auto src = Source::make(runtime, argv[1]);
+	auto sink = Sink::make(runtime, "shader-demo.mkv", src->fps(), viewport.size());
+	runtime->setSource(src);
+	runtime->setSink(sink);
 
-	auto src = Source::make(window, argv[1]);
-	auto sink = Sink::make(window, "shader-demo.mkv", src->fps(), viewport.size());
-	window->setSource(src);
-	window->setSink(sink);
-
-	window->run<ShaderDemoPlan>(0, viewport);
+	Plan::run<ShaderDemoPlan>(0);
 
 	return 0;
 }

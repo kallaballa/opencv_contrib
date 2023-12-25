@@ -6,46 +6,46 @@ using namespace cv::v4d;
 class VideoEditingPlan : public Plan {
 	cv::UMat frame_;
 	const string hv_ = "Hello Video!";
+	//Property extends Edge which means it can be directly passed without Edge-directive
+	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	using Plan::Plan;
-	void infer(Ptr<V4D> win) override {
+	void infer() override {
 		//Capture video from the source
-		win->capture();
+		capture();
 
 		//Render on top of the video
-		win->nvg([](const Size& sz, const string& str) {
+		nvg([](const Rect& vp, const string& str) {
 			using namespace cv::v4d::nvg;
 
 			fontSize(40.0f);
 			fontFace("sans-bold");
 			fillColor(Scalar(255, 0, 0, 255));
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
-			text(sz.width / 2.0, sz.height / 2.0, str.c_str(), str.c_str() + str.size());
-		}, R(size()), R(hv_));
+			text(vp.width / 2.0, vp.height / 2.0, str.c_str(), str.c_str() + str.size());
+		}, vp_, R(hv_));
 
 		//Write video to the sink
-		win->write();
+		write();
 	}
 };
 
 int main(int argc, char** argv) {
 	if (argc != 3) {
-        cerr << "Usage: video_editing <input-video-file> <output-video-file>" << endl;
+        std::cerr << "Usage: video_editing <input-video-file> <output-video-file>" << std::endl;
         exit(1);
     }
     cv::Rect viewport(0, 0, 960, 960);
-    Ptr<V4D> window = V4D::make(viewport.size(), "Video Editing", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    Ptr<V4D> runtime = V4D::init(viewport, "Video Editing", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 
     //Make the video source
-    auto src = Source::make(window, argv[1]);
+    auto src = Source::make(runtime, argv[1]);
 
     //Make the video sink
-    auto sink = Sink::make(window, argv[2], src->fps(), viewport.size());
+    auto sink = Sink::make(runtime, argv[2], src->fps(), viewport.size());
 
     //Attach source and sink
-    window->setSource(src);
-    window->setSink(sink);
+    runtime->setSource(src);
+    runtime->setSink(sink);
 
-    window->run<VideoEditingPlan>(0, viewport);
+    Plan::run<VideoEditingPlan>(0);
 }
-

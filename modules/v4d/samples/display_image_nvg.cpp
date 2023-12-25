@@ -12,14 +12,15 @@ class DisplayImageNVG : public Plan {
 	    int w_;
 	    int h_;
 	} image_;
+
+	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	using Plan::Plan;
-	void setup(Ptr<V4D> win) override{
+	void setup() override {
 		//Set the filename
 		image_.filename_ = samples::findFile("lena.jpg");
 
 		//Creates a NanoVG context. The wrapped C-functions of NanoVG are available in the namespace cv::v4d::nvg;
-		win->nvg([](Image_t& img) {
+		nvg([](Image_t& img) {
 			using namespace cv::v4d::nvg;
 			//Create the image_ and receive a handle.
 			int handle = createImage(img.filename_.c_str(), NVG_IMAGE_NEAREST);
@@ -32,13 +33,13 @@ public:
 		}, RW(image_));
 	}
 
-	void infer(Ptr<V4D> win) override{
+	void infer() override{
 		//Creates a NanoVG context to draw the loaded image_ over again to the screen.
-		win->nvg([](const cv::Size& sz, const Image_t& img) {
+		nvg([](const cv::Rect& vp, const Image_t& img) {
 			using namespace cv::v4d::nvg;
 			beginPath();
 			//Scale all further calls to window size
-			scale(double(sz.width)/img.w_, double(sz.height)/img.h_);
+			scale(double(vp.width)/img.w_, double(vp.height)/img.h_);
 			//Create a rounded rectangle with the images dimensions.
 			//Note that actually this rectangle will have the size of the window
 			//because of the previous scale call.
@@ -46,12 +47,12 @@ public:
 			//Fill the rounded rectangle with our picture
 			fillPaint(img.paint_);
 			fill();
-		}, R(size()), R(image_));
+		}, vp_, R(image_));
 	}
 };
 
 int main() {
 	cv::Rect viewport(0, 0, 960, 960);
-	Ptr<V4D> window = V4D::make(viewport.size(), "Display an image using NanoVG", AllocateFlags::NANOVG);
-    window->run<DisplayImageNVG>(0, viewport);
+	Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    Plan::run<DisplayImageNVG>(0);
 }

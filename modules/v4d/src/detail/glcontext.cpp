@@ -3,18 +3,19 @@
 // of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
+#include "opencv2/v4d/detail/gl.hpp"
 #include "opencv2/v4d/detail/glcontext.hpp"
 
 namespace cv {
 namespace v4d {
 namespace detail {
 GLContext::GLContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext) :
-        idx_(idx), mainFbContext_(fbContext), glFbContext_(new FrameBufferContext(*fbContext->getV4D(), "OpenGL" + std::to_string(idx), fbContext)) {
+        idx_(idx), mainFbContext_(fbContext), glFbContext_(new FrameBufferContext("OpenGL" + std::to_string(idx), fbContext)) {
 }
 
 int GLContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
-		CV_UNUSED(vp);
+		glViewport(0, 0, vp.width, vp.height);
 		fn();
 		return 1;
 }

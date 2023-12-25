@@ -23,6 +23,7 @@ struct GLFWwindow;
 namespace cv {
 namespace v4d {
 class V4D;
+class Plan;
 
 namespace detail {
 struct FBConfigFlags {
@@ -98,8 +99,8 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     friend class ImGuiContextImpl;
     friend class BgfxContext;
     friend class cv::v4d::V4D;
+    friend class cv::v4d::Plan;
     cv::Ptr<FrameBufferContext> self_ = this;
-    V4D* v4d_ = nullptr;
     string title_;
     int major_;
     int minor_;
@@ -115,11 +116,8 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     GLuint textureFlippedID_ = 0;
     GLuint textureID_ = 0;
     GLuint renderBufferID_ = 0;
-    cv::Rect viewport_;
     cl_mem clImage_ = nullptr;
     CLExecContext_t context_;
-    static std::mutex window_size_mtx_;
-    static cv::Size window_size_;
     const cv::Size framebufferSize_;
     bool hasParent_ = false;
     GLFWwindow* rootWindow_;
@@ -210,9 +208,9 @@ public:
      * Create a FrameBufferContext with given size.
      * @param frameBufferSize The frame buffer size.
      */
-    FrameBufferContext(V4D& v4d, const cv::Size& frameBufferSize, const string& title, int major, int minor, int samples, GLFWwindow* rootWindow, cv::Ptr<FrameBufferContext> parent, bool root, int configFlags);
+    FrameBufferContext(const cv::Size& frameBufferSize, const string& title, int major, int minor, int samples, GLFWwindow* rootWindow, cv::Ptr<FrameBufferContext> parent, bool root, int configFlags);
 
-    FrameBufferContext(V4D& v4d, const string& title, cv::Ptr<FrameBufferContext> other, int configFlags = -1);
+    FrameBufferContext(const string& title, cv::Ptr<FrameBufferContext> other, int configFlags = -1);
 
     /*!
      * Default destructor.
@@ -225,8 +223,6 @@ public:
 
     GLuint getFramebufferID();
     GLuint getTextureID();
-    cv::Rect getViewport();
-    void setViewport(const cv::Rect& vp);
 
     /*!
      * Get the framebuffer size.
@@ -245,17 +241,18 @@ public:
       * @param fn A function object that is passed the framebuffer to be read/manipulated.
       */
     virtual int execute(const cv::Rect& vp, std::function<void()> fn) override {
-    	CV_UNUSED(vp);
     	if(cv::ocl::useOpenCL() && !getCLExecContext().empty()) {
 			CLExecScope_t clExecScope(getCLExecContext());
 			FrameBufferContext::GLScope glScope(self(), GL_FRAMEBUFFER);
 			FrameBufferContext::FrameBufferScope fbScope(self(), framebuffer_);
+			view_ = framebuffer_(vp);
 			fn();
-		} else {
+    	} else {
 			FrameBufferContext::GLScope glScope(self(), GL_FRAMEBUFFER);
 			FrameBufferContext::FrameBufferScope fbScope(self(), framebuffer_);
+			view_ = framebuffer_(vp);
 			fn();
-		}
+    	}
     	return 1;
     }
 
@@ -267,7 +264,6 @@ public:
     bool isResizable();
     void setResizable(bool r);
     void setWindowSize(const cv::Size& sz);
-    CV_EXPORTS const cv::Size getWindowSize();
     bool isFullscreen();
     void setFullscreen(bool f);
     cv::Size getNativeFrameBufferSize();
@@ -289,7 +285,6 @@ public:
             GLuint targetFramebufferID = 0, bool stretch = true, bool flipY = false);
 protected:
     CLExecContext_t& getCLExecContext();
-    cv::Ptr<V4D> getV4D();
     int getIndex();
     void setup();
     void teardown();
@@ -303,7 +298,6 @@ public:
     CV_EXPORTS void blendFramebuffer(const GLuint& otherID);
     CV_EXPORTS void init();
     CV_EXPORTS cv::UMat& fb();
-    CV_EXPORTS cv::UMat& view();
     /*!
      * Setup OpenGL states.
      */
@@ -351,7 +345,7 @@ public:
     };
 
     cv::UMat framebuffer_;
-    std::map<cv::Rect, cv::UMat, RectLessCompare<int>> views_;
+    cv::UMat view_;
     GLint currentFBOTarget_ = -1;
 };
 }

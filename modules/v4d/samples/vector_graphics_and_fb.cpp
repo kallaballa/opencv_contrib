@@ -5,22 +5,22 @@ using namespace cv;
 using namespace cv::v4d;
 
 class VectorGraphicsAndFBPlan : public Plan {
+	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	using Plan::Plan;
-	void infer(Ptr<V4D> window) override {
+	void infer() override {
 		//Again creates a NanoVG context and draws googly eyes
-		window->nvg([](const Size& sz) {
+		nvg([](const Rect& vp) {
 			//Calls from this namespace may only be used inside a nvg context
 			using namespace cv::v4d::nvg;
-			clear();
+			clearScreen();
 
 			static long start = cv::getTickCount() / cv::getTickFrequency();
 			float t = cv::getTickCount() / cv::getTickFrequency() - start;
 			float x = 0;
 			float y = 0;
-			float w = sz.width / 4;
-			float h = sz.height / 4;
-			translate((sz.width / 2.0f) - (w / 2.0f), (sz.height / 2.0f) - (h / 2.0f));
+			float w = vp.width / 4;
+			float h = vp.height / 4;
+			translate((vp.width / 2.0f) - (w / 2.0f), (vp.height / 2.0f) - (h / 2.0f));
 			float mx = w / 2.0;
 			float my = h / 2.0;
 			Paint gloss, bg;
@@ -90,19 +90,19 @@ public:
 			ellipse(rx, ry, ex, ey);
 			fillPaint(gloss);
 			fill();
-		}, R(size()));
+		}, vp_);
 
 		//Provides the framebuffer as left-off by the nvg context.
-		window->fb([](UMat& framebuffer, const cv::Size& sz) {
+		fb([](UMat& framebuffer, const cv::Rect& vp) {
 			//Heavily blurs the eyes using a cheap boxFilter
 			boxFilter(framebuffer, framebuffer, -1, Size(15, 15), Point(-1,-1), true, BORDER_REPLICATE);
-		}, R(size()));
+		}, vp_);
 	}
 };
 int main() {
     cv::Rect viewport(0, 0, 960, 960);
-    Ptr<V4D> window = V4D::make(viewport.size(), "Vector Graphics and Framebuffer", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-    window->run<VectorGraphicsAndFBPlan>(0, viewport);
+    Ptr<V4D> runtime = V4D::init(viewport, "Vector Graphics and Framebuffer", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    Plan::run<VectorGraphicsAndFBPlan>(0);
 }
 
 

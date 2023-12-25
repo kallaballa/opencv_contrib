@@ -81,7 +81,7 @@ namespace detail {
 
 class CV_EXPORTS BgfxContext : public V4DContext {
 	cv::Ptr<FrameBufferContext> mainFbContext_;
-	cv::Ptr<FrameBufferContext> rayFbContext_;
+	cv::Ptr<FrameBufferContext> bgfxContext_;
 public:
     BgfxContext(cv::Ptr<FrameBufferContext> fbContext);
     virtual ~BgfxContext() {};

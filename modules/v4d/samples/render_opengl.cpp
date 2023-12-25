@@ -5,16 +5,14 @@ using namespace cv::v4d;
 
 class RenderOpenGLPlan : public Plan {
 public:
-	using Plan::Plan;
-
-	void setup(Ptr<V4D> window) override {
-		window->gl([]() {
+	void setup() override {
+		gl([]() {
 			//Sets the clear color to blue
 			glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
 		});
 	}
-	void infer(Ptr<V4D> window) override {
-		window->gl([]() {
+	void infer() override {
+		gl([]() {
 			//Clears the screen. The clear color and other GL-states are preserved between context-calls.
 			glClear(GL_COLOR_BUFFER_BIT);
 		});
@@ -23,7 +21,7 @@ public:
 
 int main() {
 	cv::Rect viewport(0, 0, 960, 960);
-    Ptr<V4D> window = V4D::make(viewport.size(), "GL Blue Screen");
-    window->run<RenderOpenGLPlan>(0, viewport);
+    Ptr<V4D> runtime = V4D::init(viewport, "GL Blue Screen");
+    Plan::run<RenderOpenGLPlan>(0);
 }
 

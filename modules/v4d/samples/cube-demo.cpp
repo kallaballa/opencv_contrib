@@ -9,9 +9,6 @@
 using namespace cv::v4d;
 
 class CubeDemoPlan : public Plan {
-public:
-	using Plan::Plan;
-
 	/* OpenGL constants */
 	constexpr static GLuint TRIANGLES_ = 12;
 	constexpr static GLuint VERTICES_INDEX_ = 0;
@@ -49,7 +46,7 @@ public:
 	        // Top
 	        5, 1, 0, 0, 4, 5
 	};
-private:
+
 	struct Handles {
 		GLuint vao_ = 0;
 		GLuint program_ = 0;
@@ -58,6 +55,8 @@ private:
 		GLuint verticesVbo_ = 0;
 		GLuint colorsVbo_ = 0;
 	} handles_;
+
+	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 
 	//Simple transform & pass-through shaders
 	static GLuint load_shader() {
@@ -181,20 +180,20 @@ private:
 		glDrawElements(GL_TRIANGLES, TRIANGLES_ * 3, GL_UNSIGNED_SHORT, NULL);
 	}
 public:
-	void setup(cv::Ptr<V4D> window) override {
-		window->gl([](const cv::Size& sz, Handles& handles){
-			init_scene(sz, handles);
-		}, R(size()), RW(handles_));
+	void setup() override {
+		gl([](const cv::Rect& vp, Handles& handles){
+			init_scene(vp.size(), handles);
+		}, vp_, RW(handles_));
 	}
 
-	void infer(cv::Ptr<V4D> window) override {
-		window->gl([](const Handles& handles){
+	void infer() override {
+		gl([](const Handles& handles){
 			render_scene(handles);
 		}, R(handles_));
 	}
 
-	void teardown(cv::Ptr<V4D> window) override {
-		window->gl([](const Handles& handles){
+	void teardown() override {
+		gl([](const Handles& handles){
 			destroy_scene(handles);
 		}, R(handles_));
 	}
@@ -202,12 +201,8 @@ public:
 
 int main() {
 	cv::Rect viewport(0, 0, 1280, 720);
-    cv::Ptr<V4D> window = V4D::make(viewport.size(), "Cube Demo");
+	cv::Ptr<V4D> runtime = V4D::init(viewport, "Cube Demo");
+	Plan::run<CubeDemoPlan>(0);
 
-    //Creates a writer sink (which might be hardware accelerated)
-    auto sink = Sink::make(window, "cube-demo.mkv", 60, viewport.size());
-    window->setSink(sink);
-    window->run<CubeDemoPlan>(0, viewport);
-
-    return 0;
+	return 0;
 }

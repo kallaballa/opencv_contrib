@@ -14,7 +14,7 @@ cv::Ptr<Source> Source::makeVaSource(cv::Ptr<V4D> window, const string& inputFil
             cv::CAP_PROP_HW_DEVICE, vaDeviceIndex, cv::CAP_PROP_HW_ACCELERATION,
             cv::VIDEO_ACCELERATION_VAAPI, cv::CAP_PROP_HW_ACCELERATION_USE_OPENCL, 1 });
     float fps = capture->get(cv::CAP_PROP_FPS);
-    cerr << "Using a VA source" << endl;
+    CV_LOG_INFO(nullptr, "Using a VA source");
 
     window->sourceCtx()->copyContext();
 
@@ -25,13 +25,11 @@ cv::Ptr<Source> Source::makeVaSource(cv::Ptr<V4D> window, const string& inputFil
 }
 
 cv::Ptr<Source> Source::makeAnyHWSource(cv::Ptr<V4D> window, const string& inputFilename) {
-//    auto& currentExecContext = ocl::OpenCLExecutionContext::getCurrent();
-//    currentExecContext = ocl::OpenCLExecutionContext::create(currentExecContext.getContext(), currentExecContext.getDevice());
-//    currentExecContext.bind();
 	cv::Ptr<cv::VideoCapture> capture = new cv::VideoCapture(inputFilename, cv::CAP_FFMPEG, {
-//            cv::CAP_PROP_HW_ACCELERATION, cv::VIDEO_ACCELERATION_ANY, cv::CAP_PROP_HW_ACCELERATION_USE_OPENCL, 1
+            cv::CAP_PROP_HW_ACCELERATION, cv::VIDEO_ACCELERATION_ANY
 	});
-    float fps = capture->get(cv::CAP_PROP_FPS);
+
+	float fps = capture->get(cv::CAP_PROP_FPS);
 
     window->sourceCtx()->copyContext();
 
@@ -48,7 +46,7 @@ cv::Ptr<Source> Source::make(cv::Ptr<V4D> window, const string& inputFilename) {
         try {
             return makeAnyHWSource(window, inputFilename);
         } catch(...) {
-            cerr << "Failed creating hardware source" << endl;
+            CV_LOG_INFO(nullptr, "Failed to create hardware source");
         }
     }
 

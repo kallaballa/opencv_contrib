@@ -2,7 +2,7 @@
 // It is subject to the license terms in the LICENSE file found in the top-level directory
 // of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
-
+/*
 int v4d_cube_main();
 int v4d_many_cubes_main();
 int v4d_video_main(int argc, char **argv);
@@ -42,9 +42,8 @@ int v4d_beauty_main(int argc, char **argv);
 
 class BlankPlan : public Plan {
 public:
-	using Plan::Plan;
-	void infer(cv::Ptr<V4D> window) override {
-		window->clear();
+	void infer() override {
+		clear();
 	}
 };
 
@@ -68,7 +67,7 @@ class MontageDemoPlan : public Plan {
 	static State state_;
 public:
 	MontageDemoPlan(const cv::Rect& vp, const bool& highresMode) : Plan(vp), highresMode_(highresMode) {
-		Global::registerShared(state_);
+		State::registerShared(state_);
 		tileSz_ = cv::Size(vp.width / tiling_.width, vp.height / tiling_.height);
 		if(highresMode_)
 			tileViewport_ = vp;
@@ -122,7 +121,7 @@ public:
 		for(size_t i = 0; i < plans_.size(); ++i) {
 			auto* plan = plans_[i];
 			window->branch(BranchType::PARALLEL, [i](const State& state){
-				State s = Global::safe_copy(state);
+				State s = State::safe_copy(state);
 				return s.zoomed_ == -1 || i == s.zoomed_;
 			}, state_);
 			{
@@ -147,7 +146,7 @@ public:
 					const double scaleX = double(sz.width) / windowSz.width;
 					const double scaleY = double(sz.height) / windowSz.height;
 					const double scale = std::min(scaleX, scaleY);
-					Global::Scope scope(state);
+					State::Scope scope(state);
 					if(state_.zoomed_ > -1) {
 						if(consume(Mouse::Type::RELEASE, Mouse::Button::RIGHT)) {
 							state_.zoomed_ = -1;
@@ -171,7 +170,7 @@ public:
 		window->setFramebufferViewport(viewport());
 		window->clear();
 		window->fb([](cv::UMat& framebuffer, const cv::Size& tileSz, const std::vector<cv::Rect>& targetViewports, State& state, const Frames& frames){
-			State s = Global::safe_copy(state);
+			State s = State::safe_copy(state);
 
 			if(s.zoomed_ > -1) {
 				cv::resize(frames.results_[s.zoomed_], framebuffer, framebuffer.size());
@@ -197,9 +196,9 @@ public:
 };
 
 MontageDemoPlan::State MontageDemoPlan::state_;
-
+*/
 int main(int argc, char** argv) {
-	if (argc != 3) {
+/*	if (argc != 3) {
         cerr << "Usage: montage-demo <video-file> <number of extra workers>" << endl;
         exit(1);
     }
@@ -211,7 +210,7 @@ int main(int argc, char** argv) {
     window->setSource(src);
 //    window->setSink(sink);
     window->run(plan, atoi(argv[2]), false);
-
+*/
     return 0;
 }
 

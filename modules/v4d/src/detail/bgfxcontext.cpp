@@ -4,6 +4,7 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include "../../include/opencv2/v4d/detail/bgfxcontext.hpp"
+#include "../../include/opencv2/v4d/v4d.hpp"
 
 #include <bx/bx.h>
 #include <bgfx/bgfx.h>
@@ -48,7 +49,7 @@ namespace detail {
 
 BgfxContext::BgfxContext(cv::Ptr<FrameBufferContext> fbContext) :
 	mainFbContext_(fbContext),
-	rayFbContext_(new FrameBufferContext(*fbContext->getV4D(), "Bgfx", fbContext)) {
+	bgfxContext_(new FrameBufferContext("Bgfx", fbContext)) {
 //	bgfx::renderFrame();
 	bgfx::Init init;
 #ifndef OPENCV_V4D_USE_ES3
@@ -64,8 +65,9 @@ BgfxContext::BgfxContext(cv::Ptr<FrameBufferContext> fbContext) :
 #elif BX_PLATFORM_WINDOWS
 	init.platformData.nwh = glfwGetWin32Window(window);
 #endif
-	init.resolution.width  = fbCtx()->getWindowSize().width;
-	init.resolution.height = fbCtx()->getWindowSize().height;
+	cv::Size sz = fbCtx()->size();
+	init.resolution.width  = sz.width;
+	init.resolution.height = sz.height;
 	init.resolution.reset  = BGFX_RESET_VSYNC;
 	FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER, 0);
 	bgfx::init(init);
@@ -83,7 +85,7 @@ int BgfxContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 
 
 cv::Ptr<FrameBufferContext> BgfxContext::fbCtx() {
-    return rayFbContext_;
+    return bgfxContext_;
 }
 }
 }
