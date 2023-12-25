@@ -21,7 +21,6 @@ public:
     	return std::any::operator =(rhs);
     }
 
-    /// Store a copy of @p __rhs as the contained object.
     template <typename T>
     any& operator=(T&& __rhs) {
     	std::any::operator =(any(std::forward<T>(__rhs)));
@@ -84,7 +83,7 @@ public:
         return ret;
     }
 
-    // A method to get a pointer to the value for a given key
+    // A member to get a pointer to the value for a given key
     template<typename V>
     const V* ptr(K key) const {
     	CV_Assert(properties_.size() > key);

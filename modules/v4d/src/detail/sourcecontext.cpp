@@ -24,11 +24,12 @@ int SourceContext::execute(const cv::Rect& vp, std::function<void()> fn) {
         	if(src->isOpen()) {
 				auto p = src->operator ()();
 		        CV_Assert(p.first > 0);
-		        CV_Assert(p.second.type() == CV_8UC3 || p.second.type() == CV_8UC4);
 
 		        if(p.second.empty()) {
 					CV_Error(cv::Error::StsError, "End of stream");
 				}
+
+		        CV_Assert(p.second.type() == CV_8UC3 || p.second.type() == CV_8UC4);
 
 		        if(p.second.channels() == 3)
 		        	cv::cvtColor(p.second, sourceBuffer(), cv::COLOR_RGB2BGRA);
@@ -46,13 +47,14 @@ int SourceContext::execute(const cv::Rect& vp, std::function<void()> fn) {
         	if(src->isOpen()) {
 				auto p = src->operator ()();
 		        CV_Assert(p.first > 0);
-		        CV_Assert(p.second.type() == CV_8UC3 || p.second.type() == CV_8UC4);
 
 				if(p.second.empty()) {
 					CV_Error(cv::Error::StsError, "End of stream");
 				}
 
-		        if(p.second.channels() == 3)
+		        CV_Assert(p.second.type() == CV_8UC3 || p.second.type() == CV_8UC4);
+
+				if(p.second.channels() == 3)
 		        	cv::cvtColor(p.second, sourceBuffer(), cv::COLOR_RGB2BGRA);
 		        else
 		        	p.second.copyTo(sourceBuffer());
