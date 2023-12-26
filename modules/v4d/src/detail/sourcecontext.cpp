@@ -15,6 +15,9 @@ SourceContext::SourceContext(cv::Ptr<FrameBufferContext> mainFbContext) : mainFb
 }
 
 int SourceContext::execute(const cv::Rect& vp, std::function<void()> fn) {
+	if(V4D::instance()->get<bool>(V4D::Keys::DISABLE_VIDEO_IO))
+		return 1;
+
 	CV_UNUSED(vp);
     if (hasContext()) {
         CLExecScope_t scope(getCLExecContext());

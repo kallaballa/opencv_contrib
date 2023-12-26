@@ -69,8 +69,8 @@ endmacro()
   # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined")
   # set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -fsanitize=undefined -static-libasan")
 
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
-  set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -fsanitize=thread -static-libasan")
+  # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
+  # set(CMAKE_LD_FLAGS "${CMAKE_LD_FLAGS} -fsanitize=thread -static-libasan")
   # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror -Wno-sign-promo")
 if (NOT (TARGET nanovg))
   #Configure NanoVG build options

@@ -66,6 +66,14 @@ public:
 		_shared(textVars_);
 		_shared(tm_);
 		_shared(stars_);
+
+	}
+	FontDemoPlan(Plan& parent) {
+		_parent(parent);
+		_shared(params_);
+		_shared(textVars_);
+		_shared(tm_);
+		_shared(stars_);
 	}
 
 	void gui() override {
@@ -113,13 +121,9 @@ public:
     }
 
     void infer() override {
-    	set(V4D::Keys::VIEWPORT, [](const cv::Size& sz) {
-    		return cv::Rect(0, 0, sz.width, sz.height);
-    	}, GET<cv::Size>(V4D::Keys::FB_SIZE));
-
     	branch([](const Params& params) {
 			return params.updateStars_;
-		}, R_C(params_))
+		}, R_SC(params_))
 			->nvg([](const cv::Rect& vp, cv::RNG& rng, const Params& params) {
 				using namespace cv::v4d::nvg;
 				clearScreen();
@@ -133,7 +137,7 @@ public:
 					circle(rng.uniform(0, vp.width) , rng.uniform(0, vp.height), size / 2.0);
 					stroke();
 				}
-			}, vp_, RW(rng_), R_C(params_))
+			}, vp_, RW(rng_), R_SC(params_))
 			->fb([](const cv::UMat& framebuffer, cv::UMat& stars, Params& params) {
 				params.updateStars_ = false;
 				framebuffer.copyTo(stars);
@@ -142,7 +146,7 @@ public:
 
 		branch([](const Params& params){
 			return params.updatePerspective_;
-		}, R_C(params_))
+		}, R_SC(params_))
 			->plain([](const cv::Rect& vp, cv::Mat& tm, Params& params) {
 				//Derive the transformation matrix tm for the pseudo 3D effect from quad1 and quad2.
 				vector<cv::Point2f> quad1 = { cv::Point2f(0, 0),
@@ -179,7 +183,7 @@ public:
 					text(vp.width / 2.0, y, textVars.lines_[i].c_str(), textVars.lines_[i].c_str() + textVars.lines_[i].size());
 				}
 			}
-		}, vp_, RW(translateY_), RW(y_), R_C(textVars_), R_C(params_));
+		}, vp_, RW(translateY_), RW(y_), R_SC(textVars_), R_SC(params_));
 
 		fb([](const cv::UMat& framebuffer, cv::UMat& text) {
 			framebuffer.copyTo(text);
@@ -187,28 +191,24 @@ public:
 
 		clear();
 
-    	set(V4D::Keys::VIEWPORT, GET<cv::Rect>(V4D::Keys::INIT_VIEWPORT));
 		fb([](cv::UMat& framebuffer, const cv::UMat& text, cv::UMat& warped, const cv::UMat& stars, const cv::Mat& tm) {
-			cv::Size fbSize = framebuffer.size();
-			cv::Rect roi(fbSize.width / 2.0, fbSize.height / 4.0, fbSize.width, fbSize.height);
-			cv::UMat roiStars = stars(roi).clone();
 			cv::warpPerspective(text, warped, tm, text.size(), cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar());
-			cv::UMat roiWarped = warped(roi);
 			cv::UMat blur;
 			cv::UMat mask;
-			cv::boxFilter(roiWarped, blur, -1, cv::Size(5, 5), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
+			cv::boxFilter(warped, blur, -1, cv::Size(5, 5), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
 			cv::threshold(blur, mask, 1, 255, cv::THRESH_BINARY);
 			cvtColor(mask, mask, cv::COLOR_BGRA2GRAY);
-			roiStars.setTo(cv::Scalar::all(0), mask);
-			cv::add(roiStars, roiWarped, framebuffer);
-		},  R(text_), RW(warped_), R_C(stars_), R_C(tm_));
+			cv::UMat s = stars.clone();
+			s.setTo(cv::Scalar::all(0), mask);
+			cv::add(s, warped, framebuffer);
+		},  R(text_), RW(warped_), R_SC(stars_), R_SC(tm_));
 
 		plain([](const double& translateY, const TextVars& textVars, Params& params) {
 			if(-translateY > textVars.textHeight_) {
 				//reset the timeOffset once the text is out of the picture
 				params.timeOffset_ = cv::getTickCount() / cv::getTickFrequency();
 			}
-		}, R(translateY_), R_C(textVars_), RW_S(params_));
+		}, R(translateY_), R_SC(textVars_), RW_S(params_));
     }
 };
 

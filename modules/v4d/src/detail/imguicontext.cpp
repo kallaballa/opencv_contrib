@@ -52,7 +52,6 @@ void ImGuiContextImpl::build(std::function<void()> fn) {
 }
 
 void ImGuiContextImpl::render(bool showFPS) {
-	mainFbContext_->makeCurrent();
 	ImGui_ImplOpenGL3_NewFrame();
 	ImGui_ImplGlfw_NewFrame();
 	ImGui::NewFrame();

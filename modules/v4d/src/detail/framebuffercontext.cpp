@@ -451,9 +451,9 @@ void FrameBufferContext::toGLTexture2D(cv::UMat& u, const GLuint& texID) {
     cl_command_queue q = (cl_command_queue) context_.getQueue().ptr();
     cl_mem clBuffer = (cl_mem) u.handle(ACCESS_READ);
 
-    status = clFinish(q); // TODO Use events
-    if (status != CL_SUCCESS)
-        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
+//    status = clFinish(q); // TODO Use events
+//    if (status != CL_SUCCESS)
+//        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
 
     size_t offset = 0;
     size_t dst_origin[3] = { 0, 0, 0 };
@@ -467,9 +467,9 @@ void FrameBufferContext::toGLTexture2D(cv::UMat& u, const GLuint& texID) {
     if (status != CL_SUCCESS)
          throw std::runtime_error("OpenCL: clEnqueueReleaseGLObjects failed: " + std::to_string(status));
 
-    status = clFinish(q); // TODO Use events
-    if (status != CL_SUCCESS)
-        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
+//    status = clFinish(q); // TODO Use events
+//    if (status != CL_SUCCESS)
+//        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
 }
 
 void FrameBufferContext::fromGLTexture2D(const GLuint& texID, cv::UMat& u) {
@@ -480,9 +480,9 @@ void FrameBufferContext::fromGLTexture2D(const GLuint& texID, cv::UMat& u) {
     cl_command_queue q = (cl_command_queue) context_.getQueue().ptr();
     cl_int status = 0;
 
-    status = clFinish(q); // TODO Use events
-    if (status != CL_SUCCESS)
-        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
+//    status = clFinish(q); // TODO Use events
+//    if (status != CL_SUCCESS)
+//        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
 
     if(clImage_ == nullptr) {
 		Context& ctx = context_.getContext();
@@ -507,9 +507,9 @@ void FrameBufferContext::fromGLTexture2D(const GLuint& texID, cv::UMat& u) {
     if (status != CL_SUCCESS)
         throw std::runtime_error("OpenCL: clEnqueueCopyImageToBuffer failed: " + std::to_string(status));
 
-    status = clFinish(q); // TODO Use events
-    if (status != CL_SUCCESS)
-        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
+//    status = clFinish(q); // TODO Use events
+//    if (status != CL_SUCCESS)
+//        CV_Error_(cv::Error::OpenCLApiCallError, ("OpenCL: clFinish failed: %d", status));
 
 }
 #endif
@@ -544,7 +544,6 @@ void FrameBufferContext::copyFrom(const cv::UMat& src) {
 }
 
 void FrameBufferContext::copyToRootWindow() {
-	this->makeCurrent();
     GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferID_));
 	GL_CHECK(glReadBuffer(GL_COLOR_ATTACHMENT0));
 
@@ -606,8 +605,8 @@ cv::UMat& FrameBufferContext::fb() {
 
 void FrameBufferContext::begin(GLenum framebufferTarget, GLuint frameBufferID) {
     currentFBOTarget_ = frameBufferID;
-	this->makeCurrent();
-	GL_CHECK(glBindFramebuffer(framebufferTarget, frameBufferID));
+    this->makeCurrent();
+    GL_CHECK(glBindFramebuffer(framebufferTarget, frameBufferID));
 }
 
 void FrameBufferContext::end() {
@@ -627,7 +626,6 @@ void FrameBufferContext::end() {
 		blitFrameBufferToFrameBuffer(cv::Rect(fbX, fbY, fbWidth, fbHeight), size(), copyFramebuffers_[currentFBOTarget_], false, false);
 		blendFramebuffer(currentFBOTarget_);
 	}
-//	this->makeNoneCurrent();
 }
 
 void FrameBufferContext::download(cv::UMat& m) {
@@ -650,10 +648,8 @@ void FrameBufferContext::acquireFromGL(cv::UMat& m) {
 #ifdef HAVE_OPENCL
 	if (cv::ocl::useOpenCL() && clglSharing_) {
         try {
-            GL_CHECK(glFinish());
             flip();
             GL_CHECK(fromGLTexture2D(textureFlippedID_, m));
-            GL_CHECK(glFinish());
             return;
         } catch(...) {
         	CV_LOG_WARNING(nullptr, "CL-GL failed to acquire.");
@@ -675,10 +671,8 @@ void FrameBufferContext::releaseToGL(cv::UMat& m) {
     if (cv::ocl::useOpenCL() && clglSharing_) {
         try
         {
-        	GL_CHECK(glFinish());
         	GL_CHECK(toGLTexture2D(m, textureFlippedID_));
         	unflip();
-            GL_CHECK(glFinish());
         	return;
         } catch(...) {
         	CV_LOG_WARNING(nullptr, "CL-GL failed to release.");

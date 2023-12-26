@@ -36,7 +36,7 @@ public:
 			fillColor(params.color_ * 255.0);
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
 			text(vp.width / 2.0, vp.height / 2.0, str.c_str(), str.c_str() + str.size());
-		}, vp_, R(hw_), R_C(params_));
+		}, vp_, R(hw_), R_SC(params_));
 	}
 };
 

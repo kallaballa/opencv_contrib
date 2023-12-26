@@ -32,7 +32,7 @@ int NanoVGContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 	{
 		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
-		glViewport(vp.x, vp.y, vp.width, vp.height);
+//		glViewport(vp.x, vp.y, vp.width, vp.height);
 		NanoVGContext::Scope nvgScope(*this, vp);
 		cv::v4d::nvg::detail::NVG::initializeContext(context_);
 		fn();
@@ -44,13 +44,16 @@ int NanoVGContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 void NanoVGContext::begin(const cv::Rect& viewport) {
     float w = fbCtx()->size().width;
     float h = fbCtx()->size().height;
+    float x = viewport.x;
+    float y = viewport.y;
     float ws = viewport.width;
     float hs = viewport.height;
     float r = fbCtx()->pixelRatioX();
     CV_UNUSED(ws);
     nvgSave(context_);
     nvgBeginFrame(context_, ws, hs, r);
-//    nvgTranslate(context_, 0, h - hs);
+    nvgScale(context_, ws/w, hs/h);
+    nvgTranslate(context_, x, y);
 }
 
 void NanoVGContext::end() {

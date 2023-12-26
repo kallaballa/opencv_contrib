@@ -110,7 +110,8 @@ struct FaceFeatures {
 using namespace cv::v4d;
 
 class BeautyDemoPlan : public Plan {
-private:
+	using K = V4D::Keys;
+
 	cv::Size downSize_;
 
 	static struct Params {
@@ -169,10 +170,11 @@ private:
 	} face_;
 
 	cv::Ptr<cv::face::Facemark> facemark_ = cv::face::createFacemarkLBF();
-	//Blender (used to put the different face parts back together)
-	cv::Ptr<cv::detail::MultiBandBlender> blender_ = new cv::detail::MultiBandBlender(true, 5);
 	//Face detector
 	cv::Ptr<cv::FaceDetectorYN> detector_;
+
+	//Blender (used to put the different face parts back together)
+	cv::Ptr<cv::detail::MultiBandBlender> blender_ = new cv::detail::MultiBandBlender(true, 5);
 
 	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 
@@ -199,7 +201,7 @@ private:
 		return params.enabled_;
 	}
 
-	static void detect_face_features(const cv::Rect vp, cv::Ptr<cv::FaceDetectorYN>& detector, cv::Ptr<cv::face::Facemark>& facemark, const cv::UMat& down, Face& face) {
+	static void detect_face_features(const cv::Rect& vp, cv::Ptr<cv::FaceDetectorYN> detector, cv::Ptr<cv::face::Facemark>& facemark, const cv::UMat& down, Face& face) {
 		face.shapes_.clear();
 		cv::Mat faces;
 		//Detect faces in the down-scaled image
@@ -333,9 +335,11 @@ private:
 public:
 	BeautyDemoPlan() {
 		_shared(params_);
-		_shared(params_.stretch_);
-		_shared(params_.fullscreen_);
 		drawMasksPlan_ = Plan::makeSubPlan<DrawMasksPlan>(*this, face_.features_, frames_);
+	}
+
+	BeautyDemoPlan(Plan& parent) : BeautyDemoPlan() {
+		_parent(parent);
 	}
 
 	void gui() override {
@@ -393,27 +397,27 @@ public:
 	}
 
 	void infer() override {
-		set(V4D::Keys::FULLSCREEN, R_C(params_.fullscreen_));
-		set(V4D::Keys::STRETCHING, R_C(params_.stretch_));
+		set(K::FULLSCREEN, m_(&Params::fullscreen_), R_SC(params_));
+		set(K::STRETCHING, m_(&Params::stretch_), R_SC(params_));
 
 		capture()
-		->fb(prepare_frames, R(downSize_), RW(frames_))
-		->plain(detect_face_features, vp_, RW(detector_), RW(facemark_), R(frames_.down_), RW(face_));
+		->fb(prepare_frames, R(downSize_), RW(frames_));
 
 		branch(is_enabled, RW_S(params_))
+			->plain(detect_face_features, vp_, RW(detector_), RW(facemark_), R(frames_.down_), RW(face_))
 			->branch(isTrue_, R(face_.found_))
-				->sub(drawMasksPlan_)
-				->plain(prepare_masks, RW(frames_), R_C(params_), RW(temp_))
-				->plain(adjust_face_features, RW(frames_), R_C(params_), RW(temp_))
+				->subInfer(drawMasksPlan_)
+				->plain(prepare_masks, RW(frames_), R_SC(params_), RW(temp_))
+				->plain(adjust_face_features, RW(frames_), R_SC(params_), RW(temp_))
 				->plain(stitch_face, RW(blender_), RW(frames_), RW(temp_))
-				->plain(compose_result, vp_, R(frames_.stitched_), RW(frames_), R_C(params_))
+				->plain(compose_result, vp_, R(frames_.stitched_), RW(frames_), R_SC(params_))
 				->plain(set_state, RW_S(params_), VAL(Params::ON))
 			->elseBranch()
-				->plain(compose_result, vp_, R(frames_.orig_), RW(frames_), R_C(params_))
+				->plain(compose_result, vp_, R(frames_.orig_), RW(frames_), R_SC(params_))
 				->plain(set_state, RW_S(params_), VAL(Params::NOT_DETECTED))
 			->endBranch()
 		->elseBranch()
-			->plain(compose_result, vp_, R(frames_.orig_), RW(frames_), R_C(params_))
+			->plain(compose_result, vp_, R(frames_.orig_), RW(frames_), R_SC(params_))
 			->plain(set_state, RW_S(params_), VAL(Params::OFF))
 		->endBranch();
 
@@ -430,7 +434,7 @@ int main(int argc, char **argv) {
     }
 
 	cv::Rect viewport(0, 0, 1280, 720);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
     Plan::run<BeautyDemoPlan>(0);

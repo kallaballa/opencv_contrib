@@ -57,6 +57,7 @@ using namespace cv::utils::logging;
 
 const LogTag cf_tag("Flow", LogLevel::LOG_LEVEL_INFO);
 const LogTag v4d_tag("V4D", LogLevel::LOG_LEVEL_INFO);
+const LogTag mon_tag("Monitor", LogLevel::LOG_LEVEL_INFO);
 
 namespace event {
 	typedef Mouse_<cv::Point> Mouse;
@@ -110,6 +111,8 @@ struct DebugFlags {
 		ONSCREEN_CONTEXTS = 1,
 		PRINT_CONTROL_FLOW = 2,
 		DEBUG_GL_CONTEXT = 4,
+		PRINT_LOCK_CONTENTION = 8,
+		MONITOR_RUNTIME_PROPERTIES = 16,
 	};
 };
 
@@ -192,7 +195,8 @@ public:
 			STRETCHING,
 			CLEAR_COLOR,
 			NAMESPACE,
-			FULLSCREEN
+			FULLSCREEN,
+			DISABLE_VIDEO_IO
     	};
     };
 private:
@@ -235,6 +239,11 @@ public:
 
     template<typename Tval>
 	void set(Keys::Enum key, const Tval& val, bool fire = true) {
+    	if(instance()->debugFlags() & DebugFlags::MONITOR_RUNTIME_PROPERTIES) {
+    		stringstream ss;
+    		ss << demangle(typeid(decltype(key)).name()) << " = " << val << " (fire: " << fire << ")";
+    		CV_LOG_INFO(&mon_tag, ss.str());
+    	}
 		properties_.set(key, val, fire);
 	}
 
@@ -328,45 +337,6 @@ public:
     CV_EXPORTS void setPrintFPS(bool p);
     CV_EXPORTS bool getShowTracking();
     CV_EXPORTS void setShowTracking(bool st);
-
-    CV_EXPORTS bool isFullscreen();
-    /*!
-     * Enable or disable fullscreen mode.
-     * @param f if true enable fullscreen mode else disable.
-     */
-    CV_EXPORTS void setFullscreen(bool f);
-    /*!
-     * Determines if the window is resizeable.
-     * @return true if the window is resizeable.
-     */
-    CV_EXPORTS bool isResizable();
-    /*!
-     * Set the window resizable.
-     * @param r if r is true set the window resizable.
-     */
-    CV_EXPORTS void setResizable(bool r);
-    /*!
-     * Determine if the window is visible.
-     * @return true if the window is visible.
-     */
-    CV_EXPORTS bool isVisible();
-    /*!
-     * Set the window visible or invisible.
-     * @param v if v is true set the window visible.
-     */
-    CV_EXPORTS void setVisible(bool v);
-    /*!
-     * Determine if the window is closed.
-     * @return true if the window is closed.
-     */
-    CV_EXPORTS bool isClosed();
-    /*!
-     * Close the window.
-     */
-    CV_EXPORTS void close();
-    /*!
-     * Print basic system information to stderr.
-     */
     CV_EXPORTS void printSystemInfo();
     CV_EXPORTS int allocateFlags();
     CV_EXPORTS int configFlags();
@@ -409,7 +379,7 @@ public:
 				CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << state.get<size_t>(RunState::Keys::WORKERS_STARTED) << " workers.");
 
 				while(keepRunning()) {
-					bool result = false;
+					bool result = true;
 					TimeTracker::getInstance()->execute("worker", [&result, &state, runtime, runGraph](){
 						event::poll();
 						if(!runtime->hasSource() || (runtime->hasSource() && !runtime->getSource()->isOpen())) {
@@ -430,6 +400,7 @@ public:
 							if(!runtime->display()) {
 								frame_sync_sema_swap.release();
 								result = false;
+								std::cerr << "END" << std::endl;
 							}
 						} else {
 							runGraph();
@@ -505,6 +476,7 @@ protected:
 class Plan {
 	friend class V4D;
     friend class detail::FrameBufferContext;
+    friend class detail::EdgeBase;
     struct BranchState {
 		string branchID_;
     	bool isEnabled_ = true;
@@ -525,7 +497,6 @@ class Plan {
     std::vector<std::tuple<std::string,bool,size_t>> accesses_;
     std::map<std::string, cv::Ptr<Transaction>> transactions_;
     std::vector<cv::Ptr<Node>> nodes_;
-    bool disableIO_ = false;
     std::deque<BranchState> branchStateStack_;
     std::deque<std::pair<string, BranchType::Enum>> branchStack_;
 
@@ -569,7 +540,7 @@ class Plan {
 
     template <typename Tfn, typename ... Args>
     void init_context_call(Tfn fn, Args ... args) {
-    	static_assert(std::is_pointer<Tfn>::value ||  detail::is_stateless_lambda<std::remove_cv_t<std::remove_reference_t<decltype(fn)>>>::value, "All passed functors must be stateless lambdas");
+    	static_assert(std::is_pointer<Tfn>::value || std::is_bind_expression<Tfn>::value || is_callable<Tfn>::value || detail::is_stateless_lambda<std::remove_cv_t<std::remove_reference_t<decltype(fn)>>>::value, "All passed functors must be stateless lambdas");
     }
 
 	template<typename T>
@@ -621,6 +592,18 @@ class Plan {
     	parentOffset_ = offset;
     }
 
+	size_t getActualTypeSize() {
+    	return actualTypeSize_;
+    }
+
+	size_t getParentActualTypeSize() {
+    	return parentActualTypeSize_;
+    }
+
+	size_t getParentOffset() {
+    	return parentOffset_;
+    }
+
 
     cv::Ptr<Plan> self() {
 		CV_Assert(self_);
@@ -665,15 +648,17 @@ class Plan {
      	}
      }
 
-    void printFlow(const size_t& depth, const BranchState& current, const cv::Ptr<Node> n) {
+    //shortened name because it shows up in the log output
+    void pf(const size_t& depth, const BranchState& current, const cv::Ptr<Node> n) {
     	if(DebugFlags::PRINT_CONTROL_FLOW & runtime_->debugFlags()) {
     		std::stringstream indent;
-			for(size_t i = 0; i < depth; ++i) {
-				indent << "\t";
+			indent << "|";
+    		for(size_t i = 0; i < depth; ++i) {
+				indent << "  ";
 			}
 
     		std::stringstream ss;
-			ss << "|";
+
 			//delete addresses from name
 			string name = n->name_;
 			size_t open = name.find_first_of('[', 0);
@@ -713,7 +698,7 @@ class Plan {
 		BranchType::Enum btype;
     	BranchState currentState;
     	Global& global = Global::instance();
-
+    	bool countLockContention = DebugFlags::PRINT_LOCK_CONTENTION & runtime_->debugFlags();
     	try {
 			for (auto& n : nodes_) {
 				btype = n->tx_->getBranchType();
@@ -729,7 +714,7 @@ class Plan {
 						else
 							currentState = BranchState();
 						currentState.branchID_ = n->name_;
-						currentState.condition = n->tx_->performPredicate();
+						currentState.condition = n->tx_->performPredicate(countLockContention);
 						if(currentState.isEnabled_) {
 							currentState.isOnce_ = ((btype == BranchType::ONCE) || (btype == BranchType::PARALLEL_ONCE));
 							currentState.isSingle_ = ((btype == BranchType::ONCE) || (btype == BranchType::SINGLE));
@@ -760,7 +745,7 @@ class Plan {
 							currentState.isLocked_ = true;
 						}
 						branchStateStack_.push_front(currentState);
-						printFlow(branchStateStack_.size(), currentState, n);
+						pf(branchStateStack_.size(), currentState, n);
 					} else if(isElse) {
 						if(branchStateStack_.empty())
 							continue;
@@ -777,7 +762,7 @@ class Plan {
 						}
 
 						currentState.isLocked_ = false;
-						printFlow(branchStateStack_.size(), currentState, n);
+						pf(branchStateStack_.size(), currentState, n);
 						branchStateStack_.pop_front();
 						branchStateStack_.push_front(currentState);
 					} else if(isEnd) {
@@ -788,7 +773,7 @@ class Plan {
 						if(global.tryUnlockNode(currentState.branchID_)) {
 //							cerr << "unlock end" << endl;
 						}
-						printFlow(branchStateStack_.size(), currentState, n);
+						pf(branchStateStack_.size(), currentState, n);
 						branchStateStack_.pop_front();
 					} else {
 						CV_Assert(false);
@@ -796,6 +781,7 @@ class Plan {
 				} else {
 					CV_Assert(!n->tx_->isPredicate());
 					currentState = !branchStateStack_.empty() ? branchStateStack_.front() : BranchState();
+					const bool disableIO = runtime_->get<bool>(V4D::Keys::DISABLE_VIDEO_IO);
 					if(currentState.isEnabled_) {
 						auto lock = global.tryGetNodeLock(currentState.branchID_);
 						if(lock)
@@ -803,14 +789,14 @@ class Plan {
 							std::lock_guard<std::mutex> guard(*lock.get());
 							auto ctx = n->tx_->getContextCallback()();
 							auto viewport = runtime_->get<cv::Rect>(V4D::Keys::VIEWPORT);
-							int res = ctx->execute(viewport, [n,currentState]() {
-								TimeTracker::getInstance()->execute(n->name_, [n,currentState](){
+							int res = ctx->execute(viewport, [countLockContention, n,currentState]() {
+								TimeTracker::getInstance()->execute(n->name_, [countLockContention, n,currentState](){
 //									cerr << "locked: " << currentState.branchID_ << "->" << n->name_ << endl;
-									n->tx_->perform();
+									n->tx_->perform(countLockContention);
 								});
 							});
 							if(res > 0) {
-								if(!this->disableIO_ && std::dynamic_pointer_cast<SourceContext>(ctx)) {
+								if(!disableIO && std::dynamic_pointer_cast<SourceContext>(ctx)) {
 									runtime_->setSequenceNumber(res);
 								}
 							} else {
@@ -819,14 +805,14 @@ class Plan {
 						} else {
 							auto ctx = n->tx_->getContextCallback()();
 							auto viewport = runtime_->get<cv::Rect>(V4D::Keys::VIEWPORT);
-							int res = ctx->execute(viewport, [n,currentState]() {
-								TimeTracker::getInstance()->execute(n->name_, [n,currentState](){
+							int res = ctx->execute(viewport, [countLockContention, n,currentState]() {
+								TimeTracker::getInstance()->execute(n->name_, [countLockContention, n,currentState](){
 //									cerr << "unlocked: " << currentState.branchID_ << "->" << n->name_ << endl;
-									n->tx_->perform();
+									n->tx_->perform(countLockContention);
 								});
 							});
 							if(res > 0) {
-								if(!this->disableIO_ && dynamic_pointer_cast<SourceContext>(ctx)) {
+								if(!disableIO && dynamic_pointer_cast<SourceContext>(ctx)) {
 									runtime_->setSequenceNumber(res);
 								}
 							} else {
@@ -834,7 +820,7 @@ class Plan {
 							}
 						}
 					}
-					printFlow(branchStateStack_.size() +1 , currentState, n);
+					pf(branchStateStack_.size() +1 , currentState, n);
 					currentState = BranchState();
 				}
 			}
@@ -876,24 +862,22 @@ class Plan {
 		transactions_.clear();
 		nodes_.clear();
 	}
+
+	size_t id_ = Global::instance().apply<size_t>(Global::Keys::PLAN_CNT, [](size_t& v){
+		++v;
+		return v;
+	});
 public:
-	size_t getActualTypeSize() {
-    	return actualTypeSize_;
-    }
-
-	size_t getParentActualTypeSize() {
-    	return parentActualTypeSize_;
-    }
-
-	size_t getParentOffset() {
-    	return parentOffset_;
-    }
+	template<typename TmemberPtr> static auto m_(TmemberPtr member) {
+		auto ptr_to_data = std::mem_fn(member);
+		return std::bind(ptr_to_data, std::placeholders::_1);
+	}
 
 	template<typename T>
 	struct Property : detail::Edge<const T, false, true, true> {
 		using parent_t = detail::Edge<const T, false, true, true>;
 		Property(Plan& plan, const T& val) : parent_t(parent_t::make(plan, val, false)) {
-			Global::instance().registerShared(val);
+			Global::instance().registerShared<decltype(val),false>(val);
 		}
 	};
 
@@ -910,7 +894,7 @@ public:
 	virtual void infer() = 0;
 	virtual void teardown() { };
 
-	virtual std::string id() {
+	virtual std::string space() {
 		if(!parent_.empty()) {
 			return parent_ + "-" + name();
 		} else
@@ -918,7 +902,7 @@ public:
 	}
 
 	virtual std::string name() {
-		return detail::demangle(typeid(*this).name());
+		return detail::demangle(typeid(*this).name()) + std::to_string(id_);
 	}
 
 	virtual void setParentID(const string& parent) {
@@ -933,7 +917,7 @@ public:
     typename std::enable_if<is_stateless_lambda<Tfn>::value, cv::Ptr<Plan>>::type
     gl(Tfn fn, Args ... args) {
     	init_context_call(fn, args...);
-        const string id = make_id(this->id(), "gl-1", fn, args...);
+        const string id = make_id(this->space(), "gl-1", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
 		std::function<void((typename Args::ref_t...))> functor(fn);
@@ -946,7 +930,7 @@ public:
     typename std::enable_if<is_stateless_lambda<Tfn>::value, cv::Ptr<Plan>>::type
 	gl(Tedge indexEdge, Tfn fn, Args ... args) {
         init_context_call(fn, args...);
-        const string id = make_id(this->id(), "gl-" + int_to_hex(indexEdge.ptr()), fn, args...);
+        const string id = make_id(this->space(), "gl-" + int_to_hex(indexEdge.ptr()), fn, args...);
         emit_access(id, R_I(*this));
         emit_access(id, indexEdge);
         (emit_access(id, args ),...);
@@ -958,7 +942,7 @@ public:
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> ext(Tfn fn, Args ... args) {
     	init_context_call(fn, args...);
-        const string id = make_id(this->id(), "ext", fn, args...);
+        const string id = make_id(this->space(), "ext", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
         std::function<void((typename Args::ref_t...))> functor(fn);
@@ -969,7 +953,7 @@ public:
     template <typename Tedge, typename Tfn, typename ... Args>
     cv::Ptr<Plan> ext(Tedge indexEdge, Tfn fn, Args ... args) {
         init_context_call(fn, args...);
-        const string id = make_id(this->id(), "ext" + int_to_hex(indexEdge.ptr()), fn, args...);
+        const string id = make_id(this->space(), "ext" + int_to_hex(indexEdge.ptr()), fn, args...);
         emit_access(id, R_I(*this));
         emit_access(id, indexEdge);
         (emit_access(id, args ),...);
@@ -981,7 +965,7 @@ public:
     template <typename Tfn>
     cv::Ptr<Plan> branch(Tfn fn) {
 //        init_context_call(fn);
-        const string id = make_id(this->id(), "branch", fn);
+        const string id = make_id(this->space(), "branch", fn);
         branchStack_.push_front({id, BranchType::PARALLEL});
         emit_access(id, R_I(*this));
         std::function functor = fn;
@@ -992,7 +976,7 @@ public:
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(Tfn fn, Args ... args) {
 //        init_context_call(fn, args...);
-        const string id = make_id(this->id(), "branch", fn, args...);
+        const string id = make_id(this->space(), "branch", fn, args...);
         branchStack_.push_front({id, BranchType::PARALLEL});
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
@@ -1004,7 +988,7 @@ public:
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(int workerIdx, Tfn fn, Args ... args) {
 //        init_context_call(fn, args...);
-        const string id = make_id(this->id(), "branch-pin" + std::to_string(workerIdx), fn, args...);
+        const string id = make_id(this->space(), "branch-pin" + std::to_string(workerIdx), fn, args...);
         branchStack_.push_front({id, BranchType::PARALLEL});
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
@@ -1019,7 +1003,7 @@ public:
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(BranchType::Enum type, Tfn fn, Args ... args) {
 //        init_context_call(fn, args...);
-        const string id = make_id(this->id(), "branch-type" + std::to_string((int)type), fn, args...);
+        const string id = make_id(this->space(), "branch-type" + std::to_string((int)type), fn, args...);
         branchStack_.push_front({id, type});
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
@@ -1031,7 +1015,7 @@ public:
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(BranchType::Enum type, int workerIdx, Tfn fn, Args ... args) {
 //        init_context_call(fn, args...);
-        const string id = make_id(this->id(), "branch-type-pin" + std::to_string((int)type) + "-" + std::to_string(workerIdx), fn, args...);
+        const string id = make_id(this->space(), "branch-type-pin" + std::to_string((int)type) + "-" + std::to_string(workerIdx), fn, args...);
         branchStack_.push_front({id, type});
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
@@ -1144,7 +1128,7 @@ public:
     cv::Ptr<Plan> fb(Tfn fn, Args ... args) {
     	init_context_call(fn, args...);
 
-        const string id = make_id(this->id(), "fb", fn, args...);
+        const string id = make_id(this->space(), "fb", fn, args...);
 		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
 		static_assert((std::is_same<Tfb, cv::UMat>::value || std::is_same<Tfb, const cv::UMat>::value) || !"The first argument must be eiter of type 'cv::UMat&' or 'const cv::UMat&'");
 		emit_access(id, R_I(*this));
@@ -1170,10 +1154,6 @@ public:
     }
 
     cv::Ptr<Plan> capture() {
-    	if(disableIO_)
-    		return self();
-
-
     	capture([](const cv::UMat& inputFrame, cv::UMat& f){
     		if(!inputFrame.empty())
     			inputFrame.copyTo(f);
@@ -1194,9 +1174,7 @@ public:
     cv::Ptr<Plan> capture(Tfn fn, Args ... args) {
         init_context_call(fn, args...);
 
-    	if(disableIO_)
-    		return self();
-        const string id = make_id(this->id(), "capture", fn, args...);
+        const string id = make_id(this->space(), "capture", fn, args...);
 		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
 		static_assert((std::is_same<Tfb,const cv::UMat>::value) || !"The first argument must be of type 'const cv::UMat&'");
 		emit_access(id, R_I(*this));
@@ -1217,9 +1195,6 @@ public:
     }
 
     cv::Ptr<Plan> write() {
-    	if(disableIO_)
-    		return self();
-
         fb([](const cv::UMat& framebuffer, cv::UMat& f) {
             framebuffer.copyTo(f);
         }, Edge<cv::UMat, false, false>::make(*this, writerFrame_));
@@ -1235,9 +1210,7 @@ public:
     cv::Ptr<Plan> write(Tfn fn, Args ... args) {
         init_context_call(fn, args...);
 
-    	if(disableIO_)
-    		return self();
-        const string id = make_id(this->id(), "write", fn, args...);
+        const string id = make_id(this->space(), "write", fn, args...);
 		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
 		static_assert((std::is_same<Tfb,cv::UMat>::value) || !"The first argument must be of type 'cv::UMat&'");
 		emit_access(id, R_I(*this));
@@ -1255,7 +1228,7 @@ public:
     cv::Ptr<Plan> nvg(Tfn fn, Args... args) {
         init_context_call(fn, args...);
 
-        const string id = make_id(this->id(), "nvg", fn, args...);
+        const string id = make_id(this->space(), "nvg", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
 		std::function<void((typename Args::ref_t...))> functor(fn);
@@ -1267,7 +1240,7 @@ public:
     cv::Ptr<Plan> bgfx(Tfn fn, Args... args) {
         init_context_call(fn, args...);
 
-        const string id = make_id(this->id(), "bgfx", fn, args...);
+        const string id = make_id(this->space(), "bgfx", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
 		std::function<void((typename Args::ref_t...))> functor(fn);
@@ -1279,7 +1252,7 @@ public:
     cv::Ptr<Plan> plain(Tfn fn, Args... args) {
         init_context_call(fn, args...);
 
-        const string id = make_id(this->id(), "plain", fn, args...);
+        const string id = make_id(this->space(), "plain", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
         std::function<void((typename Args::ref_t...))> functor(fn);
@@ -1288,18 +1261,40 @@ public:
     }
 
     template <typename TsubPlan>
-    cv::Ptr<Plan> sub(cv::Ptr<TsubPlan> subPlan) {
+    cv::Ptr<Plan> subInfer(cv::Ptr<TsubPlan> subPlan) {
     	//FIXME check inheritance pattern
     	subPlan->infer();
 
     	std::copy(subPlan->accesses_.begin(), subPlan->accesses_.end(), std::inserter(accesses_, accesses_.end()));
     	std::copy(subPlan->transactions_.begin(), subPlan->transactions_.end(), std::inserter(transactions_, transactions_.end()));
+    	subPlan->clearGraph();
+    	return self();
+    }
 
+    template <typename TsubPlan>
+    cv::Ptr<Plan> subSetup(cv::Ptr<TsubPlan> subPlan) {
+    	//FIXME check inheritance pattern
+    	subPlan->setup();
+
+    	std::copy(subPlan->accesses_.begin(), subPlan->accesses_.end(), std::inserter(accesses_, accesses_.end()));
+    	std::copy(subPlan->transactions_.begin(), subPlan->transactions_.end(), std::inserter(transactions_, transactions_.end()));
+    	subPlan->clearGraph();
+    	return self();
+    }
+
+    template <typename TsubPlan>
+    cv::Ptr<Plan> subTeardown(cv::Ptr<TsubPlan> subPlan) {
+    	//FIXME check inheritance pattern
+    	subPlan->teardown();
+
+    	std::copy(subPlan->accesses_.begin(), subPlan->accesses_.end(), std::inserter(accesses_, accesses_.end()));
+    	std::copy(subPlan->transactions_.begin(), subPlan->transactions_.end(), std::inserter(transactions_, transactions_.end()));
+    	subPlan->clearGraph();
     	return self();
     }
 
     template<typename Tedge, typename Tkey = decltype(runtime_)::element_type::Keys::Enum>
-	typename std::enable_if<!is_stateless_lambda<Tedge>::value, cv::Ptr<Plan>>::type
+	typename std::enable_if<std::is_base_of_v<EdgeBase, Tedge>, cv::Ptr<Plan>>::type
 	set(Tkey key, Tedge val) {
 		init_context_call([](){}, val);
 		auto plan = self();
@@ -1307,7 +1302,7 @@ public:
         	plan->runtime_->set(key, v);
         };
 
-        const string id = make_id(this->id(), "set", fn, val);
+        const string id = make_id(this->space(), "set", fn, val);
         emit_access(id, R_I(*this));
         emit_access(id, val);
         std::function<void(decltype(val.ref()))> functor(fn);
@@ -1316,11 +1311,11 @@ public:
 	}
 
 	template<typename Tfn, typename ... Args, typename Tkey = decltype(runtime_)::element_type::Keys::Enum>
-	typename std::enable_if<is_stateless_lambda<Tfn>::value, cv::Ptr<Plan>>::type
+	typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
 	set(Tkey key, Tfn fn, Args ... args) {
 		init_context_call(fn, args...);
 
-		const string id = make_id(this->id(), "set-fn", fn, args...);
+		const string id = make_id(this->space(), "set-fn", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
         auto plan = self();
@@ -1335,14 +1330,15 @@ public:
 	template <typename Tparent>
 	void _parent(Tparent& parent) {
 		//FIXME check inheritance
-		setParentID(parent.id());
+		setParentID(parent.space());
 		setParentActualTypeSize<Tparent>();
 		setParentOffset(reinterpret_cast<size_t>(&parent));
 	}
 
 	template<typename Tvar>
 	void _shared(Tvar& val) {
-		Global::instance().registerShared(val);
+		if(Global::instance().isMain())
+			Global::instance().registerShared(val);
 	}
 
 	template<typename Tfn, typename ... Args>
@@ -1363,18 +1359,18 @@ public:
 	}
 
 	template<typename T>
-	detail::Edge<T, true, true> R_C(T& t) {
+	detail::Edge<T, true, true> R_SC(T& t) {
 		if(Global::instance().isShared(t)) {
 			return detail::Edge<T, true, true>::make(*this, t, false);
 		} else {
-			return detail::Edge<T, true, true>::make(*this, t);
+			throw std::runtime_error("You are trying to safe-copy a non-shared variable. Maybe you forgot to declare it?.");
 		}
 	}
 
 	template<typename T>
 	detail::Edge<T, false, true, true> R_S(T& t) {
 		if(!Global::instance().isShared(t)) {
-			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to register it?.");
+			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to declare it?.");
 		}
 		return detail::Edge<T, false, true, true>::make(*this, t, false);
 	}
@@ -1387,7 +1383,7 @@ public:
 	template<typename T>
 	detail::Edge<T, false, false, true> RW_S(T& t) {
 		if(!Global::instance().isShared(t)) {
-			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to register it?.");
+			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to declare it?.");
 		}
 		return detail::Edge<T, false, false, true>::make(*this, t, false);
 	}
@@ -1417,30 +1413,26 @@ public:
 		return Property<Tval>(*this, ref);
 	}
 
-    void setDisableIO(bool d) {
-    	disableIO_ = d;
-    }
-
     template<typename Tplan, typename TparentPlan, typename ... Args>
-	static cv::Ptr<Tplan> makeSubPlan(TparentPlan& parent, Args& ... args) {
-    	cv::Ptr<Tplan> plan = new Tplan(parent, args...);
+	static cv::Ptr<Tplan> makeSubPlan(TparentPlan&& parent, Args&& ... args) {
+    	cv::Ptr<Tplan> plan = std::make_shared<Tplan>(std::forward<TparentPlan>(parent), std::forward<Args>(args)...);
 		plan->self_ = plan;
 		plan->template setActualTypeSize<Tplan>();
-		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->id());
+		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
 		return plan;
     }
 
     template<typename Tplan, typename ... Args>
-	static cv::Ptr<Tplan> make(Args& ... args) {
-    	cv::Ptr<Tplan> plan = new Tplan(args...);
+	static cv::Ptr<Tplan> make(Args&& ... args) {
+    	cv::Ptr<Tplan> plan = new Tplan(std::forward<Args>(args)...);
 		plan->self_ = plan;
 		plan->template setActualTypeSize<Tplan>();
-		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->id());
+		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
 		return plan;
     }
 
     template<typename Tplan, typename ... Args>
-	static void run(int32_t workers, Args& ... args) {
+	static void run(int32_t workers, Args&& ... args) {
 		//for now, if automatic determination of the number of workers is requested,
 		//set workers always to 2
 		CV_Assert(workers > -2);
@@ -1465,7 +1457,7 @@ public:
 				CV_LOG_INFO(&v4d_tag, "Starting with " << workers << " workers");
 			}
 
-	    	plan = make<Tplan>(args...);
+	    	plan = make<Tplan>(std::forward<Args>(args)...);
 
 			if(global.isMain()) {
 				const string title = plan->runtime_->title();
@@ -1476,9 +1468,9 @@ public:
 				for (size_t i = 0; i < workers; ++i) {
 					threads.push_back(
 						new std::thread(
-							[plan, i, workers, src, sink] {
-								CV_LOG_WARNING(&v4d_tag, "Temporary setting log level to warning.");
-								cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
+							[plan, i, workers, src, sink, &args...] {
+//								CV_LOG_WARNING(&v4d_tag, "Temporary setting log level to warning.");
+//								cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
 
 								CV_LOG_DEBUG(&v4d_tag, "Creating worker: " << i);
 								{
@@ -1491,7 +1483,7 @@ public:
 										worker->setSink(sink);
 									}
 								}
-								Plan::run<Tplan>(0);
+								Plan::run<Tplan>(0, std::forward<Args>(args)...);
 							}
 						)
 					);
@@ -1525,7 +1517,7 @@ public:
 		if(global.isMain()) {
 			try {
 				CV_LOG_DEBUG(&v4d_tag, "Loading GUI");
-				plan->runtime_->set(V4D::Keys::NAMESPACE, plan->id());
+				plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
 				plan->gui();
 			} catch(std::exception& ex) {
 				CV_Error_(cv::Error::StsError, ("Loading GUI failed: %s", ex.what()));

@@ -314,10 +314,13 @@ private:
 
 public:
     OptflowDemoPlan() {
-		_shared(params_);
-		_shared(params_.stretch_);
+    	_shared(params_);
 		_shared(foreground_);
 		cache_.rng_ = std::mt19937(cache_.rd_());
+    }
+
+    OptflowDemoPlan(Plan& plan) : OptflowDemoPlan() {
+    	_parent(plan);
     }
 
     void gui() override {
@@ -387,7 +390,7 @@ public:
 	}
 
 	void infer() override {
-		set(V4D::Keys::STRETCHING, R_C(params_.stretch_));
+		set(V4D::Keys::STRETCHING, m_(&Params::stretch_), R_SC(params_));
 		capture();
 
 		fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, Frames& frames, const Params& params) {
@@ -395,7 +398,7 @@ public:
 			cv::resize(framebuffer, frames.down_, cv::Size(viewport.width * params.fgScale_, viewport.height * params.fgScale_));
 			//save video background
 			framebuffer.copyTo(frames.background_);
-		}, vp_, RW(frames_), R_C(params_));
+		}, vp_, RW(frames_), R_SC(params_));
 
 		plain([](Frames& frames, std::vector<cv::Point2f>& detected, cv::Ptr<cv::BackgroundSubtractor>& bg_subtractor, cv::Ptr<cv::FastFeatureDetector>& detector, Cache& cache){
 			cv::cvtColor(frames.down_, frames.downNextGrey_, cv::COLOR_RGBA2GRAY);
@@ -408,25 +411,25 @@ public:
 		branch([](const Frames& frames, const Params& params, Cache& cache) {
 			//We don't want the algorithm to get out of hand when there is a scene change, so we suppress it when we detect one.
 			return !detect_scene_change(frames.downMotionMaskGrey_, params, cache);
-		}, RW(frames_), R_C(params_), RW(cache_))
+		}, RW(frames_), R_SC(params_), RW(cache_))
 			->nvg([](Frames& frames, const std::vector<cv::Point2f>& detected, const Params& params, Cache& cache) {
 				nvg::clearScreen();
 				if (!frames.downPrevGrey_.empty()) {
 						visualize_sparse_optical_flow(frames.downPrevGrey_, frames.downNextGrey_, detected, params, cache);
 				}
-			}, RW(frames_), R(detectedPoints_), R_C(params_), RW(cache_))
+			}, RW(frames_), R(detectedPoints_), R_SC(params_), RW(cache_))
 			->fb([](const cv::UMat& framebuffer, cv::UMat& foreground, const Params& params) {
 				//Lose a bit of foreground brightness based on fgLossPercent
 				cv::subtract(foreground, cv::Scalar::all(255.0f * (params.fgLoss_ / 100.0f)), foreground);
 				//Add foreground an the current framebuffer into foregound
 				cv::add(foreground, framebuffer, foreground);
-			}, RW_S(foreground_), R_C(params_))
+			}, RW_S(foreground_), R_SC(params_))
 		->endBranch();
 
 		fb([](cv::UMat& framebuffer, const cv::UMat& foreground, cv::UMat& background, const Params& params, Cache& cache) {
 			//Put it all together (OpenCL)
 			composite_layers(background, foreground, framebuffer, params, cache);
-		}, R_C(foreground_), RW(frames_.background_), R_C(params_), RW(cache_));
+		}, R_SC(foreground_), RW(frames_.background_), R_SC(params_), RW(cache_));
 
 		plain([](Frames& frames){
 			frames.downPrevGrey_ = frames.downNextGrey_.clone();

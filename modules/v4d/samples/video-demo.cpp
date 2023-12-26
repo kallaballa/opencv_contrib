@@ -163,6 +163,13 @@ private:
 	    glDrawElements(GL_TRIANGLES, TRIANGLES_ * 3, GL_UNSIGNED_SHORT, NULL);
 	}
 public:
+	VideoDemoPlan(Plan& parent) {
+		_parent(parent);
+	}
+
+	VideoDemoPlan() {
+	}
+
 	void setup() override {
 		gl([](Handles& handles) {
 			init_scene(handles);

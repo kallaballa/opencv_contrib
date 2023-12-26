@@ -50,6 +50,7 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, int all
     create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
     create<false,string>(Keys::NAMESPACE, "default");
     create<false, bool>(Keys::FULLSCREEN, false, [this](const bool& b){ fbCtx()->setFullscreen(b); });
+    create<false>(Keys::DISABLE_VIDEO_IO, false);
 
     int fbFlags = FBConfigFlags::VSYNC
     		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
@@ -63,7 +64,7 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, int all
     if(allocateFlags() & AllocateFlags::IMGUI)
         imguiContext_ = new detail::ImGuiContextImpl(mainFbContext_);
 
-    setVisible(!(configFlags() & ConfigFlags::OFFSCREEN));
+    fbCtx()->setVisible(!(debugFlags() & ConfigFlags::OFFSCREEN));
 }
 
 V4D::V4D(const V4D& other, const string& title) :
@@ -85,7 +86,7 @@ V4D::V4D(const V4D& other, const string& title) :
     sinkContext_ = new detail::SinkContext(mainFbContext_);
     plainContext_ = new detail::PlainContext();
 
-    setVisible(debugFlags() & DebugFlags::ONSCREEN_CONTEXTS);
+	fbCtx()->setVisible(debugFlags() & DebugFlags::ONSCREEN_CONTEXTS);
 }
 
 V4D::~V4D() {
@@ -272,30 +273,6 @@ bool V4D::getShowTracking() {
     return showTracking_;
 }
 
-bool V4D::isFullscreen() {
-    return fbCtx()->isFullscreen();
-}
-
-void V4D::setFullscreen(bool f) {
-    fbCtx()->setFullscreen(f);
-}
-
-bool V4D::isResizable() {
-    return fbCtx()->isResizable();
-}
-
-void V4D::setResizable(bool r) {
-    fbCtx()->setResizable(r);
-}
-
-bool V4D::isVisible() {
-    return fbCtx()->isVisible();
-}
-
-void V4D::setVisible(bool v) {
-    fbCtx()->setVisible(v);
-}
-
 void V4D::swapContextBuffers() {
 	cv::Rect fbViewport(0, 0, fbCtx()->size().width, fbCtx()->size().height);
     for(int32_t i = -1; i < numGlCtx(); ++i) {
@@ -332,6 +309,7 @@ bool V4D::display() {
 		}
     }
 	if (global.isMain()) {
+		bool countLockContention = debugFlags() & DebugFlags::PRINT_LOCK_CONTENTION;
 		auto start = state.get<uint64_t>(RunState::Keys::START_TIME);
 		auto now = get_epoch_nanos();
 		auto diff = now - start;
@@ -340,15 +318,31 @@ bool V4D::display() {
 		if(state.get<double>(RunState::Keys::FPS) > 0 && diffSeconds > 1.0) {
 			state.apply<uint64_t>(RunState::Keys::START_TIME, [diff](uint64_t& v) { return (v = v + (diff / 2.0)); } );
 			state.apply<size_t>(RunState::Keys::FRAME_COUNT, [](size_t& v){ return (v = v * 0.5); });
+			if(countLockContention) {
+				global.apply<size_t>(Global::Keys::LOCK_CONTENTION_CNT, [](size_t& v){ return (v = v * 0.5); });
+			}
 		} else {
 			double fps = state.get<double>(RunState::Keys::FPS);
 			size_t cnt = state.get<size_t>(RunState::Keys::FRAME_COUNT);
+
 			state.set<double>(RunState::Keys::FPS, (fps * 3.0 + (cnt / diffSeconds)) / 4.0);
+			if(countLockContention) {
+				size_t lcnt = global.get<size_t>(Global::Keys::LOCK_CONTENTION_CNT);
+				double rate = global.get<double>(Global::Keys::LOCK_CONTENTION_RATE);
+				global.set(Global::Keys::LOCK_CONTENTION_RATE, (rate * 3.0 + (lcnt / diffSeconds)) / 4.0);
+			}
 		}
 
-		if(getPrintFPS())
+		if(countLockContention) {
+			std::cerr << "\rLPS:" << global.get<double>(Global::Keys::LOCK_CONTENTION_RATE) << std::endl;
+		}
+
+		if(getPrintFPS()) {
 			std::cerr << "\rFPS:" << state.get<double>(RunState::Keys::FPS) << std::endl;
+		}
+
 		{
+
 			FrameBufferContext::GLScope glScope(fbCtx(), GL_READ_FRAMEBUFFER);
 			cv::Rect initial = get<cv::Rect>(Keys::INIT_VIEWPORT);
 			initial.y = (fbCtx()->size().height - initial.height) + initial.y;
@@ -402,14 +396,6 @@ uint64_t V4D::getSequenceNumber() {
 	//0 is an illegal sequence number
 	CV_Assert(seqNr_ > 0);
 	return seqNr_;
-}
-
-bool V4D::isClosed() {
-    return fbCtx()->isClosed();
-}
-
-void V4D::close() {
-    fbCtx()->close();
 }
 
 GLFWwindow* V4D::getGLFWWindow() const {

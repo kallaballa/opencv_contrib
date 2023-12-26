@@ -128,9 +128,14 @@ private:
 	    return keep;
 	}
 public:
-    PedestrianDemoPlan() {
-    	_shared(tracked_);
-    }
+	PedestrianDemoPlan() {
+		_shared(tracked_);
+	}
+
+	PedestrianDemoPlan(Plan& parent) {
+		_parent(parent);
+		_shared(tracked_);
+	}
 
 
     void setup() override {
@@ -191,7 +196,7 @@ public:
 						detection.trackerInit_ = true;
 					}
 				}
-			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), R_C(tracked_))
+			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), R_SC(tracked_))
 		->elseBranch()
 			->plain([](const cv::UMat& videoFrameDownGrey, Detection& detection, Params& params, const cv::Rect& tracked) {
 				params.newTracked_ = tracked;
@@ -200,7 +205,7 @@ public:
 				} else {
 					detection.redetect_ = false;
 				}
-			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), R_C(tracked_))
+			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), R_SC(tracked_))
 		->endBranch();
 
 		plain([](const Params& params, cv::Rect& tracked) {
@@ -223,7 +228,7 @@ public:
 			strokeColor(cv::v4d::colorConvert(cv::Scalar(0, 127, 255, 200), cv::COLOR_HLS2BGR));
 			ellipse(cx, cy, (width), (height));
 			stroke();
-		}, vp_, R(params_), R_C(tracked_));
+		}, vp_, R(params_), R_SC(tracked_));
 
 		fb([](cv::UMat& framebuffer, const cv::UMat& background) {
 			//Put it all together

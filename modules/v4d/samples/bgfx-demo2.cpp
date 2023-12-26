@@ -272,7 +272,7 @@ public:
 			// Advance to next frame. Rendering thread will be kicked to
 			// process submitted rendering primitives.
 			bgfx::frame();
-		}, R(params_), R_C(time_offset_));
+		}, R(params_), R_SC(time_offset_));
 	}
 };
 

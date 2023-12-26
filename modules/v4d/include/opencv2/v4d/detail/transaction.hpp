@@ -25,8 +25,35 @@ struct default_type : std::true_type
     using type = T;
 };
 
+class EdgeBase {
+public:
+	template<typename Tplan, typename Tvar>
+	static void check(Tplan& plan, Tvar& var) {
+		const char* planPtr = reinterpret_cast<const char*>(&plan);
+		const char* varPtr = reinterpret_cast<const char*>(&var);
+		off_t parentOffset = plan.getParentOffset();
+		off_t parentActualSize = plan.getParentActualTypeSize();
+		off_t actualTypeSize = plan.getActualTypeSize();
+		off_t varOffset = off_t (varPtr);
+		off_t planOffset = off_t (planPtr);
+		off_t planSize = sizeof(Tplan);
+
+		CV_Assert((parentOffset == 0  && parentActualSize == 0) || (parentOffset > 0 && parentActualSize > 0));
+		CV_Assert(actualTypeSize > planSize);
+
+		off_t parentLowerBound = parentOffset;
+		off_t parentUpperBound = parentOffset + parentActualSize;
+		off_t lowerBound = planOffset;
+		off_t upperBound = planOffset + actualTypeSize;
+
+		if(! ((varOffset >= lowerBound && varOffset <= upperBound) || (parentOffset > 0 && varOffset >= parentLowerBound && varOffset <= parentUpperBound))) {
+			throw std::runtime_error("Variable of type " + demangle(typeid(Tvar).name()) + " not a member of plan. Maybe it is a shared variable and you forgot to declare it?");
+		}
+	}
+};
+
 template<typename T, bool Tcopy, bool Tread, bool Tshared = false, typename Tbase = void>
-class Edge {
+class Edge : public EdgeBase {
 public:
 	using copy_t = std::integral_constant<bool, Tcopy>;
 	using read_t = std::integral_constant<bool, Tread>;
@@ -91,30 +118,6 @@ private:
 		return reinterpret_cast<Tptr*>(t);
 	}
 
-	template<typename Tplan, typename Tvar>
-	static void check(Tplan& plan, Tvar& var) {
-		const char* planPtr = reinterpret_cast<const char*>(&plan);
-		const char* varPtr = reinterpret_cast<const char*>(&var);
-		off_t parentOffset = plan.getParentOffset();
-		off_t parentActualSize = plan.getParentActualTypeSize();
-		off_t actualTypeSize = plan.getActualTypeSize();
-		off_t varOffset = off_t (varPtr);
-		off_t planOffset = off_t (planPtr);
-		off_t planSize = sizeof(Tplan);
-
-		CV_Assert((parentOffset == 0  && parentActualSize == 0) || (parentOffset > 0 && parentActualSize > 0));
-		CV_Assert(actualTypeSize > planSize);
-		CV_Assert(parentActualSize == 0 || parentActualSize > actualTypeSize);
-
-		off_t parentLowerBound = parentOffset;
-		off_t parentUpperBound = parentOffset + parentActualSize;
-		off_t lowerBound = planOffset;
-		off_t upperBound = planOffset + actualTypeSize;
-
-		if(! ((varOffset >= lowerBound && varOffset <= upperBound) || (parentOffset > 0 && varOffset >= parentLowerBound && varOffset <= parentUpperBound))) {
-			throw std::runtime_error("Variable of type " + demangle(typeid(T).name()) + " not a member of plan. Maybe it is a shared variable and you forgot to register it?");
-		}
-	}
 public:
 	using pass_t = typename std::disjunction<
 			values_equal<temp_t::value, true, T>,
@@ -134,7 +137,7 @@ public:
 	static Edge make(Tplan& plan, pass_t t, const bool doCheck = true) {
 		Edge e;
 		if(doCheck)
-			check(plan, t);
+			EdgeBase::check(plan, t);
 
 		e.set(t);
 		return e;
@@ -185,10 +188,19 @@ public:
 
     std::mutex& getMutex() {
     	static_assert(lockie_t::value, "Internal Error: Trying to get mutex from a non-lockie edge");
-    	//FIXME thows if the mutex ptr can't be found.
-    	//write a no check/no throw alternative because this situation should be impossible
-    	return *Global::instance().getMutexPtr(*ptr());
+    	//uses the no check variant because this should never fail due to previous checks.
+    	return *Global::instance().getMutexPtr(*ptr(), false);
     }
+
+    bool tryLock() {
+    	return getMutex().try_lock();
+    }
+
+    bool unlock() {
+    	getMutex().unlock();
+    	return true;
+    }
+
 };
 }
 struct BranchType {
@@ -212,8 +224,8 @@ public:
 
 	CV_EXPORTS virtual bool hasLockies() = 0;
 	CV_EXPORTS virtual bool hasCopyBacks()  = 0;
-	CV_EXPORTS virtual void perform() = 0;
-	CV_EXPORTS virtual bool performPredicate() = 0;
+	CV_EXPORTS virtual void perform(const bool& countContention = false) = 0;
+	CV_EXPORTS virtual bool performPredicate(const bool& countContention = false) = 0;
 	CV_EXPORTS virtual bool ran() = 0;
 
 	CV_EXPORTS bool isBranch();
@@ -235,24 +247,30 @@ auto filter_lockie(T& t) {
 }
 
 template<typename Tuple, size_t... _Idx>
-auto filter_lockies(Tuple t, std::index_sequence<_Idx...>)
-{
+auto filter_lockies(Tuple t, std::index_sequence<_Idx...>) {
 	return std::tuple_cat(filter_lockie(std::get<_Idx>(t))...);
 }
 
-template<typename Tuple, size_t ... I>
-auto make_scoped_lock_ptr(Tuple t, std::index_sequence<I ...>)
-{
+template<bool TcountContention = false, typename Tuple, size_t ... I>
+auto make_scoped_lock_ptr(Tuple t, std::index_sequence<I ...>) {
+	if constexpr(TcountContention) {
+		size_t cnt = 0;
+		(((std::get<I>(t).tryLock() && std::get<I>(t).unlock()) || ++cnt), ...);
+
+		Global::instance().apply<size_t>(Global::Keys::LOCK_CONTENTION_CNT, [cnt](size_t& v){
+			v += cnt;
+			return v;
+		});
+	}
 	using lock_t = std::scoped_lock<std::remove_reference_t<decltype(std::get<I>(t).getMutex())>...>;
 	cv::Ptr<lock_t> ptr = new lock_t(std::get<I>(t).getMutex()...);
 	return ptr;
 }
 
-template<typename Tuple>
-auto make_scoped_lock_ptr(Tuple t)
-{
+template<bool TcountContention = false, typename Tuple>
+auto make_scoped_lock_ptr(Tuple t) {
 	static constexpr auto size = std::tuple_size<Tuple>::value;
-	return make_scoped_lock_ptr(t, std::make_index_sequence<size>{});
+	return make_scoped_lock_ptr<TcountContention>(t, std::make_index_sequence<size>{});
 }
 
 template <typename F, typename... Ts>
@@ -288,11 +306,11 @@ public:
     	return ran_;
     }
 
-    template <typename _Fn, typename _Tuple, size_t... _Idx>
+    template <bool TcountContention = false, typename _Fn, typename _Tuple, size_t... _Idx>
     void
     performImpl(_Fn&& __f, _Tuple&& __t, std::index_sequence<_Idx...> seq) {
     	if constexpr(hasLockies_) {
-    		auto scopedLock = make_scoped_lock_ptr(filter_lockies(__t, seq));
+    		auto scopedLock = make_scoped_lock_ptr<TcountContention>(filter_lockies(__t, seq));
         	std::invoke(std::forward<_Fn>(__f),
         			std::get<_Idx>(std::forward<_Tuple>(__t)).ref()...);
 
@@ -309,12 +327,12 @@ public:
     	}
     }
 
-    template <typename _Fn, typename _Tuple, size_t... _Idx>
+    template <bool TcountContention = false, typename _Fn, typename _Tuple, size_t... _Idx>
     constexpr decltype(auto)
     performImplRet(_Fn&& __f, _Tuple&& __t, std::index_sequence<_Idx...> seq) {
     	bool res = false;
     	if constexpr(hasLockies_) {
-    		auto scopedLock = make_scoped_lock_ptr(filter_lockies(__t, seq));
+    		auto scopedLock = make_scoped_lock_ptr<TcountContention>(filter_lockies(__t, seq));
 
     		res = std::invoke(std::forward<_Fn>(__f),
         			std::get<_Idx>(std::forward<_Tuple>(__t)).ref()...);
@@ -334,20 +352,33 @@ public:
         return res;
     }
 
-    virtual void perform() override {
+    virtual void perform(const bool& countContention = false) override {
         using _Indices= std::make_index_sequence<std::tuple_size<decltype(args_)>::value>;
-        performImpl(std::forward<F>(f),
+        if(countContention) {
+        	performImpl<true>(std::forward<F>(f),
   			       std::forward<decltype(args_)>(args_),
   			       _Indices{});
+        } else {
+			performImpl<false>(std::forward<F>(f),
+				   std::forward<decltype(args_)>(args_),
+				   _Indices{});
+        }
         ran_ = true;
     }
 
-    virtual bool performPredicate() override {
+    virtual bool performPredicate(const bool& countContention = false) override {
     	if constexpr(predicate_t::value) {
             using _Indices= std::make_index_sequence<std::tuple_size<decltype(args_)>::value>;
-            bool res = performImplRet(std::forward<F>(f),
+            bool res = false;
+            if(countContention) {
+            	res = performImplRet<true>(std::forward<F>(f),
       			       std::forward<decltype(args_)>(args_),
       			       _Indices{});
+            } else {
+            	res = performImplRet<false>(std::forward<F>(f),
+      			       std::forward<decltype(args_)>(args_),
+      			       _Indices{});
+            }
         	ran_ = true;
         	return res;
     	} else {

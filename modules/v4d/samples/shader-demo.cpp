@@ -245,6 +245,9 @@ public:
 	ShaderDemoPlan() {
 		_shared(params_);
 	}
+	ShaderDemoPlan(Plan& parent) : ShaderDemoPlan() {
+		_parent(parent);
+	}
 
 	void gui() override {
         imgui([](Params& params) {
@@ -278,7 +281,7 @@ public:
 
 		gl([](const cv::Rect& vp, const Params params, const Handles& handles) {
         	render_scene(vp, params, handles);
-		}, vp_, R_C(params_), R(handles_));
+		}, vp_, R_SC(params_), R(handles_));
 
         write();
     }

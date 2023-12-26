@@ -38,6 +38,24 @@ namespace cv {
 namespace v4d {
 namespace detail {
 
+template <typename, typename = void>
+struct has_call_operator_t : std::false_type {};
+
+template <typename T>
+struct has_call_operator_t<T, std::void_t<decltype(&T::operator())>> : std::is_same<std::true_type, std::true_type>
+{};
+
+template <typename, typename = void>
+struct has_return_type_t : std::false_type {};
+
+template <typename T>
+struct has_return_type_t<T, std::void_t<decltype(&T::return_type)>> : std::is_same<std::true_type, std::true_type>
+{};
+
+template<typename T>
+struct is_callable : public std::conjunction<has_call_operator_t<T>, has_return_type_t<T>> {
+};
+
 //https://stackoverflow.com/a/27885283/1884837
 template<class T>
 struct function_traits : function_traits<decltype(&T::operator())> {
@@ -163,10 +181,33 @@ inline uint64_t get_epoch_nanos() {
 	return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-class Locking {
+class SharedVariables {
 	std::mutex sharedVarsMtx_;
-	std::map<size_t, std::mutex*> sharedVars_;
-	typedef typename std::map<size_t, std::mutex*>::iterator SharedVarsIter;
+	std::map<size_t, std::pair<size_t, cv::Ptr<std::mutex>>> sharedVars_;
+	typedef typename std::map<size_t, std::pair<size_t, cv::Ptr<std::mutex>>>::iterator SharedVarsIter;
+
+	template<typename T>
+	bool check(const T& shared) {
+		auto it = sharedVars_.find(reinterpret_cast<size_t>(&shared));
+		if(it != sharedVars_.end()) {
+			return true;
+		}
+
+		off_t varOffset = reinterpret_cast<size_t>(&shared);
+		off_t registeredOffset = 0;
+		off_t registeredSize = 0;
+		for(const auto& p : sharedVars_) {
+			registeredOffset = p.first;
+			if(varOffset > registeredOffset) {
+				registeredSize = p.second.first;
+				if(varOffset < (registeredOffset + registeredSize)) {
+					throw std::runtime_error("You are trying to register a member of shared variable as shared variable");
+				}
+			}
+		}
+		return sharedVars_.find(reinterpret_cast<size_t>(&shared)) != sharedVars_.end();
+	}
+
 public:
 	template<typename T>
 	bool isShared(const T& shared) {
@@ -174,33 +215,25 @@ public:
 		return sharedVars_.find(reinterpret_cast<size_t>(&shared)) != sharedVars_.end();
 	}
 
-	template<typename T>
+	template<typename T, bool Tcheck = true>
 	void registerShared(const T& shared) {
 		std::lock_guard<std::mutex> guard(sharedVarsMtx_);
-		sharedVars_.insert(std::make_pair(reinterpret_cast<size_t>(&shared), new std::mutex()));
+		if constexpr(Tcheck) {
+			check(shared);
+		}
+
+		sharedVars_.insert({reinterpret_cast<size_t>(&shared), std::make_pair(sizeof(T), cv::makePtr<std::mutex>())});
 	}
 
 	template<typename T>
 	void safe_copy(const T& from, T& to) {
-		std::mutex* mtx = nullptr;
-		{
-			std::lock_guard<std::mutex> guard(sharedVarsMtx_);
-			auto itFrom = sharedVars_.find(reinterpret_cast<size_t>(&from));
-			auto itTo = sharedVars_.find(reinterpret_cast<size_t>(&to));
+		std::mutex* mtx = getMutexPtr(from, false);
+		mtx = mtx == nullptr ? getMutexPtr(to, false) : mtx;
+		if(mtx == nullptr)
+			throw std::runtime_error("Internal error: Trying to safe copy non-shared variables.");
 
-			if(itFrom != sharedVars_.end()) {
-				mtx = (*itFrom).second;
-			} else if(itTo != sharedVars_.end()) {
-				mtx = (*itTo).second;
-			} else {
-				throw std::runtime_error("You are unnecessarily safe-copying a variable or you forgot to register it.");
-			}
-		}
-		{
-			CV_Assert(mtx);
-			std::lock_guard<std::mutex> guard(*mtx);
-			to = copy(from);
-		}
+		std::lock_guard<std::mutex> guard(*mtx);
+		to = copy(from);
 	}
 
 	template<typename T>
@@ -237,20 +270,20 @@ public:
 
 
 	template<typename T>
-	std::mutex* getMutexPtr(const T& shared) {
+	std::mutex* getMutexPtr(const T& shared, bool check = true) {
 		SharedVarsIter it, end;
-		std::mutex* mtx = nullptr;
+		cv::Ptr<std::mutex> mtx = nullptr;
 			std::lock_guard<std::mutex> guard(sharedVarsMtx_);
 			it = sharedVars_.find(reinterpret_cast<size_t>(&shared));
 			end = sharedVars_.end();
 			if(it != end) {
-				mtx = (*it).second;
+				mtx = (*it).second.second;
 			}
 
-			if(mtx == nullptr)
+			if(check && !mtx)
 				throw std::runtime_error("You are trying to lock a non-shared variable");
 
-			return mtx;
+			return mtx.get();
 	}
 
 	template<typename T>
@@ -269,7 +302,18 @@ public:
 	}
 };
 
-CV_EXPORTS class Global : public Locking {
+CV_EXPORTS class Global : public SharedVariables {
+public:
+	struct Keys {
+		enum Enum {
+			LOCK_CONTENTION_CNT,
+			LOCK_CONTENTION_RATE,
+			PLAN_CNT
+		};
+	};
+private:
+	ThreadSafeAnyMap<Keys::Enum> map_;
+
 	CV_EXPORTS static Global* instance_;
 	std::mutex threadIDMtx_;
 	const std::thread::id defaultThreadID_;
@@ -312,7 +356,29 @@ CV_EXPORTS class Global : public Locking {
 		}
 		return false;
 	}
+
+	Global() {
+		create<false, size_t>(Keys::LOCK_CONTENTION_CNT, 0);
+		create<false, double>(Keys::LOCK_CONTENTION_RATE, 0.0);
+		create<false, size_t>(Keys::PLAN_CNT, 0);
+	}
 public:
+	template <typename V> const V& get(Keys::Enum k) {
+		return map_.get<V>(k);
+	}
+
+	template <typename V> void set(Keys::Enum k, V v) {
+		map_.set(k, v);
+	}
+
+	template <bool Tread, typename V> void create(Keys::Enum k, V v, const std::function<void(const V& val)>& cb = std::function<void(const V& val)>()) {
+		map_.create<Tread>(k, v, cb);
+	}
+
+	template <typename V> V apply(Keys::Enum k, std::function<V(V&)> f) {
+		return map_.apply(k, f);
+	}
+
 	CV_EXPORTS void setMainID(const std::thread::id& id) {
 		std::lock_guard<std::mutex> lock(threadIDMtx_);
 		mainThreadID_ = id;
