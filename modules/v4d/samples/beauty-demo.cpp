@@ -362,19 +362,19 @@ public:
 			SliderFloat("Saturation ", &params->eyesAndLipsSaturation_, 0.0f, 10.0f);
 			End();
 
-			cv::Scalar color;
+			ImVec4 color;
 			string text;
 			switch(params->state_) {
 				case Params::ON:
 					text = "On";
-					color = cv::Scalar(64, 255, 64, 255);
+					color = ImVec4(0.25, 1.0, 0.25, 1.0);
 					break;
 				case Params::OFF:
 					text = "Off";
-					color = cv::Scalar(255, 64, 64, 255);
+					color = ImVec4(0.25, 0.25, 1.0, 1.0);
 					break;
 				case Params::NOT_DETECTED:
-					color = cv::Scalar(64, 64, 255, 255);
+					color = ImVec4(1.0, 0.25, 0.25, 1.0);
 					text ="Not detected";
 					break;
 				default:
@@ -382,7 +382,7 @@ public:
 			}
 
 			Begin("Status");
-			Text(text.c_str());
+			TextColored(color, text.c_str());
 			End();
 		}, params_);
 	}
@@ -434,10 +434,10 @@ int main(int argc, char **argv) {
 
 	cv::Rect viewport(0, 0, 1280, 720);
 	cv::Ptr<BeautyDemoPlan::Params> params = cv::makePtr<BeautyDemoPlan::Params>();
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::LOWER_WORKER_PRIORITY);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
-    Plan::run<BeautyDemoPlan>(0, params);
+    Plan::run<BeautyDemoPlan>(3, params);
 
     return 0;
 }

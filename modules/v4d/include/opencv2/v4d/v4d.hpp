@@ -27,7 +27,6 @@
 #define EVENT_API_EXPORT CV_EXPORTS
 #include "events.hpp"
 
-#include <type_traits>
 #include <shared_mutex>
 #include <future>
 #include <set>
@@ -37,6 +36,7 @@
 #include <vector>
 #include <barrier>
 #include <type_traits>
+#include <sys/resource.h>
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
@@ -113,6 +113,8 @@ struct DebugFlags {
 		DEBUG_GL_CONTEXT = 4,
 		PRINT_LOCK_CONTENTION = 8,
 		MONITOR_RUNTIME_PROPERTIES = 16,
+		LOWER_WORKER_PRIORITY = 32,
+		DONT_PAUSE_LOG = 64,
 	};
 };
 
@@ -540,7 +542,7 @@ class Plan {
 
     template <typename Tfn, typename ... Args>
     void init_context_call(Tfn fn, Args ... args) {
-    	static_assert(std::is_pointer<Tfn>::value || std::is_bind_expression<Tfn>::value || is_callable<Tfn>::value || detail::is_stateless_lambda<std::remove_cv_t<std::remove_reference_t<decltype(fn)>>>::value, "All passed functors must be stateless lambdas");
+    	static_assert(std::is_pointer<Tfn>::value || std::is_bind_expression<Tfn>::value || is_callable<Tfn>::value || detail::is_stateless_lambda<std::remove_cv_t<std::remove_reference_t<decltype(fn)>>>::value, "All lambdas passed must be stateless");
     }
 
 	template<typename T>
@@ -1469,13 +1471,15 @@ public:
 					threads.push_back(
 						new std::thread(
 							[plan, i, workers, src, sink, &args...] {
-//								CV_LOG_WARNING(&v4d_tag, "Temporary setting log level to warning.");
-//								cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
-
 								CV_LOG_DEBUG(&v4d_tag, "Creating worker: " << i);
 								{
 									std::lock_guard guard(worker_init_mtx_);
 									cv::Ptr<V4D> worker = V4D::init(*plan->runtime_.get(), plan->runtime_->title() + "-worker-" + std::to_string(i));
+									if(!(worker->debugFlags() & DebugFlags::DONT_PAUSE_LOG)) {
+										CV_LOG_WARNING(&v4d_tag, "Temporary setting log level to warning.");
+										cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
+									}
+
 									if (src) {
 										worker->setSource(src);
 									}
@@ -1489,10 +1493,13 @@ public:
 					);
 				}
 			} else {
-//			    cerr << "Setting worker thread niceness from: " << getpriority(PRIO_PROCESS, gettid()) << " to: " << 1 << endl;
-//
-//			    if (setpriority(PRIO_PROCESS, gettid(), 1))
-//			        std::cout << "Failed to setpriority: " << std::strerror(errno) << '\n';
+				if(V4D::instance()->debugFlags() & DebugFlags::LOWER_WORKER_PRIORITY) {
+					CV_LOG_INFO(&v4d_tag, "Lowering worker thread niceness from: " << getpriority(PRIO_PROCESS, gettid()) << " to: " << 1);
+
+					if (setpriority(PRIO_PROCESS, gettid(), 1)) {
+						CV_LOG_INFO(&v4d_tag, "Failed to set niceness: " << std::strerror(errno));
+					}
+				}
 			}
 		}
 
