@@ -110,11 +110,8 @@ struct FaceFeatures {
 using namespace cv::v4d;
 
 class BeautyDemoPlan : public Plan {
-	using K = V4D::Keys;
-
-	cv::Size downSize_;
-
-	static struct Params {
+public:
+	struct Params {
 		//Saturation boost factor for eyes and lips
 		float eyesAndLipsSaturation_ = 1.85f;
 		//Saturation boost factor for skin
@@ -135,7 +132,13 @@ class BeautyDemoPlan : public Plan {
 			OFF,
 			NOT_DETECTED
 		} state_ = ON;
-	} params_;
+	};
+
+private:
+	using K = V4D::Keys;
+
+	cv::Size downSize_;
+	cv::Ptr<Params> params_ = nullptr;
 
 	struct Temp {
 	    vector<cv::UMat> channels_;
@@ -192,16 +195,16 @@ class BeautyDemoPlan : public Plan {
 		cv::resize(frames.orig_, frames.down_, downSize);
 	}
 
-	static bool is_enabled(Params& params) {
+	static bool is_enabled(cv::Ptr<Params>& params) {
 		using namespace cv::v4d::event;
 		if(consume(Mouse::Type::PRESS)) {
-			params.enabled_ = !params.enabled_;
+			params->enabled_ = !params->enabled_;
 		}
 
-		return params.enabled_;
+		return params->enabled_;
 	}
 
-	static void detect_face_features(const cv::Rect& vp, cv::Ptr<cv::FaceDetectorYN> detector, cv::Ptr<cv::face::Facemark>& facemark, const cv::UMat& down, Face& face) {
+	static void detect_face_features(const cv::Rect& vp, cv::Ptr<cv::FaceDetectorYN>& detector, cv::Ptr<cv::face::Facemark>& facemark, const cv::UMat& down, Face& face) {
 		face.shapes_.clear();
 		cv::Mat faces;
 		//Detect faces in the down-scaled image
@@ -217,22 +220,22 @@ class BeautyDemoPlan : public Plan {
 			face.features_ = FaceFeatures(face.faceRects_[0], face.shapes_[0], double(vp.width / down.size().width));
 	}
 
-	static void prepare_masks(Frames& frames, const Params& params, Temp& temp) {
+	static void prepare_masks(Frames& frames, const cv::Ptr<Params>& params, Temp& temp) {
 		//Create the skin mask
 		cv::subtract(frames.faceOval_, frames.eyesAndLipsMaskGrey_, frames.faceSkinMaskGrey_);
 		//Create the background mask
 		cv::bitwise_not(frames.faceOval_, frames.backgroundMaskGrey_);
 	}
 
-	static void adjust_face_features(Frames& frames, const Params& params, Temp& temp) {
+	static void adjust_face_features(Frames& frames, const cv::Ptr<Params>& params, Temp& temp) {
 		//boost saturation of eyes and lips
-		adjust_saturation(frames.orig_,  frames.eyesAndLips_, params.eyesAndLipsSaturation_, temp);
+		adjust_saturation(frames.orig_,  frames.eyesAndLips_, params->eyesAndLipsSaturation_, temp);
 		//reduce skin contrast
-		multiply(frames.orig_, cv::Scalar::all(params.skinContrast_), temp.contrast_);
+		multiply(frames.orig_, cv::Scalar::all(params->skinContrast_), temp.contrast_);
 		//fix skin brightness
-		add(temp.contrast_, cv::Scalar::all((1.0 - params.skinContrast_) / 2.0) * 255.0, temp.contrast_);
+		add(temp.contrast_, cv::Scalar::all((1.0 - params->skinContrast_) / 2.0) * 255.0, temp.contrast_);
 		//boost skin saturation
-		adjust_saturation(temp.contrast_, frames.skin_, params.skinSaturation_, temp);
+		adjust_saturation(temp.contrast_, frames.skin_, params->skinSaturation_, temp);
 	}
 
 	static void stitch_face(cv::Ptr<cv::detail::MultiBandBlender>& bl, Frames& frames, Temp& temp) {
@@ -248,8 +251,8 @@ class BeautyDemoPlan : public Plan {
 		temp.stitchedFloat_.convertTo(frames.stitched_, CV_8U, 1.0);
 	}
 
-	static void compose_result(const cv::Rect& vp, const cv::UMat& src, Frames& frames, const Params& params) {
-		if (params.sideBySide_) {
+	static void compose_result(const cv::Rect& vp, const cv::UMat& src, Frames& frames, const cv::Ptr<Params>& params) {
+		if (params->sideBySide_) {
 			//create side-by-side view with a result
 			cv::resize(frames.orig_, frames.lhalf_, cv::Size(0, 0), 0.5, 0.5);
 			cv::resize(src, frames.rhalf_, cv::Size(0, 0), 0.5, 0.5);
@@ -262,8 +265,8 @@ class BeautyDemoPlan : public Plan {
 		}
 	}
 
-	static void set_state(Params& params, Params::State& state) {
-		params.state_ = state;
+	static void set_state(cv::Ptr<Params>& params, Params::State& state) {
+		params->state_ = state;
 	}
 
 	static void present(cv::UMat& framebuffer, const cv::UMat& result) {
@@ -314,7 +317,7 @@ class BeautyDemoPlan : public Plan {
 		    fill();
 		}
 	public:
-		DrawMasksPlan(BeautyDemoPlan& parent, FaceFeatures& baseFeatures, Frames& baseFrames)
+		DrawMasksPlan(cv::Ptr<BeautyDemoPlan> parent, FaceFeatures& baseFeatures, Frames& baseFrames)
 		: baseFeatures_(baseFeatures), baseFrames_(baseFrames) {
 			_parent(parent);
 		}
@@ -333,37 +336,35 @@ class BeautyDemoPlan : public Plan {
 
 	cv::Ptr<DrawMasksPlan> drawMasksPlan_;
 public:
-	BeautyDemoPlan() {
-		_shared(params_);
-		drawMasksPlan_ = Plan::makeSubPlan<DrawMasksPlan>(*this, face_.features_, frames_);
-	}
-
-	BeautyDemoPlan(Plan& parent) : BeautyDemoPlan() {
+	template<typename Tparent>
+	BeautyDemoPlan(cv::Ptr<Tparent> parent, cv::Ptr<Params> params) : params_(params) {
 		_parent(parent);
+		_shared(params_);
+		drawMasksPlan_ = Plan::makeSubPlan<DrawMasksPlan>(self<BeautyDemoPlan>(), face_.features_, frames_);
 	}
 
 	void gui() override {
-		imgui([](Params& params){
+		imgui([](cv::Ptr<Params>& params){
 			using namespace ImGui;
 			Begin("Effect");
 			Text("Display");
-			Checkbox("Side by side", &params.sideBySide_);
-			Checkbox("Stetch", &params.stretch_);
+			Checkbox("Side by side", &params->sideBySide_);
+			Checkbox("Stetch", &params->stretch_);
 
 			if(Button("Fullscreen")) {
-				params.fullscreen_ = !params.fullscreen_;
+				params->fullscreen_ = !params->fullscreen_;
 			};
 
 			Text("Face Skin");
-			SliderFloat("Saturation", &params.skinSaturation_, 0.0f, 10.0f);
-			SliderFloat("Contrast", &params.skinContrast_, 0.0f, 2.0f);
+			SliderFloat("Saturation", &params->skinSaturation_, 0.0f, 10.0f);
+			SliderFloat("Contrast", &params->skinContrast_, 0.0f, 2.0f);
 			Text("Eyes and Lips");
-			SliderFloat("Saturation ", &params.eyesAndLipsSaturation_, 0.0f, 10.0f);
+			SliderFloat("Saturation ", &params->eyesAndLipsSaturation_, 0.0f, 10.0f);
 			End();
 
 			cv::Scalar color;
 			string text;
-			switch(params.state_) {
+			switch(params->state_) {
 				case Params::ON:
 					text = "On";
 					color = cv::Scalar(64, 255, 64, 255);
@@ -425,8 +426,6 @@ public:
 	}
 };
 
-BeautyDemoPlan::Params BeautyDemoPlan::params_;
-
 int main(int argc, char **argv) {
 	if (argc != 2) {
         std::cerr << "Usage: beauty-demo <input-video-file>" << std::endl;
@@ -434,10 +433,11 @@ int main(int argc, char **argv) {
     }
 
 	cv::Rect viewport(0, 0, 1280, 720);
+	cv::Ptr<BeautyDemoPlan::Params> params = cv::makePtr<BeautyDemoPlan::Params>();
     cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DISPLAY_MODE);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
-    Plan::run<BeautyDemoPlan>(0);
+    Plan::run<BeautyDemoPlan>(0, params);
 
     return 0;
 }

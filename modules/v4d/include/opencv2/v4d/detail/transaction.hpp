@@ -82,6 +82,17 @@ private:
 	struct has_get_t<Tval, std::void_t<decltype(&Tval::get)>> : std::is_same<std::true_type, std::true_type>
 	{};
 
+	template <typename, typename = void>
+	struct element_t : std::false_type {
+		using type = std::false_type ;
+	};
+
+	template <typename Tval>
+	struct element_t<Tval, std::void_t<decltype(&Tval::get)>> : std::is_same<std::true_type, std::true_type>
+	{
+		using type = std::remove_pointer_t<typename Tval::element_type>;
+	};
+
 	using ispointer_t = std::is_pointer<T>;
 
 	using issmart_t = typename std::conjunction<
@@ -91,33 +102,33 @@ private:
 			values_equal<ispointer_t::value, false, std::true_type>
 			>::type;
 
-	static_assert((!ispointer_t::value && !issmart_t::value) || !copy_t::value, "You are trying to explicitly copy the value of a (smart) pointer.");
+//	static_assert((!ispointer_t::value && !issmart_t::value) || !copy_t::value, "You are trying to explicitly copy the value of a (smart) pointer.");
 	static_assert((!temp_t::value) || (!copy_t::value && read_t::value), "Internal error: Trying to form a copy or write edge to a temporary.");
 	static_assert(shared_t::value || !(copy_t::value && !read_t::value), "Internal error: Trying to form  copy-write edge on a non-shared variable.");
 	static_assert(!lockie_t::value || !copy_t::value, "Internal error: Trying to form a copy edge on a to be locked variable.");
 
 	using without_ptr_t = typename std::remove_pointer<T>::type;
- 	using without_ptr_and_cont_t = typename std::remove_const<without_ptr_t>::type;
+ 	using without_ptr_and_const_t = typename std::remove_const<without_ptr_t>::type;
 	using internal_ptr_t = typename std::disjunction<
 			values_equal<temp_t::value, true, Tbase*>,
-			values_equal<read_t::value, true, const without_ptr_and_cont_t*>,
-			default_type<without_ptr_and_cont_t*>
+			values_equal<read_t::value, true, const without_ptr_and_const_t*>,
+			default_type<without_ptr_and_const_t*>
 			>::type;
 
 	using holder_t = typename std::disjunction<
-			values_equal<issmart_t::value, true, T>,
+			values_equal<issmart_t::value, true, without_ptr_and_const_t>,
+			values_equal<temp_t::value, true, T>,
 			default_type<nullptr_t>
 			>::type;
 
+	using copy_ptr_t = typename std::disjunction<
+			values_equal<issmart_t::value, true, holder_t>,
+			default_type<std::remove_const_t<internal_ptr_t>>
+			>::type;
+
 	internal_ptr_t ptr_ = nullptr;
-	internal_ptr_t copyPtr_ = nullptr;
+	copy_ptr_t copyPtr_ = nullptr;
 	holder_t holder_ = nullptr;
-
-	template<typename Tptr>
-	static auto get_ptr(internal_ptr_t t) {
-		return reinterpret_cast<Tptr*>(t);
-	}
-
 public:
 	using pass_t = typename std::disjunction<
 			values_equal<temp_t::value, true, T>,
@@ -127,11 +138,15 @@ public:
 
 	using value_t = typename std::disjunction<
 			values_equal<temp_t::value, true, Tbase>,
+			values_equal<issmart_t::value, true, holder_t>,
 			values_equal<read_t::value, true, const T>,
 			default_type<T>
 			>::type;
 
-	using ref_t = typename std::add_lvalue_reference<value_t>::type;
+	using ref_t = typename std::disjunction<
+			values_equal<!temp_t::value && issmart_t::value, true, holder_t&>,
+			default_type<typename std::add_lvalue_reference<value_t>::type>
+			>::type;;
 
 	template<typename Tplan>
 	static Edge make(Tplan& plan, pass_t t, const bool doCheck = true) {
@@ -144,40 +159,62 @@ public:
 	}
 
 	void set(pass_t t) {
-		if constexpr(temp_t::value) {
+		if constexpr(temp_t::value || issmart_t::value) {
 			holder_ = t;
+		}
+
+		if constexpr(temp_t::value){
 			ptr_ = holder_.get();
 		} else {
 			ptr_ = &t;
 		}
 
-		if constexpr(copy_t::value && !read_t::value) {
-			copyPtr_ = new typename std::remove_pointer<decltype(ptr())>::type();
+		if constexpr(copy_t::value) {
+			if constexpr(issmart_t::value) {
+				copyPtr_ = new typename holder_t::element_type();
+			} else if constexpr(!read_t::value) {
+				copyPtr_ = new typename std::remove_pointer<decltype(ptr())>::type();
+			}
 		}
 	}
 
-	auto* ptr() const {
-		return get_ptr<typename std::remove_pointer<decltype(ptr_)>::type>(ptr_);
+	internal_ptr_t ptr() const {
+		return ptr_;
 	}
 
 	size_t id() const {
 		return reinterpret_cast<size_t>(ptr_);
 	}
 
-	auto& ref() const {
+	ref_t ref() {
 		if constexpr(!copy_t::value) {
 			return *ptr();
 		} else {
-    		if constexpr(shared_t::value) {
-    			Global::instance().safe_copy(*ptr(), *copyPtr_);
-				return *copyPtr_;
+			if constexpr(issmart_t::value){
+				if constexpr(shared_t::value) {
+					Global::instance().safe_copy(*ptr()->get(), *copyPtr_.get());
+					return copyPtr_;
+				} else {
+					Global::instance().copy(*ptr()->get(), *copyPtr_.get());
+					return copyPtr_;
+				}
 			} else {
-				return *ptr();
+				if constexpr(shared_t::value) {
+					Global::instance().safe_copy(*ptr(), *copyPtr_);
+					return *copyPtr_;
+				} else {
+					Global::instance().copy(*ptr(), *copyPtr_);
+					return *copyPtr_;
+				}
 			}
 		}
 
 		CV_Assert(false);
-   		return *ptr();
+		if constexpr(!temp_t::value && issmart_t::value) {
+			return holder_;
+		} else {
+			return *ptr();
+		}
 	}
 
     void copyBack() {
@@ -189,7 +226,7 @@ public:
     std::mutex& getMutex() {
     	static_assert(lockie_t::value, "Internal Error: Trying to get mutex from a non-lockie edge");
     	//uses the no check variant because this should never fail due to previous checks.
-    	return *Global::instance().getMutexPtr(*ptr(), false);
+    	return *Global::instance().getMutexPtr(*ptr(), true);
     }
 
     bool tryLock() {

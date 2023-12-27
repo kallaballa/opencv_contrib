@@ -141,7 +141,7 @@ void FrameBufferContext::initBlend(const size_t& index) {
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
     GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
     GL_CHECK(
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size().width, size().height, 0, GL_BGRA, GL_UNSIGNED_BYTE, 0));
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, size().width, size().height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
     GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, copyTextures_[index], 0));
     assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
     loadShaders(index);
@@ -338,7 +338,7 @@ void FrameBufferContext::setup() {
         GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureFlippedID_));
         GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
         GL_CHECK(
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_BGRA, GL_UNSIGNED_BYTE, 0));
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
         GL_CHECK(
@@ -355,7 +355,7 @@ void FrameBufferContext::setup() {
         GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
         GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
         GL_CHECK(
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_BGRA, GL_UNSIGNED_BYTE, 0));
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
         GL_CHECK(
@@ -374,7 +374,7 @@ void FrameBufferContext::setup() {
         GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
         GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
         GL_CHECK(
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_BGRA, GL_UNSIGNED_BYTE, 0));
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR));
         GL_CHECK(
@@ -631,16 +631,20 @@ void FrameBufferContext::end() {
 void FrameBufferContext::download(cv::UMat& m) {
     cv::Mat tmp = m.getMat(cv::ACCESS_WRITE);
     assert(tmp.data != nullptr);
-    GL_CHECK(glReadPixels(0, 0, tmp.cols, tmp.rows, GL_BGRA, GL_UNSIGNED_BYTE, tmp.data));
+    GL_CHECK(glBindFramebuffer(GL_READ_FRAMEBUFFER, framebufferID_));
+    GL_CHECK(glReadPixels(0, 0, tmp.cols, tmp.rows, GL_RGBA, GL_UNSIGNED_BYTE, tmp.data));
     tmp.release();
-
 }
 
 void FrameBufferContext::upload(const cv::UMat& m) {
-    cv::Mat tmp = m.getMat(cv::ACCESS_READ);
+	cv::Mat tmp = m.getMat(cv::ACCESS_READ);
+	assert(!tmp.empty());
     assert(tmp.data != nullptr);
+
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
     GL_CHECK(
-            glTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, tmp.cols, tmp.rows, GL_BGRA, GL_UNSIGNED_BYTE, tmp.data));
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tmp.cols, tmp.rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, tmp.data));
+
     tmp.release();
 }
 
@@ -658,11 +662,10 @@ void FrameBufferContext::acquireFromGL(cv::UMat& m) {
 	} else
 #endif
     {
+
         download(m);
-    	cv::flip(m, m, 0);
+        cv::flip(m, m, 0);
     }
-
-
 }
 
 void FrameBufferContext::releaseToGL(cv::UMat& m) {
@@ -681,8 +684,8 @@ void FrameBufferContext::releaseToGL(cv::UMat& m) {
     }
 #endif
     {
-    	cv::flip(m, m, 0);
-        upload(m);
+        cv::flip(m, m, 0);
+    	upload(m);
     }
 }
 

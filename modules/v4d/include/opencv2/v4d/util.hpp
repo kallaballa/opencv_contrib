@@ -187,12 +187,7 @@ class SharedVariables {
 	typedef typename std::map<size_t, std::pair<size_t, cv::Ptr<std::mutex>>>::iterator SharedVarsIter;
 
 	template<typename T>
-	bool check(const T& shared) {
-		auto it = sharedVars_.find(reinterpret_cast<size_t>(&shared));
-		if(it != sharedVars_.end()) {
-			return true;
-		}
-
+	void check(const T& shared) {
 		off_t varOffset = reinterpret_cast<size_t>(&shared);
 		off_t registeredOffset = 0;
 		off_t registeredSize = 0;
@@ -205,7 +200,6 @@ class SharedVariables {
 				}
 			}
 		}
-		return sharedVars_.find(reinterpret_cast<size_t>(&shared)) != sharedVars_.end();
 	}
 
 public:
@@ -218,11 +212,14 @@ public:
 	template<typename T, bool Tcheck = true>
 	void registerShared(const T& shared) {
 		std::lock_guard<std::mutex> guard(sharedVarsMtx_);
-		if constexpr(Tcheck) {
-			check(shared);
-		}
+		auto it = sharedVars_.find(reinterpret_cast<size_t>(&shared));
+		if(it == sharedVars_.end()) {
+			if constexpr(Tcheck) {
+				check(shared);
+			}
 
-		sharedVars_.insert({reinterpret_cast<size_t>(&shared), std::make_pair(sizeof(T), cv::makePtr<std::mutex>())});
+			sharedVars_.insert({reinterpret_cast<size_t>(&shared), std::make_pair(sizeof(T), cv::makePtr<std::mutex>())});
+		}
 	}
 
 	template<typename T>

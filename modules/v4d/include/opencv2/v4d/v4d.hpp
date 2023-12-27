@@ -604,12 +604,6 @@ class Plan {
     	return parentOffset_;
     }
 
-
-    cv::Ptr<Plan> self() {
-		CV_Assert(self_);
-		return self_;
-	}
-
 	void findNode(const string& name, cv::Ptr<Node>& found) {
     	CV_Assert(!name.empty());
     	if(nodes_.empty())
@@ -868,6 +862,13 @@ class Plan {
 		return v;
 	});
 public:
+	template<typename Tinstance>
+    cv::Ptr<Tinstance> self() {
+		if(!self_)
+			self_ = this;
+		return self_.dynamicCast<Tinstance>();
+	}
+
 	template<typename TmemberPtr> static auto m_(TmemberPtr member) {
 		auto ptr_to_data = std::mem_fn(member);
 		return std::bind(ptr_to_data, std::placeholders::_1);
@@ -922,7 +923,7 @@ public:
         (emit_access(id, args ),...);
 		std::function<void((typename Args::ref_t...))> functor(fn);
 		add_transaction(runtime_->glCtx(-1), id, functor, args...);
-		return self();
+		return self<Plan>();
     }
 
     std::map<size_t, size_t> indexPointerMap_;
@@ -936,7 +937,7 @@ public:
         (emit_access(id, args ),...);
         std::function<void((const int32_t&,typename Args::ref_t...))> functor(fn);
 		add_transaction([this, indexEdge](){ return runtime_->glCtx(indexEdge.ref());},id, functor, indexEdge, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -947,7 +948,7 @@ public:
         (emit_access(id, args ),...);
         std::function<void((typename Args::ref_t...))> functor(fn);
 		add_transaction(runtime_->extCtx(-1), id, fn, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tedge, typename Tfn, typename ... Args>
@@ -959,7 +960,7 @@ public:
         (emit_access(id, args ),...);
         std::function<void((const int32_t&,typename Args::ref_t...))> functor(fn);
 		add_transaction([this, indexEdge](){ return runtime_->extCtx(indexEdge.ref());},id, functor, indexEdge, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn>
@@ -970,7 +971,7 @@ public:
         emit_access(id, R_I(*this));
         std::function functor = fn;
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, functor);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -982,7 +983,7 @@ public:
         (emit_access(id, args ),...);
         std::function<bool(typename Args::ref_t...)> functor(fn);
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, functor, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -997,7 +998,7 @@ public:
 			return runtime_->workerIndex() == workerIdx && functor(args...);
 		};
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -1009,7 +1010,7 @@ public:
         (emit_access(id, args ),...);
 		std::function<bool(typename Args::ref_t...)> functor = fn;
 		add_transaction(type, runtime_->plainCtx(), id, functor, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -1025,7 +1026,7 @@ public:
 		};
 
 		add_transaction(type, runtime_->plainCtx(), id, wrap, args...);
-		return self();
+		return self<Plan>();
     }
 
 /*    template <typename Tfn>
@@ -1036,7 +1037,7 @@ public:
     	emit_access(id, R_I(*this));
     	std::function functor = fn;
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, functor);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -1048,7 +1049,7 @@ public:
         (emit_access(id, args ),...);
         std::function<bool(typename Args::ref_t...)> functor = fn;
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, functor, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -1063,7 +1064,7 @@ public:
 			return runtime_->workerIndex() == workerIdx && functor(args...);
 		};
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn>
@@ -1074,7 +1075,7 @@ public:
     	emit_access(id, R_I(*this));
     	std::function functor = fn;
 		add_transaction(type, runtime_->plainCtx(), id, functor);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -1086,7 +1087,7 @@ public:
     	(emit_access(id, args ),...);
         std::function<bool(typename Args::ref_t...)> functor = fn;
 		add_transaction(type, runtime_->plainCtx(), id, functor, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -1102,7 +1103,7 @@ public:
 		};
 
 		add_transaction(type, runtime_->plainCtx(), id, wrap, args...);
-		return self();
+		return self<Plan>();
     }
 */
 	cv::Ptr<Plan> endBranch() {
@@ -1112,7 +1113,7 @@ public:
         emit_access(id, R_I(*this));
         std::function functor = [](){ return true; };
 		add_transaction(current.second, runtime_->plainCtx(), id, functor);
-		return self();
+		return self<Plan>();
     }
 
     cv::Ptr<Plan> elseBranch() {
@@ -1121,7 +1122,7 @@ public:
     	emit_access(id, R_I(*this));
 		std::function functor = [](){ return true; };
 		add_transaction(current.second, runtime_->plainCtx(), id, functor);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -1138,7 +1139,7 @@ public:
 				typename decltype(fbEdge)::ref_t,
 				typename Args::ref_t...))> functor(fn);
 		add_transaction(runtime_->fbCtx(),id, functor, fbEdge, args...);
-		return self();
+		return self<Plan>();
     }
 
     cv::Ptr<Plan> clear() {
@@ -1150,7 +1151,7 @@ public:
 		    GL_CHECK(glClearColor(r, g, b, a));
 		    GL_CHECK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
     	}, GET<cv::Scalar>(V4D::Keys::CLEAR_COLOR));
-    	return self();
+    	return self<Plan>();
     }
 
     cv::Ptr<Plan> capture() {
@@ -1167,7 +1168,7 @@ public:
         			f.copyTo(framebuffer);
         	}
         }, Edge<cv::UMat, false, true>::make(*this, captureFrame_));
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -1191,7 +1192,7 @@ public:
 				typename decltype(srcEdge)::ref_t,
 				typename Args::ref_t...))> functor(fn);
 		add_transaction(runtime_->sourceCtx(),id, functor, srcEdge, args...);
-		return self();
+		return self<Plan>();
     }
 
     cv::Ptr<Plan> write() {
@@ -1202,7 +1203,7 @@ public:
     	write([](cv::UMat& outputFrame, const cv::UMat& f){
    			f.copyTo(outputFrame);
     	}, Edge<cv::UMat, false, true>::make(*this, writerFrame_));
-		return self();
+		return self<Plan>();
     }
 
 
@@ -1221,7 +1222,7 @@ public:
 				typename decltype(sinkEdge)::ref_t,
 				typename Args::ref_t...))> functor(fn);
 		add_transaction(runtime_->sinkCtx(),id, functor, sinkEdge, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -1233,7 +1234,7 @@ public:
         (emit_access(id, args ),...);
 		std::function<void((typename Args::ref_t...))> functor(fn);
 		add_transaction(runtime_->nvgCtx(), id, functor, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -1245,7 +1246,7 @@ public:
         (emit_access(id, args ),...);
 		std::function<void((typename Args::ref_t...))> functor(fn);
 		add_transaction(runtime_->bgfxCtx(), id, functor, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
@@ -1257,7 +1258,7 @@ public:
         (emit_access(id, args ),...);
         std::function<void((typename Args::ref_t...))> functor(fn);
 		add_transaction(runtime_->plainCtx(), id, functor, args...);
-		return self();
+		return self<Plan>();
     }
 
     template <typename TsubPlan>
@@ -1268,7 +1269,7 @@ public:
     	std::copy(subPlan->accesses_.begin(), subPlan->accesses_.end(), std::inserter(accesses_, accesses_.end()));
     	std::copy(subPlan->transactions_.begin(), subPlan->transactions_.end(), std::inserter(transactions_, transactions_.end()));
     	subPlan->clearGraph();
-    	return self();
+    	return self<Plan>();
     }
 
     template <typename TsubPlan>
@@ -1279,7 +1280,7 @@ public:
     	std::copy(subPlan->accesses_.begin(), subPlan->accesses_.end(), std::inserter(accesses_, accesses_.end()));
     	std::copy(subPlan->transactions_.begin(), subPlan->transactions_.end(), std::inserter(transactions_, transactions_.end()));
     	subPlan->clearGraph();
-    	return self();
+    	return self<Plan>();
     }
 
     template <typename TsubPlan>
@@ -1290,14 +1291,14 @@ public:
     	std::copy(subPlan->accesses_.begin(), subPlan->accesses_.end(), std::inserter(accesses_, accesses_.end()));
     	std::copy(subPlan->transactions_.begin(), subPlan->transactions_.end(), std::inserter(transactions_, transactions_.end()));
     	subPlan->clearGraph();
-    	return self();
+    	return self<Plan>();
     }
 
     template<typename Tedge, typename Tkey = decltype(runtime_)::element_type::Keys::Enum>
 	typename std::enable_if<std::is_base_of_v<EdgeBase, Tedge>, cv::Ptr<Plan>>::type
 	set(Tkey key, Tedge val) {
 		init_context_call([](){}, val);
-		auto plan = self();
+		auto plan = self<Plan>();
         auto fn = [plan, key](decltype(val.ref()) v){
         	plan->runtime_->set(key, v);
         };
@@ -1307,7 +1308,7 @@ public:
         emit_access(id, val);
         std::function<void(decltype(val.ref()))> functor(fn);
 		add_transaction(runtime_->plainCtx(), id, functor, val);
-		return self();
+		return self<Plan>();
 	}
 
 	template<typename Tfn, typename ... Args, typename Tkey = decltype(runtime_)::element_type::Keys::Enum>
@@ -1318,27 +1319,28 @@ public:
 		const string id = make_id(this->space(), "set-fn", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
-        auto plan = self();
+        auto plan = self<Plan>();
 		std::function wrap = [plan, key, fn](typename Args::ref_t ... values) {
 			plan->runtime_->set(key, fn(values...));
 		};
 
         add_transaction(runtime_->plainCtx(), id, wrap, args...);
-		return self();
+		return self<Plan>();
 	}
 
-	template <typename Tparent>
-	void _parent(Tparent& parent) {
+	template<typename TplanPtr>
+	void _parent(TplanPtr parent) {
+		if(!parent)
+			return;
 		//FIXME check inheritance
-		setParentID(parent.space());
-		setParentActualTypeSize<Tparent>();
-		setParentOffset(reinterpret_cast<size_t>(&parent));
+		setParentID(parent->space());
+		setParentActualTypeSize<typename TplanPtr::element_type>();
+		setParentOffset(reinterpret_cast<size_t>(parent.get()));
 	}
 
 	template<typename Tvar>
 	void _shared(Tvar& val) {
-		if(Global::instance().isMain())
-			Global::instance().registerShared(val);
+		Global::instance().registerShared(val);
 	}
 
 	template<typename Tfn, typename ... Args>
@@ -1413,10 +1415,9 @@ public:
 		return Property<Tval>(*this, ref);
 	}
 
-    template<typename Tplan, typename TparentPlan, typename ... Args>
-	static cv::Ptr<Tplan> makeSubPlan(TparentPlan&& parent, Args&& ... args) {
-    	cv::Ptr<Tplan> plan = std::make_shared<Tplan>(std::forward<TparentPlan>(parent), std::forward<Args>(args)...);
-		plan->self_ = plan;
+    template<typename Tplan, typename TparentPtr, typename ... Args>
+	static cv::Ptr<Tplan> makeSubPlan(TparentPtr parent, Args&& ... args) {
+    	cv::Ptr<Tplan> plan = std::make_shared<Tplan>(parent, std::forward<Args>(args)...);
 		plan->template setActualTypeSize<Tplan>();
 		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
 		return plan;
@@ -1424,8 +1425,7 @@ public:
 
     template<typename Tplan, typename ... Args>
 	static cv::Ptr<Tplan> make(Args&& ... args) {
-    	cv::Ptr<Tplan> plan = new Tplan(std::forward<Args>(args)...);
-		plan->self_ = plan;
+    	cv::Ptr<Tplan> plan = new Tplan(cv::Ptr<Plan>(nullptr), std::forward<Args>(args)...);
 		plan->template setActualTypeSize<Tplan>();
 		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
 		return plan;
