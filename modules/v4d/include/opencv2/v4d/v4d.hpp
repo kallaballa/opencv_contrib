@@ -376,10 +376,6 @@ public:
 						break;
 				}
 			} else {
-				CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");
-				cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_INFO);
-				CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << state.get<size_t>(RunState::Keys::WORKERS_STARTED) << " workers.");
-
 				while(keepRunning()) {
 					bool result = true;
 					TimeTracker::getInstance()->execute("worker", [&result, &state, runtime, runGraph](){
@@ -414,7 +410,7 @@ public:
 					});
 					if(!result)
 						break;
-				};
+				}
 			}
 		} catch(std::runtime_error& ex) {
 			CV_LOG_WARNING(&v4d_tag, "Pipeline terminated: " << ex.what());
@@ -863,13 +859,24 @@ class Plan {
 		++v;
 		return v;
 	});
-public:
+
 	template<typename Tinstance>
     cv::Ptr<Tinstance> self() {
-		if(!self_)
-			self_ = this;
 		return self_.dynamicCast<Tinstance>();
 	}
+
+    template<typename Tplan, typename Tparent, typename ... Args>
+	static cv::Ptr<Tplan> makeSubPlan(Tparent* parent, Args&& ... args) {
+    	cv::Ptr<Tplan> plan = std::make_shared<Tplan>(std::forward<Args>(args)...);
+    	plan->self_ = plan;
+    	plan->setParentID(parent->space());
+    	plan->setParentOffset(reinterpret_cast<size_t>(parent));
+    	plan->template setParentActualTypeSize<Tparent>();
+    	plan->template setActualTypeSize<Tplan>();
+		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
+		return plan;
+    }
+public:
 
 	template<typename TmemberPtr> static auto m_(TmemberPtr member) {
 		auto ptr_to_data = std::mem_fn(member);
@@ -1330,14 +1337,9 @@ public:
 		return self<Plan>();
 	}
 
-	template<typename TplanPtr>
-	void _parent(TplanPtr parent) {
-		if(!parent)
-			return;
-		//FIXME check inheritance
-		setParentID(parent->space());
-		setParentActualTypeSize<typename TplanPtr::element_type>();
-		setParentOffset(reinterpret_cast<size_t>(parent.get()));
+	template<typename TsubPlan, typename Tparent, typename ... Args>
+	auto _sub(Tparent* parent, Args&& ... args) {
+		return Plan::makeSubPlan<TsubPlan>(parent, std::forward<Args>(args)...);
 	}
 
 	template<typename Tvar>
@@ -1363,9 +1365,9 @@ public:
 	}
 
 	template<typename T>
-	detail::Edge<T, true, true> R_SC(T& t) {
+	detail::Edge<T, true, true, true> R_SC(T& t) {
 		if(Global::instance().isShared(t)) {
-			return detail::Edge<T, true, true>::make(*this, t, false);
+			return detail::Edge<T, true, true, true>::make(*this, t, false);
 		} else {
 			throw std::runtime_error("You are trying to safe-copy a non-shared variable. Maybe you forgot to declare it?.");
 		}
@@ -1417,18 +1419,11 @@ public:
 		return Property<Tval>(*this, ref);
 	}
 
-    template<typename Tplan, typename TparentPtr, typename ... Args>
-	static cv::Ptr<Tplan> makeSubPlan(TparentPtr parent, Args&& ... args) {
-    	cv::Ptr<Tplan> plan = std::make_shared<Tplan>(parent, std::forward<Args>(args)...);
-		plan->template setActualTypeSize<Tplan>();
-		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
-		return plan;
-    }
-
     template<typename Tplan, typename ... Args>
 	static cv::Ptr<Tplan> make(Args&& ... args) {
-    	cv::Ptr<Tplan> plan = new Tplan(cv::Ptr<Plan>(nullptr), std::forward<Args>(args)...);
-		plan->template setActualTypeSize<Tplan>();
+    	cv::Ptr<Tplan> plan = new Tplan(std::forward<Args>(args)...);
+    	plan->self_ = plan;
+    	plan->template setActualTypeSize<Tplan>();
 		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
 		return plan;
     }
@@ -1467,6 +1462,11 @@ public:
 				auto sink = plan->runtime_->getSink();
 				state.set<size_t>(RunState::Keys::WORKERS_STARTED, workers);
 				static std::mutex worker_init_mtx_;
+				if(!(plan->runtime_->debugFlags() & DebugFlags::DONT_PAUSE_LOG)) {
+					CV_LOG_WARNING(&v4d_tag, "Temporary setting log level to warning.");
+					cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
+				}
+
 				for (size_t i = 0; i < workers; ++i) {
 					threads.push_back(
 						new std::thread(
@@ -1475,10 +1475,6 @@ public:
 								{
 									std::lock_guard guard(worker_init_mtx_);
 									cv::Ptr<V4D> worker = V4D::init(*plan->runtime_.get(), plan->runtime_->title() + "-worker-" + std::to_string(i));
-									if(!(worker->debugFlags() & DebugFlags::DONT_PAUSE_LOG)) {
-										CV_LOG_WARNING(&v4d_tag, "Temporary setting log level to warning.");
-										cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_WARNING);
-									}
 
 									if (src) {
 										worker->setSource(src);
@@ -1547,6 +1543,9 @@ public:
 					plan->runGraph();
 				});
 			});
+			CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");
+			cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_INFO);
+			CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << state.get<size_t>(RunState::Keys::WORKERS_STARTED) << " workers.");
 		} catch(std::exception& ex) {
 			CV_Error_(cv::Error::StsError, ("Main plan->runtime_: %s", ex.what()));
 		}

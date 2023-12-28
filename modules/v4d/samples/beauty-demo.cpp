@@ -28,7 +28,7 @@ struct FaceFeatures {
 	FaceFeatures() {
 	}
 
-    FaceFeatures(const cv::Rect& faceRect, const vector<cv::Point2f>& shape, const double& scale) :
+    FaceFeatures(const cv::Rect& faceRect, const vector<cv::Point2f>& shapes, const double& scale) :
     	faceRect_(cv::Rect(faceRect.x * scale, faceRect.y * scale, faceRect.width * scale, faceRect.height * scale)),
 		scale_(scale) {
     	vector<cv::Point2f> chin;
@@ -45,31 +45,31 @@ struct FaceFeatures {
         size_t i = 0;
         // Around Chin. Ear to Ear
         for (i = 0; i <= 16; ++i)
-            chin.push_back(shape[i] * scale);
+            chin.push_back(shapes[i] * scale);
         // left eyebrow
         for (; i <= 21; ++i)
-            leftEyebrow.push_back(shape[i] * scale);
+            leftEyebrow.push_back(shapes[i] * scale);
         // Right eyebrow
         for (; i <= 26; ++i)
-            rightEyebrow.push_back(shape[i] * scale);
+            rightEyebrow.push_back(shapes[i] * scale);
         // Line on top of nose
         for (; i <= 30; ++i)
-            topNose.push_back(shape[i] * scale);
+            topNose.push_back(shapes[i] * scale);
         // Bottom part of the nose
         for (; i <= 35; ++i)
-            bottomNose.push_back(shape[i] * scale);
+            bottomNose.push_back(shapes[i] * scale);
         // Left eye
         for (; i <= 41; ++i)
-            leftEye.push_back(shape[i] * scale);
+            leftEye.push_back(shapes[i] * scale);
         // Right eye
         for (; i <= 47; ++i)
-            rightEye.push_back(shape[i] * scale);
+            rightEye.push_back(shapes[i] * scale);
         // Lips outer part
         for (; i <= 59; ++i)
-            outerLips.push_back(shape[i] * scale);
+            outerLips.push_back(shapes[i] * scale);
         // Lips inside part
         for (; i <= 67; ++i)
-            insideLips.push_back(shape[i] * scale);
+            insideLips.push_back(shapes[i] * scale);
 
         allPoints_.insert(allPoints_.begin(), chin.begin(), chin.end());
         allPoints_.insert(allPoints_.begin(), topNose.begin(), topNose.end());
@@ -105,10 +105,100 @@ struct FaceFeatures {
     size_t empty() const {
         return points().empty();
     }
+
+    //based on the detected FaceFeatures it guesses a decent face oval and draws a mask for it.
+    void drawFaceOval() const {
+        using namespace cv::v4d::nvg;
+        cv::RotatedRect rotRect = cv::fitEllipse(points());
+
+        beginPath();
+        fillColor(cv::Scalar(255, 255, 255, 255));
+        ellipse(rotRect.center.x, rotRect.center.y * 0.875, rotRect.size.width / 2, rotRect.size.height / 1.75);
+        rotate(rotRect.angle);
+        fill();
+    }
+
+    void drawFaceOvalMask() const {
+    	cv::v4d::nvg::clearScreen();
+    	drawFaceOval();
+    }
+
+    void drawEyes() const {
+        using namespace cv::v4d::nvg;
+        vector<vector<cv::Point2f>> ff = features();
+        for (size_t j = 5; j < 8; ++j) {
+            beginPath();
+            fillColor(cv::Scalar(255, 255, 255, 255));
+            moveTo(ff[j][0].x, ff[j][0].y);
+            for (size_t k = 1; k < ff[j].size(); ++k) {
+                lineTo(ff[j][k].x, ff[j][k].y);
+            }
+            closePath();
+            fill();
+        }
+    }
+
+    void drawLips() const {
+        using namespace cv::v4d::nvg;
+        vector<vector<cv::Point2f>> ff = features();
+        for (size_t j = 5; j < 8; ++j) {
+            beginPath();
+            fillColor(cv::Scalar(255, 255, 255, 255));
+            moveTo(ff[j][0].x, ff[j][0].y);
+            for (size_t k = 1; k < ff[j].size(); ++k) {
+                lineTo(ff[j][k].x, ff[j][k].y);
+            }
+            closePath();
+            fill();
+        }
+    }
+    //Draws a mask consisting of eyes and lips areas (deduced from FaceFeatures)
+    void drawEyesAndLipsMask() const {
+    	cv::v4d::nvg::clearScreen();
+        drawEyes();
+        drawLips();
+    }
 };
+
+
+
+static void extract_face_features(const float& scale, cv::Ptr<cv::FaceDetectorYN>& detector, cv::Ptr<cv::face::Facemark>& facemark, const cv::UMat& down, FaceFeatures& features, bool& found) {
+	std::vector<std::vector<cv::Point2f>> shapes;
+	std::vector<cv::Rect> faceRects;
+	cv::Mat faces;
+	//Detect faces in the down-scaled image
+	detector->detect(down, faces);
+	//Only add the first face
+	if(!faces.empty())
+		faceRects.push_back(cv::Rect(int(faces.at<float>(0, 0)),
+ 									 int(faces.at<float>(0, 1)),
+									 int(faces.at<float>(0, 2)),
+									 int(faces.at<float>(0, 3))));
+
+	//find landmarks if faces have been detected
+	found = !faceRects.empty() && facemark->fit(down, faceRects, shapes);
+	if(found)
+		features = FaceFeatures(faceRects[0], shapes[0], scale);
+}
+
+
+//adjusts the saturation of a UMat
+static void adjust_saturation(const cv::UMat &srcBGR, cv::UMat &dstBGR, float factor, std::vector<cv::UMat>& channel) {
+    cvtColor(srcBGR, dstBGR, cv::COLOR_BGR2HLS);
+    split(dstBGR, channel);
+    cv::multiply(channel[2], factor, channel[2]);
+    merge(channel, dstBGR);
+    cvtColor(dstBGR, dstBGR, cv::COLOR_HLS2BGR);
+}
+
+static void present(cv::UMat& framebuffer, const cv::UMat& result) {
+	cvtColor(result, framebuffer, cv::COLOR_BGR2BGRA);
+}
 
 using namespace cv::v4d;
 
+class DrawFaceMasksPlan;
+class BeautyFilterPlan;
 class BeautyDemoPlan : public Plan {
 public:
 	struct Params {
@@ -134,25 +224,11 @@ public:
 		} state_ = ON;
 	};
 
-private:
-	using K = V4D::Keys;
-
-	cv::Size downSize_;
-	cv::Ptr<Params> params_ = nullptr;
-
-	struct Temp {
-	    vector<cv::UMat> channels_;
-	    cv::UMat hls_;
-	    cv::UMat stitchedFloat_;
-	    cv::UMat bgra_;
-	    cv::UMat contrast_;
-	} temp_;
-
 	struct Frames {
 		//BGR
-		cv::UMat orig_, down_, faceOval_, eyesAndLips_, skin_;
+		cv::UMat orig_, stitched_, down_, faceOval_, eyesAndLips_, skin_;
 		//the frame holding the stitched image if detection went through
-		cv::UMat stitched_;
+
 		//in split mode the left and right half of the screen
 		cv::UMat lhalf_;
 		cv::UMat rhalf_;
@@ -162,97 +238,45 @@ private:
 
 		//GREY
 		cv::UMat faceSkinMaskGrey_, eyesAndLipsMaskGrey_, backgroundMaskGrey_;
-	} frames_;
+	};
 
 	//results of face detection and facemark
 	struct Face {
-		vector<vector<cv::Point2f>> shapes_;
-		std::vector<cv::Rect> faceRects_;
 		bool found_ = false;
 		FaceFeatures features_;
-	} face_;
+	};
+private:
+	using K = V4D::Keys;
+
+	Frames frames_;
+	Face face_;
+	cv::Size downSize_;
+	Params& params_;
 
 	cv::Ptr<cv::face::Facemark> facemark_ = cv::face::createFacemarkLBF();
 	//Face detector
 	cv::Ptr<cv::FaceDetectorYN> detector_;
 
-	//Blender (used to put the different face parts back together)
-	cv::Ptr<cv::detail::MultiBandBlender> blender_ = new cv::detail::MultiBandBlender(true, 5);
-
 	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 
-	//adjusts the saturation of a UMat
-	static void adjust_saturation(const cv::UMat &srcBGR, cv::UMat &dstBGR, float factor, Temp& temp) {
-	    cvtColor(srcBGR, temp.hls_, cv::COLOR_BGR2HLS);
-	    split(temp.hls_, temp.channels_);
-	    cv::multiply(temp.channels_[2], factor, temp.channels_[2]);
-	    merge(temp.channels_, temp.hls_);
-	    cvtColor(temp.hls_, dstBGR, cv::COLOR_HLS2BGR);
-	}
 
 	static void prepare_frames(const cv::UMat& framebuffer, const cv::Size& downSize, Frames& frames) {
 		cvtColor(framebuffer, frames.orig_, cv::COLOR_BGRA2BGR);
 		cv::resize(frames.orig_, frames.down_, downSize);
+		frames.orig_.copyTo(frames.stitched_);
 	}
 
-	static bool is_enabled(cv::Ptr<Params>& params) {
+	static bool is_enabled(Params& params) {
 		using namespace cv::v4d::event;
 		if(consume(Mouse::Type::PRESS)) {
-			params->enabled_ = !params->enabled_;
+			params.enabled_ = !params.enabled_;
 		}
 
-		return params->enabled_;
+		return params.enabled_;
 	}
 
-	static void detect_face_features(const cv::Rect& vp, cv::Ptr<cv::FaceDetectorYN>& detector, cv::Ptr<cv::face::Facemark>& facemark, const cv::UMat& down, Face& face) {
-		face.shapes_.clear();
-		cv::Mat faces;
-		//Detect faces in the down-scaled image
-		detector->detect(down, faces);
-		//Only add the first face
-		cv::Rect faceRect;
-		if(!faces.empty())
-			faceRect = cv::Rect(int(faces.at<float>(0, 0)), int(faces.at<float>(0, 1)), int(faces.at<float>(0, 2)), int(faces.at<float>(0, 3)));
-		face.faceRects_ = {faceRect};
-		//find landmarks if faces have been detected
-		face.found_ = !faceRect.empty() && facemark->fit(down, face.faceRects_, face.shapes_);
-		if(face.found_)
-			face.features_ = FaceFeatures(face.faceRects_[0], face.shapes_[0], double(vp.width / down.size().width));
-	}
-
-	static void prepare_masks(Frames& frames, const cv::Ptr<Params>& params, Temp& temp) {
-		//Create the skin mask
-		cv::subtract(frames.faceOval_, frames.eyesAndLipsMaskGrey_, frames.faceSkinMaskGrey_);
-		//Create the background mask
-		cv::bitwise_not(frames.faceOval_, frames.backgroundMaskGrey_);
-	}
-
-	static void adjust_face_features(Frames& frames, const cv::Ptr<Params>& params, Temp& temp) {
-		//boost saturation of eyes and lips
-		adjust_saturation(frames.orig_,  frames.eyesAndLips_, params->eyesAndLipsSaturation_, temp);
-		//reduce skin contrast
-		multiply(frames.orig_, cv::Scalar::all(params->skinContrast_), temp.contrast_);
-		//fix skin brightness
-		add(temp.contrast_, cv::Scalar::all((1.0 - params->skinContrast_) / 2.0) * 255.0, temp.contrast_);
-		//boost skin saturation
-		adjust_saturation(temp.contrast_, frames.skin_, params->skinSaturation_, temp);
-	}
-
-	static void stitch_face(cv::Ptr<cv::detail::MultiBandBlender>& bl, Frames& frames, Temp& temp) {
-		CV_Assert(!frames.skin_.empty());
-		CV_Assert(!frames.eyesAndLips_.empty());
-		//piece it all together
-		bl->prepare(cv::Rect(0, 0, frames.skin_.cols, frames.skin_.rows));
-		bl->feed(frames.skin_, frames.faceSkinMaskGrey_, cv::Point(0, 0));
-		bl->feed(frames.orig_, frames.backgroundMaskGrey_, cv::Point(0, 0));
-		bl->feed(frames.eyesAndLips_, frames.eyesAndLipsMaskGrey_, cv::Point(0, 0));
-		bl->blend(temp.stitchedFloat_, cv::UMat());
-		CV_Assert(!temp.stitchedFloat_.empty());
-		temp.stitchedFloat_.convertTo(frames.stitched_, CV_8U, 1.0);
-	}
-
-	static void compose_result(const cv::Rect& vp, const cv::UMat& src, Frames& frames, const cv::Ptr<Params>& params) {
-		if (params->sideBySide_) {
+	static void compose_result(const cv::Rect& vp, const cv::UMat& src, Frames& frames, const Params& params) {
+		if (params.sideBySide_) {
 			//create side-by-side view with a result
 			cv::resize(frames.orig_, frames.lhalf_, cv::Size(0, 0), 0.5, 0.5);
 			cv::resize(src, frames.rhalf_, cv::Size(0, 0), 0.5, 0.5);
@@ -265,106 +289,41 @@ private:
 		}
 	}
 
-	static void set_state(cv::Ptr<Params>& params, Params::State& state) {
-		params->state_ = state;
+	static void set_state(Params& params, Params::State& state) {
+		params.state_ = state;
 	}
 
-	static void present(cv::UMat& framebuffer, const cv::UMat& result) {
-		cvtColor(result, framebuffer, cv::COLOR_BGR2BGRA);
-	}
-
-	class DrawMasksPlan : public Plan {
-		FaceFeatures& baseFeatures_;
-		Frames& baseFrames_;
-
-		//based on the detected FaceFeatures it guesses a decent face oval and draws a mask for it.
-		static void draw_face_oval_mask(const FaceFeatures &ff) {
-		    using namespace cv::v4d::nvg;
-		    clearScreen();
-
-		    cv::RotatedRect rotRect = cv::fitEllipse(ff.points());
-
-		    beginPath();
-		    fillColor(cv::Scalar(255, 255, 255, 255));
-		    ellipse(rotRect.center.x, rotRect.center.y * 0.875, rotRect.size.width / 2, rotRect.size.height / 1.75);
-		    rotate(rotRect.angle);
-		    fill();
-		}
-
-		//Draws a mask consisting of eyes and lips areas (deduced from FaceFeatures)
-		static void draw_face_eyes_and_lips_mask(const FaceFeatures &ff) {
-		    using namespace cv::v4d::nvg;
-		    clearScreen();
-		    vector<vector<cv::Point2f>> features = ff.features();
-		    for (size_t j = 5; j < 8; ++j) {
-		        beginPath();
-		        fillColor(cv::Scalar(255, 255, 255, 255));
-		        moveTo(features[j][0].x, features[j][0].y);
-		        for (size_t k = 1; k < features[j].size(); ++k) {
-		            lineTo(features[j][k].x, features[j][k].y);
-		        }
-		        closePath();
-		        fill();
-		    }
-
-		    beginPath();
-		    fillColor(cv::Scalar(0, 0, 0, 255));
-		    moveTo(features[8][0].x, features[8][0].y);
-		    for (size_t k = 1; k < features[8].size(); ++k) {
-		        lineTo(features[8][k].x, features[8][k].y);
-		    }
-		    closePath();
-		    fill();
-		}
-	public:
-		DrawMasksPlan(cv::Ptr<BeautyDemoPlan> parent, FaceFeatures& baseFeatures, Frames& baseFrames)
-		: baseFeatures_(baseFeatures), baseFrames_(baseFrames) {
-			_parent(parent);
-		}
-
-		void infer() override {
-			nvg(draw_face_oval_mask, R(baseFeatures_))
-			->fb([](const cv::UMat& framebuffer, cv::UMat& faceOval) {
-				cvtColor(framebuffer, faceOval, cv::COLOR_BGRA2GRAY);
-			}, RW(baseFrames_.faceOval_))
-			->nvg(draw_face_eyes_and_lips_mask, R(baseFeatures_))
-			->fb([](const cv::UMat &framebuffer, cv::UMat& eyesAndLipsMaskGrey) {
-				cvtColor(framebuffer, eyesAndLipsMaskGrey, cv::COLOR_BGRA2GRAY);
-			}, RW(baseFrames_.eyesAndLipsMaskGrey_));
-		}
-	};
-
-	cv::Ptr<DrawMasksPlan> drawMasksPlan_;
+	cv::Ptr<DrawFaceMasksPlan> prepareFeatureMasksPlan_;
+	cv::Ptr<BeautyFilterPlan> beautyFilterPlan_;
 public:
-	template<typename Tparent>
-	BeautyDemoPlan(cv::Ptr<Tparent> parent, cv::Ptr<Params> params) : params_(params) {
-		_parent(parent);
+	BeautyDemoPlan(Params& params) : params_(params) {
 		_shared(params_);
-		drawMasksPlan_ = Plan::makeSubPlan<DrawMasksPlan>(self<BeautyDemoPlan>(), face_.features_, frames_);
+		prepareFeatureMasksPlan_ = _sub<DrawFaceMasksPlan>(this, face_.features_, frames_, params_);
+		beautyFilterPlan_ = _sub<BeautyFilterPlan>(this, face_.features_, frames_, params_);
 	}
 
 	void gui() override {
-		imgui([](cv::Ptr<Params>& params){
+		imgui([](Params& params){
 			using namespace ImGui;
 			Begin("Effect");
 			Text("Display");
-			Checkbox("Side by side", &params->sideBySide_);
-			Checkbox("Stetch", &params->stretch_);
+			Checkbox("Side by side", &params.sideBySide_);
+			Checkbox("Stetch", &params.stretch_);
 
 			if(Button("Fullscreen")) {
-				params->fullscreen_ = !params->fullscreen_;
+				params.fullscreen_ = !params.fullscreen_;
 			};
 
 			Text("Face Skin");
-			SliderFloat("Saturation", &params->skinSaturation_, 0.0f, 10.0f);
-			SliderFloat("Contrast", &params->skinContrast_, 0.0f, 2.0f);
+			SliderFloat("Saturation", &params.skinSaturation_, 0.0f, 10.0f);
+			SliderFloat("Contrast", &params.skinContrast_, 0.0f, 2.0f);
 			Text("Eyes and Lips");
-			SliderFloat("Saturation ", &params->eyesAndLipsSaturation_, 0.0f, 10.0f);
+			SliderFloat("Saturation ", &params.eyesAndLipsSaturation_, 0.0f, 10.0f);
 			End();
 
 			ImVec4 color;
 			string text;
-			switch(params->state_) {
+			switch(params.state_) {
 				case Params::ON:
 					text = "On";
 					color = ImVec4(0.25, 1.0, 0.25, 1.0);
@@ -405,24 +364,95 @@ public:
 		->fb(prepare_frames, R(downSize_), RW(frames_));
 
 		branch(is_enabled, RW_S(params_))
-			->plain(detect_face_features, vp_, RW(detector_), RW(facemark_), R(frames_.down_), RW(face_))
+			->plain([](const cv::Size& downSize, auto& detector, auto& facemark, const Frames& frames, Face& face){
+				extract_face_features(downSize.width / frames.orig_.size().width, detector, facemark, frames.down_, face.features_, face.found_);
+			}, R(downSize_), RW(detector_), RW(facemark_), R(frames_), RW(face_))
 			->branch(isTrue_, R(face_.found_))
-				->subInfer(drawMasksPlan_)
-				->plain(prepare_masks, RW(frames_), R_SC(params_), RW(temp_))
-				->plain(adjust_face_features, RW(frames_), R_SC(params_), RW(temp_))
-				->plain(stitch_face, RW(blender_), RW(frames_), RW(temp_))
-				->plain(compose_result, vp_, R(frames_.stitched_), RW(frames_), R_SC(params_))
+				->subInfer(prepareFeatureMasksPlan_)
+				->subInfer(beautyFilterPlan_)
 				->plain(set_state, RW_S(params_), VAL(Params::ON))
 			->elseBranch()
-				->plain(compose_result, vp_, R(frames_.orig_), RW(frames_), R_SC(params_))
 				->plain(set_state, RW_S(params_), VAL(Params::NOT_DETECTED))
 			->endBranch()
 		->elseBranch()
-			->plain(compose_result, vp_, R(frames_.orig_), RW(frames_), R_SC(params_))
 			->plain(set_state, RW_S(params_), VAL(Params::OFF))
 		->endBranch();
 
-		fb(present, R(frames_.result_));
+		plain(compose_result, vp_, R(frames_.stitched_), RW(frames_), R_SC(params_))
+		->fb(present, R(frames_.result_));
+	}
+};
+
+
+class DrawFaceMasksPlan : public Plan {
+	FaceFeatures& baseFeatures_;
+	BeautyDemoPlan::Frames& baseFrames_;
+	BeautyDemoPlan::Params& baseParams_;
+public:
+	DrawFaceMasksPlan(FaceFeatures& baseFeatures, BeautyDemoPlan::Frames& baseFrames, BeautyDemoPlan::Params& baseParams)
+	: baseFeatures_(baseFeatures), baseFrames_(baseFrames), baseParams_(baseParams) {
+	}
+
+	static void prepare_masks(BeautyDemoPlan::Frames& frames, const BeautyDemoPlan::Params& params) {
+		//Create the skin mask
+		cv::subtract(frames.faceOval_, frames.eyesAndLipsMaskGrey_, frames.faceSkinMaskGrey_);
+		//Create the background mask
+		cv::bitwise_not(frames.faceOval_, frames.backgroundMaskGrey_);
+	}
+
+	void infer() override {
+		nvg(m_(&FaceFeatures::drawFaceOvalMask), R(baseFeatures_))
+		->fb([](const cv::UMat& framebuffer, cv::UMat& faceOval) {
+			cvtColor(framebuffer, faceOval, cv::COLOR_BGRA2GRAY);
+		}, RW(baseFrames_.faceOval_))
+		->nvg(m_(&FaceFeatures::drawEyesAndLipsMask), R(baseFeatures_))
+		->fb([](const cv::UMat &framebuffer, cv::UMat& eyesAndLipsMaskGrey) {
+			cvtColor(framebuffer, eyesAndLipsMaskGrey, cv::COLOR_BGRA2GRAY);
+		}, RW(baseFrames_.eyesAndLipsMaskGrey_))
+		->plain(prepare_masks, RW(baseFrames_), R_SC(baseParams_));
+	}
+};
+
+class BeautyFilterPlan : public Plan {
+	FaceFeatures& baseFeatures_;
+	BeautyDemoPlan::Frames& baseFrames_;
+	BeautyDemoPlan::Params& baseParams_;
+	//Blender (used to put the different face parts back together)
+	cv::Ptr<cv::detail::MultiBandBlender> blender_ = new cv::detail::MultiBandBlender(true, 5);
+	std::vector<cv::UMat> channels_;
+	cv::UMat stitchedFloat_;
+public:
+	BeautyFilterPlan(FaceFeatures& baseFeatures, BeautyDemoPlan::Frames& baseFrames, BeautyDemoPlan::Params& baseParams)
+	: baseFeatures_(baseFeatures), baseFrames_(baseFrames), baseParams_(baseParams) {
+	}
+
+	static void adjust_face_features(BeautyDemoPlan::Frames& frames, std::vector<cv::UMat>& channels, const BeautyDemoPlan::Params& params) {
+		//boost saturation of eyes and lips
+		adjust_saturation(frames.orig_,  frames.eyesAndLips_, params.eyesAndLipsSaturation_, channels);
+		//reduce skin contrast
+		multiply(frames.orig_, cv::Scalar::all(params.skinContrast_), frames.skin_);
+		//fix skin brightness
+		add(frames.skin_, cv::Scalar::all((1.0 - params.skinContrast_) / 2.0) * 255.0, frames.skin_);
+		//boost skin saturation
+		adjust_saturation(frames.skin_, frames.skin_, params.skinSaturation_, channels);
+	}
+
+	static void stitch_face(cv::Ptr<cv::detail::MultiBandBlender>& bl, BeautyDemoPlan::Frames& frames, cv::UMat& stitchedFloat) {
+		CV_Assert(!frames.skin_.empty());
+		CV_Assert(!frames.eyesAndLips_.empty());
+		//piece it all together
+		bl->prepare(cv::Rect(0, 0, frames.skin_.cols, frames.skin_.rows));
+		bl->feed(frames.skin_, frames.faceSkinMaskGrey_, cv::Point(0, 0));
+		bl->feed(frames.orig_, frames.backgroundMaskGrey_, cv::Point(0, 0));
+		bl->feed(frames.eyesAndLips_, frames.eyesAndLipsMaskGrey_, cv::Point(0, 0));
+		bl->blend(stitchedFloat, cv::UMat());
+		CV_Assert(!stitchedFloat.empty());
+		stitchedFloat.convertTo(frames.stitched_, CV_8U, 1.0);
+	}
+
+	void infer() override {
+		plain(adjust_face_features, RW(baseFrames_), RW(channels_), R_SC(baseParams_))
+		->plain(stitch_face, RW(blender_), RW(baseFrames_), RW(stitchedFloat_));
 	}
 };
 
@@ -433,7 +463,7 @@ int main(int argc, char **argv) {
     }
 
 	cv::Rect viewport(0, 0, 1280, 720);
-	cv::Ptr<BeautyDemoPlan::Params> params = cv::makePtr<BeautyDemoPlan::Params>();
+	BeautyDemoPlan::Params params;
     cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::LOWER_WORKER_PRIORITY);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);

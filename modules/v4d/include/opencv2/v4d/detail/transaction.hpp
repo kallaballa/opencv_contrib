@@ -111,7 +111,7 @@ private:
  	using without_ptr_and_const_t = typename std::remove_const<without_ptr_t>::type;
 	using internal_ptr_t = typename std::disjunction<
 			values_equal<temp_t::value, true, Tbase*>,
-			values_equal<read_t::value, true, const without_ptr_and_const_t*>,
+			values_equal<read_t::value && !copy_t::value, true, const without_ptr_and_const_t*>,
 			default_type<without_ptr_and_const_t*>
 			>::type;
 
@@ -132,14 +132,14 @@ private:
 public:
 	using pass_t = typename std::disjunction<
 			values_equal<temp_t::value, true, T>,
-			values_equal<read_t::value, true, const T&>,
+			values_equal<read_t::value && !copy_t::value, true, const T&>,
 			default_type<T&>
 			>::type;
 
 	using value_t = typename std::disjunction<
 			values_equal<temp_t::value, true, Tbase>,
 			values_equal<issmart_t::value, true, holder_t>,
-			values_equal<read_t::value, true, const T>,
+			values_equal<read_t::value && !copy_t::value, true, const T>,
 			default_type<T>
 			>::type;
 
@@ -172,7 +172,7 @@ public:
 		if constexpr(copy_t::value) {
 			if constexpr(issmart_t::value) {
 				copyPtr_ = new typename holder_t::element_type();
-			} else if constexpr(!read_t::value) {
+			} else {
 				copyPtr_ = new typename std::remove_pointer<decltype(ptr())>::type();
 			}
 		}
@@ -185,6 +185,7 @@ public:
 	size_t id() const {
 		return reinterpret_cast<size_t>(ptr_);
 	}
+
 
 	ref_t ref() {
 		if constexpr(!copy_t::value) {
