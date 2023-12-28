@@ -475,7 +475,7 @@ int main(int argc, char **argv) {
 
 	cv::Rect viewport(0, 0, 1280, 720);
 	BeautyDemoPlan::Params params;
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::LOWER_WORKER_PRIORITY | DebugFlags::PRINT_CONTROL_FLOW);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::LOWER_WORKER_PRIORITY);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
     Plan::run<BeautyDemoPlan>(0, params);

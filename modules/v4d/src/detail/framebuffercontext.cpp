@@ -251,7 +251,9 @@ void FrameBufferContext::init() {
         }
     }
 
-    this->makeCurrent();
+    if(isRoot()) {
+        this->makeCurrent();
+    }
 
     if(!hasParent()) {
     	rootWindow_ = glfwWindow_;
@@ -391,7 +393,6 @@ void FrameBufferContext::setup() {
 
 void FrameBufferContext::teardown() {
     using namespace cv::ocl;
-    this->makeCurrent();
 #ifdef HAVE_OPENCL
     if(cv::ocl::useOpenCL() && clImage_ != nullptr && !getCLExecContext().empty()) {
         CLExecScope_t clExecScope(getCLExecContext());
@@ -427,8 +428,6 @@ void FrameBufferContext::teardown() {
     GL_CHECK(glDeleteTextures(1, &textureFlippedID_));
     if(framebufferFlippedID_)
     GL_CHECK(glDeleteFramebuffers(1, &framebufferFlippedID_));
-
-    this->makeNoneCurrent();
 }
 
 void FrameBufferContext::flip() {
@@ -605,7 +604,6 @@ cv::UMat& FrameBufferContext::fb() {
 
 void FrameBufferContext::begin(GLenum framebufferTarget, GLuint frameBufferID) {
     currentFBOTarget_ = frameBufferID;
-    this->makeCurrent();
     GL_CHECK(glBindFramebuffer(framebufferTarget, frameBufferID));
 }
 
@@ -626,6 +624,7 @@ void FrameBufferContext::end() {
 		blitFrameBufferToFrameBuffer(cv::Rect(fbX, fbY, fbWidth, fbHeight), size(), copyFramebuffers_[currentFBOTarget_], false, false);
 		blendFramebuffer(currentFBOTarget_);
 	}
+    this->makeNoneCurrent();
 }
 
 void FrameBufferContext::download(cv::UMat& m) {
@@ -715,7 +714,7 @@ void FrameBufferContext::makeCurrent() {
 }
 
 void FrameBufferContext::makeNoneCurrent() {
-	glfwMakeContextCurrent(nullptr);
+//	glfwMakeContextCurrent(nullptr);
 }
 
 

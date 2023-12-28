@@ -15,9 +15,12 @@ class DisplayImageNVG : public Plan {
 
 	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	void setup() override {
-		//Set the filename
+	DisplayImageNVG() {
+#		//Set the filename
 		image_.filename_ = samples::findFile("lena.jpg");
+	}
+
+	void setup() override {
 
 		//Creates a NanoVG context. The wrapped C-functions of NanoVG are available in the namespace cv::v4d::nvg;
 		nvg([](Image_t& img) {

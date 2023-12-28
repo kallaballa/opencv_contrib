@@ -26,7 +26,6 @@ public:
     CV_EXPORTS static ImGuiContext* getContext();
     CV_EXPORTS static void setContext(ImGuiContext* ctx);
 protected:
-    CV_EXPORTS void makeCurrent();
     CV_EXPORTS void render(bool displayFPS);
 };
 }

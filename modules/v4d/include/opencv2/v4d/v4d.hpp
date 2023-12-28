@@ -1508,7 +1508,6 @@ public:
 
 		CV_Assert(plan);
 		CLExecScope_t scope(plan->runtime_->fbCtx()->getCLExecContext());
-		plan->runtime_->fbCtx()->makeCurrent();
 
 		if(global.isMain()) {
 			plan->runtime_->printSystemInfo();

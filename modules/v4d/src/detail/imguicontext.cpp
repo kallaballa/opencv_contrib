@@ -20,7 +20,6 @@ namespace v4d {
 namespace detail {
 ImGuiContextImpl::ImGuiContextImpl(cv::Ptr<FrameBufferContext> fbContext) :
         mainFbContext_(fbContext) {
-	FrameBufferContext::GLScope glScope(mainFbContext_, GL_FRAMEBUFFER);
 	IMGUI_CHECKVERSION();
 	context_ = ImGui::CreateContext();
 
