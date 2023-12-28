@@ -155,23 +155,6 @@ static std::size_t map_index(const std::thread::id id) {
     return iter->second;
 }
 
-template<typename Tfn, typename ... Args>
-const string make_id(string id, const string& name, Tfn fn, Args ... args) {
-	stringstream ss;
-	if(!id.empty())
-		id = "::" + id;
-
-	if constexpr(std::is_pointer<Tfn>::value) {
-		ss << name << id << " [" << detail::int_to_hex(reinterpret_cast<size_t>(fn)) << "] ";
-	} else {
-		ss << name << id << " [" << detail::lambda_ptr_hex(std::forward<Tfn>(fn)) << "] ";
-	}
-
-	((ss << demangle(typeid(typename std::remove_reference_t<decltype(args)>::ref_t).name()) << "(" << int_to_hex(args.id()) << ") "), ...);
-	ss << "- " <<  map_index(std::this_thread::get_id());
-	return ss.str();
-}
-
 }
 class Plan;
 class CV_EXPORTS V4D {
@@ -398,7 +381,6 @@ public:
 							if(!runtime->display()) {
 								frame_sync_sema_swap.release();
 								result = false;
-								std::cerr << "END" << std::endl;
 							}
 						} else {
 							runGraph();
@@ -509,9 +491,6 @@ class Plan {
 		auto tx = make_transaction(fn, args...);
 		tx->setContextCallback(ctxCb);
 		tx->setBranchType(BranchType::NONE);
-		while(transactions_.find(txID) != transactions_.end()) {
-			txID = txID + '+';
-		}
 		transactions_.insert({txID, tx});
     }
 
@@ -520,9 +499,6 @@ class Plan {
 		auto tx = make_transaction(fn, args...);
 		tx->setContextCallback(ctxCb);
 		tx->setBranchType(btype);
-		while(transactions_.find(txID) != transactions_.end()) {
-			txID = txID + '+';
-		}
 		transactions_.insert({txID, tx});
     }
 
@@ -653,23 +629,34 @@ class Plan {
 
 			//delete addresses from name
 			string name = n->name_;
-			size_t open = name.find_first_of('[', 0);
-			size_t close = name.find_first_of(']', open);
-			while(open != string::npos && close != string::npos) {
-				CV_Assert(name.size() > close + 1);
-				name.erase(open, open + close + 1);
-				open = name.find_first_of('[', 0);
+			size_t offset = name.find_first_of(':', 0) + 1;
+
+			size_t open = 0;
+			size_t close = 0;
+			while(true) {
+				open = name.find_first_of('[', offset);
+				if(open == string::npos)
+					break;
 				close = name.find_first_of(']', open);
+				if(close == string::npos)
+					break;
+				CV_Assert(name.size() > close + 1);
+				name.erase(open, close + 1 - open);
 			}
 
-			open = name.find_first_of('(', 0);
-			close = name.find_first_of(')', open);
-			while(open != string::npos && close != string::npos) {
-				CV_Assert(name.size() > close + 1);
-				name.erase(open, open + close + 1);
-				open = name.find_first_of('(', 0);
+			open = 0;
+			close = 0;
+			while(true) {
+				open = name.find_first_of('(', offset);
+				if(open == string::npos)
+					break;
 				close = name.find_first_of(')', open);
+				if(close == string::npos)
+					break;
+				CV_Assert(name.size() > close + 1);
+				name.erase(open, close + 1 - open);
 			}
+
 			ss << indent.str() << name;
 			const string formattedName = ss.str();
 			ss.str("");
@@ -875,6 +862,26 @@ class Plan {
     	plan->template setActualTypeSize<Tplan>();
 		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
 		return plan;
+    }
+
+    template<typename Tfn, typename ... Args>
+    const string make_id(string id, const string& name, Tfn fn, Args ... args) {
+    	stringstream ss;
+    	if(!id.empty())
+    		id = "::" + id;
+
+    	if constexpr(std::is_pointer<Tfn>::value) {
+    		ss << name << id << " [" << detail::int_to_hex(reinterpret_cast<size_t>(fn)) << "] ";
+    	} else {
+    		ss << name << id << " [" << detail::lambda_ptr_hex(std::forward<Tfn>(fn)) << "] ";
+    	}
+
+    	((ss << demangle(typeid(typename std::remove_reference_t<decltype(args)>::ref_t).name()) << "(" << int_to_hex(args.id()) << ") "), ...);
+    	ss << "- " <<  map_index(std::this_thread::get_id());
+    	while(transactions_.find(ss.str()) != transactions_.end()) {
+    				ss << '+';
+    	}
+    	return ss.str();
     }
 public:
 

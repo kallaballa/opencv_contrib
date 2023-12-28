@@ -126,7 +126,7 @@ struct FaceFeatures {
     void drawEyes() const {
         using namespace cv::v4d::nvg;
         vector<vector<cv::Point2f>> ff = features();
-        for (size_t j = 5; j < 8; ++j) {
+        for (size_t j = 5; j < 7; ++j) {
             beginPath();
             fillColor(cv::Scalar(255, 255, 255, 255));
             moveTo(ff[j][0].x, ff[j][0].y);
@@ -141,7 +141,7 @@ struct FaceFeatures {
     void drawLips() const {
         using namespace cv::v4d::nvg;
         vector<vector<cv::Point2f>> ff = features();
-        for (size_t j = 5; j < 8; ++j) {
+        for (size_t j = 7; j < 8; ++j) {
             beginPath();
             fillColor(cv::Scalar(255, 255, 255, 255));
             moveTo(ff[j][0].x, ff[j][0].y);
@@ -151,6 +151,15 @@ struct FaceFeatures {
             closePath();
             fill();
         }
+
+	    beginPath();
+	    fillColor(cv::Scalar(0, 0, 0, 255));
+	    moveTo(ff[8][0].x, ff[8][0].y);
+	    for (size_t k = 1; k < ff[8].size(); ++k) {
+	        lineTo(ff[8][k].x, ff[8][k].y);
+	    }
+	    closePath();
+	    fill();
     }
     //Draws a mask consisting of eyes and lips areas (deduced from FaceFeatures)
     void drawEyesAndLipsMask() const {
@@ -184,11 +193,12 @@ static void extract_face_features(const float& scale, cv::Ptr<cv::FaceDetectorYN
 
 //adjusts the saturation of a UMat
 static void adjust_saturation(const cv::UMat &srcBGR, cv::UMat &dstBGR, float factor, std::vector<cv::UMat>& channel) {
-    cvtColor(srcBGR, dstBGR, cv::COLOR_BGR2HLS);
-    split(dstBGR, channel);
+	cv::UMat tmp;
+	cvtColor(srcBGR, tmp, cv::COLOR_BGR2HLS);
+    split(tmp, channel);
     cv::multiply(channel[2], factor, channel[2]);
-    merge(channel, dstBGR);
-    cvtColor(dstBGR, dstBGR, cv::COLOR_HLS2BGR);
+    merge(channel, tmp);
+    cvtColor(tmp, dstBGR, cv::COLOR_HLS2BGR);
 }
 
 static void present(cv::UMat& framebuffer, const cv::UMat& result) {
@@ -197,7 +207,7 @@ static void present(cv::UMat& framebuffer, const cv::UMat& result) {
 
 using namespace cv::v4d;
 
-class DrawFaceMasksPlan;
+class FaceFeatureMasksPlan;
 class BeautyFilterPlan;
 class BeautyDemoPlan : public Plan {
 public:
@@ -293,12 +303,12 @@ private:
 		params.state_ = state;
 	}
 
-	cv::Ptr<DrawFaceMasksPlan> prepareFeatureMasksPlan_;
+	cv::Ptr<FaceFeatureMasksPlan> prepareFeatureMasksPlan_;
 	cv::Ptr<BeautyFilterPlan> beautyFilterPlan_;
 public:
 	BeautyDemoPlan(Params& params) : params_(params) {
 		_shared(params_);
-		prepareFeatureMasksPlan_ = _sub<DrawFaceMasksPlan>(this, face_.features_, frames_, params_);
+		prepareFeatureMasksPlan_ = _sub<FaceFeatureMasksPlan>(this, face_.features_, frames_, params_);
 		beautyFilterPlan_ = _sub<BeautyFilterPlan>(this, face_.features_, frames_, params_);
 	}
 
@@ -365,7 +375,7 @@ public:
 
 		branch(is_enabled, RW_S(params_))
 			->plain([](const cv::Size& downSize, auto& detector, auto& facemark, const Frames& frames, Face& face){
-				extract_face_features(downSize.width / frames.orig_.size().width, detector, facemark, frames.down_, face.features_, face.found_);
+				extract_face_features(frames.orig_.size().width / float(downSize.width), detector, facemark, frames.down_, face.features_, face.found_);
 			}, R(downSize_), RW(detector_), RW(facemark_), R(frames_), RW(face_))
 			->branch(isTrue_, R(face_.found_))
 				->subInfer(prepareFeatureMasksPlan_)
@@ -384,12 +394,12 @@ public:
 };
 
 
-class DrawFaceMasksPlan : public Plan {
+class FaceFeatureMasksPlan : public Plan {
 	FaceFeatures& baseFeatures_;
 	BeautyDemoPlan::Frames& baseFrames_;
 	BeautyDemoPlan::Params& baseParams_;
 public:
-	DrawFaceMasksPlan(FaceFeatures& baseFeatures, BeautyDemoPlan::Frames& baseFrames, BeautyDemoPlan::Params& baseParams)
+	FaceFeatureMasksPlan(FaceFeatures& baseFeatures, BeautyDemoPlan::Frames& baseFrames, BeautyDemoPlan::Params& baseParams)
 	: baseFeatures_(baseFeatures), baseFrames_(baseFrames), baseParams_(baseParams) {
 	}
 
@@ -421,20 +431,17 @@ class BeautyFilterPlan : public Plan {
 	cv::Ptr<cv::detail::MultiBandBlender> blender_ = new cv::detail::MultiBandBlender(true, 5);
 	std::vector<cv::UMat> channels_;
 	cv::UMat stitchedFloat_;
-public:
-	BeautyFilterPlan(FaceFeatures& baseFeatures, BeautyDemoPlan::Frames& baseFrames, BeautyDemoPlan::Params& baseParams)
-	: baseFeatures_(baseFeatures), baseFrames_(baseFrames), baseParams_(baseParams) {
-	}
 
 	static void adjust_face_features(BeautyDemoPlan::Frames& frames, std::vector<cv::UMat>& channels, const BeautyDemoPlan::Params& params) {
+		cv::UMat tmp;
 		//boost saturation of eyes and lips
 		adjust_saturation(frames.orig_,  frames.eyesAndLips_, params.eyesAndLipsSaturation_, channels);
 		//reduce skin contrast
 		multiply(frames.orig_, cv::Scalar::all(params.skinContrast_), frames.skin_);
 		//fix skin brightness
-		add(frames.skin_, cv::Scalar::all((1.0 - params.skinContrast_) / 2.0) * 255.0, frames.skin_);
+		add(frames.skin_, cv::Scalar::all((1.0 - params.skinContrast_) / 2.0) * 255.0, tmp);
 		//boost skin saturation
-		adjust_saturation(frames.skin_, frames.skin_, params.skinSaturation_, channels);
+		adjust_saturation(tmp, frames.skin_, params.skinSaturation_, channels);
 	}
 
 	static void stitch_face(cv::Ptr<cv::detail::MultiBandBlender>& bl, BeautyDemoPlan::Frames& frames, cv::UMat& stitchedFloat) {
@@ -448,6 +455,10 @@ public:
 		bl->blend(stitchedFloat, cv::UMat());
 		CV_Assert(!stitchedFloat.empty());
 		stitchedFloat.convertTo(frames.stitched_, CV_8U, 1.0);
+	}
+public:
+	BeautyFilterPlan(FaceFeatures& baseFeatures, BeautyDemoPlan::Frames& baseFrames, BeautyDemoPlan::Params& baseParams)
+	: baseFeatures_(baseFeatures), baseFrames_(baseFrames), baseParams_(baseParams) {
 	}
 
 	void infer() override {
@@ -464,10 +475,10 @@ int main(int argc, char **argv) {
 
 	cv::Rect viewport(0, 0, 1280, 720);
 	BeautyDemoPlan::Params params;
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::LOWER_WORKER_PRIORITY);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::LOWER_WORKER_PRIORITY | DebugFlags::PRINT_CONTROL_FLOW);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
-    Plan::run<BeautyDemoPlan>(3, params);
+    Plan::run<BeautyDemoPlan>(0, params);
 
     return 0;
 }
