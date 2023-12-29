@@ -369,7 +369,8 @@ public:
 		plain([](const cv::Rect& vp, cv::Size& downSize, cv::Ptr<FaceFeatureExtractor>& extractor) {
 	    	int w = vp.width;
 	    	int h = vp.height;
-	    	downSize = { std::min(w, std::max(640, int(round(w / 2.0)))), std::min(h, std::max(360, int(round(h / 2.0)))) };
+	    	downSize = { std::max(480, int(round(w / 2.0))), std::max(270, int(round(h / 2.0))) };
+	    	std::cerr << downSize << std::endl;
 	    	extractor = cv::makePtr<FaceFeatureExtractor>(downSize, w / double(downSize.width));
 		}, vp_, RW(downSize_), RW(extractor_));
 	}
@@ -482,7 +483,7 @@ int main(int argc, char **argv) {
     cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::LOWER_WORKER_PRIORITY);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
-    Plan::run<BeautyDemoPlan>(0, params);
+    Plan::run<BeautyDemoPlan>(3, params);
 
     return 0;
 }

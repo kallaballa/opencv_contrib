@@ -257,11 +257,11 @@ void FrameBufferContext::init() {
 
     if(!hasParent()) {
     	rootWindow_ = glfwWindow_;
-        //glfwSwapInterval(configFlags() & FBConfigFlags::VSYNC ? 1 : 0);
-        glfwSwapInterval(1);
+        glfwSwapInterval(configFlags() & FBConfigFlags::VSYNC ? 1 : 0);
+//        glfwSwapInterval(1);
     } else {
 //    	glfwSwapInterval(configFlags() & FBConfigFlags::DISPLAY_MODE ? Global::workers_started() : 0);
-        glfwSwapInterval(24);
+//        glfwSwapInterval(24);
     }
 
 #if !defined(OPENCV_V4D_USE_ES3)
