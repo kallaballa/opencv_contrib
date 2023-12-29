@@ -5,15 +5,19 @@ using namespace cv;
 using namespace cv::v4d;
 
 class DisplayImageFB : public Plan {
-	UMat& image_;
+	UMat image_;
 	UMat converted_;
 	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	DisplayImageFB(cv::UMat& image) : image_(image) {
+	DisplayImageFB(const string& filename) {
+		imread(filename).copyTo(image_);
 	}
 
 	void setup() override {
 		plain([](const cv::Rect& vp, cv::UMat& image, cv::UMat& converted) {
+			//Loads an image as a UMat (just in case we have hardware acceleration available)
+
+
 			//We have to manually resize and color convert the image when using direct frambuffer access.
 			resize(image, converted, vp.size());
 			cvtColor(converted, converted, COLOR_RGB2BGRA);
@@ -32,13 +36,9 @@ public:
 
 int main() {
 	cv::Rect viewport(0, 0, 960,960);
-	//Loads an image as a UMat (just in case we have hardware acceleration available)
-	cv::UMat image;
-	imread(samples::findFile("lena.jpg")).copyTo(image);
-
 	//Creates a V4D object
     Ptr<V4D> runtime = V4D::init(viewport, "Display an Image through direct FB access", AllocateFlags::IMGUI);
-    Plan::run<DisplayImageFB>(0, image);
+    Plan::run<DisplayImageFB>(0, samples::findFile("lena.jpg"));
 
     return 0;
 }
