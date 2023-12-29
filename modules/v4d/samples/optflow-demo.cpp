@@ -319,10 +319,6 @@ public:
 		cache_.rng_ = std::mt19937(cache_.rd_());
     }
 
-    OptflowDemoPlan(Plan& plan) : OptflowDemoPlan() {
-    	_parent(plan);
-    }
-
     void gui() override {
 		imgui([](Params& params){
 	        using namespace ImGui;

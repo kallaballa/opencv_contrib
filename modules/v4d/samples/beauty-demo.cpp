@@ -170,26 +170,42 @@ struct FaceFeatures {
 };
 
 
+class FaceFeatureExtractor {
+	const cv::Size sz_;
+	const float scale_;
 
-static void extract_face_features(const float& scale, cv::Ptr<cv::FaceDetectorYN>& detector, cv::Ptr<cv::face::Facemark>& facemark, const cv::UMat& down, FaceFeatures& features, bool& found) {
-	std::vector<std::vector<cv::Point2f>> shapes;
-	std::vector<cv::Rect> faceRects;
-	cv::Mat faces;
-	//Detect faces in the down-scaled image
-	detector->detect(down, faces);
-	//Only add the first face
-	if(!faces.empty())
-		faceRects.push_back(cv::Rect(int(faces.at<float>(0, 0)),
- 									 int(faces.at<float>(0, 1)),
-									 int(faces.at<float>(0, 2)),
-									 int(faces.at<float>(0, 3))));
+	cv::Ptr<cv::FaceDetectorYN> detector_;
+	cv::Ptr<cv::face::Facemark> facemark_ = cv::face::createFacemarkLBF();
 
-	//find landmarks if faces have been detected
-	found = !faceRects.empty() && facemark->fit(down, faceRects, shapes);
-	if(found)
-		features = FaceFeatures(faceRects[0], shapes[0], scale);
-}
+	std::vector<std::vector<cv::Point2f>> shapes_;
+	std::vector<cv::Rect> faceRects_;
+	cv::Mat faces_;
 
+public:
+	FaceFeatureExtractor(const cv::Size& inputSize, const float& inputScale) : sz_(inputSize), scale_(inputScale) {
+    	detector_ = cv::FaceDetectorYN::create("modules/v4d/assets/models/face_detection_yunet_2023mar.onnx", "", inputSize, 0.9, 0.3, 5000, cv::dnn::DNN_BACKEND_OPENCV, cv::dnn::DNN_TARGET_OPENCL);
+    	facemark_->loadModel("modules/v4d/assets/models/lbfmodel.yaml");
+	}
+
+	bool extract(const cv::UMat& inputFrame, FaceFeatures& outputFeatures) {
+		shapes_.clear();
+		faceRects_.clear();
+		//Detect faces in the down-scaled image
+		detector_->detect(inputFrame, faces_);
+		//Only add the first face
+		if(!faces_.empty())
+			faceRects_.push_back(cv::Rect(int(faces_.at<float>(0, 0)),
+										 int(faces_.at<float>(0, 1)),
+										 int(faces_.at<float>(0, 2)),
+										 int(faces_.at<float>(0, 3))));
+
+		//find landmarks if faces have been detected
+		bool found = !faceRects_.empty() && facemark_->fit(inputFrame, faceRects_, shapes_);
+		if(found)
+			outputFeatures = FaceFeatures(faceRects_[0], shapes_[0], scale_);
+		return found;
+	}
+};
 
 //adjusts the saturation of a UMat
 static void adjust_saturation(const cv::UMat &srcBGR, cv::UMat &dstBGR, float factor, std::vector<cv::UMat>& channel) {
@@ -250,22 +266,15 @@ public:
 		cv::UMat faceSkinMaskGrey_, eyesAndLipsMaskGrey_, backgroundMaskGrey_;
 	};
 
-	//results of face detection and facemark
-	struct Face {
-		bool found_ = false;
-		FaceFeatures features_;
-	};
+	FaceFeatures features_;
 private:
 	using K = V4D::Keys;
 
-	Frames frames_;
-	Face face_;
-	cv::Size downSize_;
 	Params& params_;
+	Frames frames_;
+	cv::Size downSize_;
 
-	cv::Ptr<cv::face::Facemark> facemark_ = cv::face::createFacemarkLBF();
-	//Face detector
-	cv::Ptr<cv::FaceDetectorYN> detector_;
+	cv::Ptr<FaceFeatureExtractor> extractor_;
 
 	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 
@@ -308,8 +317,8 @@ private:
 public:
 	BeautyDemoPlan(Params& params) : params_(params) {
 		_shared(params_);
-		prepareFeatureMasksPlan_ = _sub<FaceFeatureMasksPlan>(this, face_.features_, frames_, params_);
-		beautyFilterPlan_ = _sub<BeautyFilterPlan>(this, face_.features_, frames_, params_);
+		prepareFeatureMasksPlan_ = _sub<FaceFeatureMasksPlan>(this, features_, frames_);
+		beautyFilterPlan_ = _sub<BeautyFilterPlan>(this, params_, frames_);
 	}
 
 	void gui() override {
@@ -357,27 +366,23 @@ public:
 	}
 
 	void setup() override {
-		plain([](const cv::Rect& vp, cv::Size& downSize, cv::Ptr<cv::face::Facemark>& facemark, cv::Ptr<cv::FaceDetectorYN>& detector) {
+		plain([](const cv::Rect& vp, cv::Size& downSize, cv::Ptr<FaceFeatureExtractor>& extractor) {
 	    	int w = vp.width;
 	    	int h = vp.height;
 	    	downSize = { std::min(w, std::max(640, int(round(w / 2.0)))), std::min(h, std::max(360, int(round(h / 2.0)))) };
-	    	detector = cv::FaceDetectorYN::create("modules/v4d/assets/models/face_detection_yunet_2023mar.onnx", "", downSize, 0.9, 0.3, 5000, cv::dnn::DNN_BACKEND_OPENCV, cv::dnn::DNN_TARGET_OPENCL);
-	    	facemark->loadModel("modules/v4d/assets/models/lbfmodel.yaml");
-		}, vp_, RW(downSize_), RW(facemark_), RW(detector_));
+	    	extractor = cv::makePtr<FaceFeatureExtractor>(downSize, w / double(downSize.width));
+		}, vp_, RW(downSize_), RW(extractor_));
 	}
 
 	void infer() override {
-		set(K::FULLSCREEN, m_(&Params::fullscreen_), R_SC(params_));
-		set(K::STRETCHING, m_(&Params::stretch_), R_SC(params_));
+		set(K::FULLSCREEN, &Params::fullscreen_, R_SC(params_));
+		set(K::STRETCHING, &Params::stretch_, R_SC(params_));
 
 		capture()
 		->fb(prepare_frames, R(downSize_), RW(frames_));
 
 		branch(is_enabled, RW_S(params_))
-			->plain([](const cv::Size& downSize, auto& detector, auto& facemark, const Frames& frames, Face& face){
-				extract_face_features(frames.orig_.size().width / float(downSize.width), detector, facemark, frames.down_, face.features_, face.found_);
-			}, R(downSize_), RW(detector_), RW(facemark_), R(frames_), RW(face_))
-			->branch(isTrue_, R(face_.found_))
+			->branch(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RW(features_))
 				->subInfer(prepareFeatureMasksPlan_)
 				->subInfer(beautyFilterPlan_)
 				->plain(set_state, RW_S(params_), VAL(Params::ON))
@@ -395,15 +400,14 @@ public:
 
 
 class FaceFeatureMasksPlan : public Plan {
-	FaceFeatures& baseFeatures_;
-	BeautyDemoPlan::Frames& baseFrames_;
-	BeautyDemoPlan::Params& baseParams_;
+	const FaceFeatures& inputFeatures_;
+	BeautyDemoPlan::Frames& inputOutputFrames_;
 public:
-	FaceFeatureMasksPlan(FaceFeatures& baseFeatures, BeautyDemoPlan::Frames& baseFrames, BeautyDemoPlan::Params& baseParams)
-	: baseFeatures_(baseFeatures), baseFrames_(baseFrames), baseParams_(baseParams) {
+	FaceFeatureMasksPlan(const FaceFeatures& inputFeatures, BeautyDemoPlan::Frames& inputOutputFrames) :
+		inputFeatures_(inputFeatures), inputOutputFrames_(inputOutputFrames) {
 	}
 
-	static void prepare_masks(BeautyDemoPlan::Frames& frames, const BeautyDemoPlan::Params& params) {
+	static void prepare_masks(BeautyDemoPlan::Frames& frames) {
 		//Create the skin mask
 		cv::subtract(frames.faceOval_, frames.eyesAndLipsMaskGrey_, frames.faceSkinMaskGrey_);
 		//Create the background mask
@@ -411,22 +415,22 @@ public:
 	}
 
 	void infer() override {
-		nvg(m_(&FaceFeatures::drawFaceOvalMask), R(baseFeatures_))
+		nvg(&FaceFeatures::drawFaceOvalMask, R(inputFeatures_))
 		->fb([](const cv::UMat& framebuffer, cv::UMat& faceOval) {
 			cvtColor(framebuffer, faceOval, cv::COLOR_BGRA2GRAY);
-		}, RW(baseFrames_.faceOval_))
-		->nvg(m_(&FaceFeatures::drawEyesAndLipsMask), R(baseFeatures_))
+		}, RW(inputOutputFrames_.faceOval_))
+		->nvg(&FaceFeatures::drawEyesAndLipsMask, R(inputFeatures_))
 		->fb([](const cv::UMat &framebuffer, cv::UMat& eyesAndLipsMaskGrey) {
 			cvtColor(framebuffer, eyesAndLipsMaskGrey, cv::COLOR_BGRA2GRAY);
-		}, RW(baseFrames_.eyesAndLipsMaskGrey_))
-		->plain(prepare_masks, RW(baseFrames_), R_SC(baseParams_));
+		}, RW(inputOutputFrames_.eyesAndLipsMaskGrey_))
+		->plain(prepare_masks, RW(inputOutputFrames_));
 	}
 };
 
 class BeautyFilterPlan : public Plan {
-	FaceFeatures& baseFeatures_;
-	BeautyDemoPlan::Frames& baseFrames_;
-	BeautyDemoPlan::Params& baseParams_;
+	const BeautyDemoPlan::Params& inputParams_;
+	BeautyDemoPlan::Frames& inputOutputFrames_;
+
 	//Blender (used to put the different face parts back together)
 	cv::Ptr<cv::detail::MultiBandBlender> blender_ = new cv::detail::MultiBandBlender(true, 5);
 	std::vector<cv::UMat> channels_;
@@ -457,13 +461,13 @@ class BeautyFilterPlan : public Plan {
 		stitchedFloat.convertTo(frames.stitched_, CV_8U, 1.0);
 	}
 public:
-	BeautyFilterPlan(FaceFeatures& baseFeatures, BeautyDemoPlan::Frames& baseFrames, BeautyDemoPlan::Params& baseParams)
-	: baseFeatures_(baseFeatures), baseFrames_(baseFrames), baseParams_(baseParams) {
+	BeautyFilterPlan(const BeautyDemoPlan::Params& intputParams, BeautyDemoPlan::Frames& inputOutputFrames) :
+		inputParams_(intputParams), inputOutputFrames_(inputOutputFrames) {
 	}
 
 	void infer() override {
-		plain(adjust_face_features, RW(baseFrames_), RW(channels_), R_SC(baseParams_))
-		->plain(stitch_face, RW(blender_), RW(baseFrames_), RW(stitchedFloat_));
+		plain(adjust_face_features, RW(inputOutputFrames_), RW(channels_), R_SC(inputParams_))
+		->plain(stitch_face, RW(blender_), RW(inputOutputFrames_), RW(stitchedFloat_));
 	}
 };
 

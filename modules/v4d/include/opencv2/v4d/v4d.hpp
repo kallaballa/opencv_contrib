@@ -512,9 +512,37 @@ class Plan {
     	this->add_transaction(btype, [ctx](){ return ctx; }, txID, fn, args...);
     }
 
-    template <typename Tfn, typename ... Args>
-    void init_context_call(Tfn fn, Args ... args) {
-    	static_assert(std::is_pointer<Tfn>::value || std::is_bind_expression<Tfn>::value || is_callable<Tfn>::value || detail::is_stateless_lambda<std::remove_cv_t<std::remove_reference_t<decltype(fn)>>>::value, "All lambdas passed must be stateless");
+    template <typename T>
+    struct ReturnType {
+    	using type = typename std::result_of<T>::type;
+    };
+
+    template <typename Return, typename Object>
+    struct ReturnType<Return Object::*>
+    {
+        using type = Return;
+    };
+
+    template <typename Return, typename Object, typename... Args>
+    struct ReturnType<Return (Object::*)(Args...)>
+    {
+        using type = Return;
+    };
+
+    template <typename Return, typename... Args>
+    struct ReturnType<Return (*)(Args...)>
+    {
+        using type = Return;
+    };
+
+    template <bool TdeduceReturn = false, typename Tfn, typename ... Args>
+    auto wrap_callable(Tfn fn, Args ... args) {
+//    	static_assert(std::is_invocable_v<Tfn>, "Error: You passed a non-invocable as function argument.");
+    	if constexpr(TdeduceReturn) {
+    		return std::function<typename ReturnType<decltype(fn)>::type(typename Args::ref_t...)>(fn);
+    	} else {
+    		return std::function<void(typename Args::ref_t...)>(fn);
+    	}
     }
 
 	template<typename T>
@@ -884,12 +912,6 @@ class Plan {
     	return ss.str();
     }
 public:
-
-	template<typename TmemberPtr> static auto m_(TmemberPtr member) {
-		auto ptr_to_data = std::mem_fn(member);
-		return std::bind(ptr_to_data, std::placeholders::_1);
-	}
-
 	template<typename T>
 	struct Property : detail::Edge<const T, false, true, true> {
 		using parent_t = detail::Edge<const T, false, true, true>;
@@ -933,12 +955,11 @@ public:
     template <typename Tfn, typename ... Args>
     typename std::enable_if<is_stateless_lambda<Tfn>::value, cv::Ptr<Plan>>::type
     gl(Tfn fn, Args ... args) {
-    	init_context_call(fn, args...);
+    	auto wrap = wrap_callable(fn, args...);
         const string id = make_id(this->space(), "gl-1", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
-		std::function<void((typename Args::ref_t...))> functor(fn);
-		add_transaction(runtime_->glCtx(-1), id, functor, args...);
+		add_transaction(runtime_->glCtx(-1), id, wrap, args...);
 		return self<Plan>();
     }
 
@@ -946,72 +967,68 @@ public:
     template <typename Tedge, typename Tfn, typename ... Args>
     typename std::enable_if<is_stateless_lambda<Tfn>::value, cv::Ptr<Plan>>::type
 	gl(Tedge indexEdge, Tfn fn, Args ... args) {
-        init_context_call(fn, args...);
+        auto wrap = wrap_callable(fn, args...);
         const string id = make_id(this->space(), "gl-" + int_to_hex(indexEdge.ptr()), fn, args...);
         emit_access(id, R_I(*this));
         emit_access(id, indexEdge);
         (emit_access(id, args ),...);
-        std::function<void((const int32_t&,typename Args::ref_t...))> functor(fn);
+        std::function<void((const int32_t&,typename Args::ref_t...))> functor(wrap);
 		add_transaction([this, indexEdge](){ return runtime_->glCtx(indexEdge.ref());},id, functor, indexEdge, args...);
 		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> ext(Tfn fn, Args ... args) {
-    	init_context_call(fn, args...);
+    	auto wrap = wrap_callable(fn, args...);
         const string id = make_id(this->space(), "ext", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
-        std::function<void((typename Args::ref_t...))> functor(fn);
-		add_transaction(runtime_->extCtx(-1), id, fn, args...);
+		add_transaction(runtime_->extCtx(-1), id, wrap, args...);
 		return self<Plan>();
     }
 
     template <typename Tedge, typename Tfn, typename ... Args>
     cv::Ptr<Plan> ext(Tedge indexEdge, Tfn fn, Args ... args) {
-        init_context_call(fn, args...);
+        auto wrap = wrap_callable(fn, args...);
         const string id = make_id(this->space(), "ext" + int_to_hex(indexEdge.ptr()), fn, args...);
         emit_access(id, R_I(*this));
         emit_access(id, indexEdge);
         (emit_access(id, args ),...);
         std::function<void((const int32_t&,typename Args::ref_t...))> functor(fn);
-		add_transaction([this, indexEdge](){ return runtime_->extCtx(indexEdge.ref());},id, functor, indexEdge, args...);
+		add_transaction([this, indexEdge](){ return runtime_->extCtx(indexEdge.ref());},id, wrap, indexEdge, args...);
 		return self<Plan>();
     }
 
     template <typename Tfn>
     cv::Ptr<Plan> branch(Tfn fn) {
-//        init_context_call(fn);
+        auto wrap = wrap_callable<true>(fn);
         const string id = make_id(this->space(), "branch", fn);
         branchStack_.push_front({id, BranchType::PARALLEL});
         emit_access(id, R_I(*this));
-        std::function functor = fn;
-		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, functor);
+		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap);
 		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(Tfn fn, Args ... args) {
-//        init_context_call(fn, args...);
+        auto wrap = wrap_callable<true>(fn, args...);
         const string id = make_id(this->space(), "branch", fn, args...);
         branchStack_.push_front({id, BranchType::PARALLEL});
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
-        std::function<bool(typename Args::ref_t...)> functor(fn);
-		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, functor, args...);
+		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap, args...);
 		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(int workerIdx, Tfn fn, Args ... args) {
-//        init_context_call(fn, args...);
+        auto wrapInner = wrap_callable<true>(fn, args...);
         const string id = make_id(this->space(), "branch-pin" + std::to_string(workerIdx), fn, args...);
         branchStack_.push_front({id, BranchType::PARALLEL});
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
-        std::function<bool((typename Args::ref_t...))> functor = fn;
-		std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, functor](Args ... args){
-			return runtime_->workerIndex() == workerIdx && functor(args...);
+		std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... args){
+			return runtime_->workerIndex() == workerIdx && wrapInner(args...);
 		};
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap, args...);
 		return self<Plan>();
@@ -1019,26 +1036,24 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(BranchType::Enum type, Tfn fn, Args ... args) {
-//        init_context_call(fn, args...);
+        auto wrap = wrap_callable<true>(fn, args...);
         const string id = make_id(this->space(), "branch-type" + std::to_string((int)type), fn, args...);
         branchStack_.push_front({id, type});
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
-		std::function<bool(typename Args::ref_t...)> functor = fn;
-		add_transaction(type, runtime_->plainCtx(), id, functor, args...);
+		add_transaction(type, runtime_->plainCtx(), id, wrap, args...);
 		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(BranchType::Enum type, int workerIdx, Tfn fn, Args ... args) {
-//        init_context_call(fn, args...);
+        auto wrapInner = wrap_callable<true>(fn, args...);
         const string id = make_id(this->space(), "branch-type-pin" + std::to_string((int)type) + "-" + std::to_string(workerIdx), fn, args...);
         branchStack_.push_front({id, type});
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
-        std::function<bool((typename Args::ref_t...))> functor = fn;
-		std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, functor](Args ... args){
-			return runtime_->workerIndex() == workerIdx && functor(args...);
+		std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... args){
+			return runtime_->workerIndex() == workerIdx && wrapInner(args...);
 		};
 
 		add_transaction(type, runtime_->plainCtx(), id, wrap, args...);
@@ -1047,7 +1062,7 @@ public:
 
 /*    template <typename Tfn>
     cv::Ptr<Plan> elseIfBranch(Tfn fn) {
-//        init_context_call(fn);
+//        auto wrap = wrap_callable(fn, args...);
     	auto current = branchStack_.front();
     	string id = "[elseif]" + current.first;
     	emit_access(id, R_I(*this));
@@ -1058,7 +1073,7 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> elseIfBranch(Tfn fn, Args ... args) {
-//        init_context_call(fn, args...);
+//        auto wrap = wrap_callable(fn, args...);
     	auto current = branchStack_.front();
     	string id = "[elseif]" + current.first;
     	emit_access(id, R_I(*this));
@@ -1070,7 +1085,7 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> elseIfBranch(int workerIdx, Tfn fn, Args ... args) {
-//        init_context_call(fn, args...);
+//        auto wrap = wrap_callable(fn, args...);
     	auto current = branchStack_.front();
     	string id = "[elseif]" + current.first;
     	emit_access(id, R_I(*this));
@@ -1085,7 +1100,7 @@ public:
 
     template <typename Tfn>
     cv::Ptr<Plan> elseIfBranch(BranchType::Enum type, Tfn fn) {
-//        init_context_call(fn);
+//        auto wrap = wrap_callable(fn, args...);
     	auto current = branchStack_.front();
     	string id = "[elseif]" + current.first;
     	emit_access(id, R_I(*this));
@@ -1096,7 +1111,7 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> elseIfBranch(BranchType::Enum type, Tfn fn, Args ... args) {
-//        init_context_call(fn, args...);
+//        auto wrap = wrap_callable(fn, args...);
     	auto current = branchStack_.front();
     	string id = "[elseif]" + current.first;
     	emit_access(id, R_I(*this));
@@ -1108,7 +1123,7 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> elseIfBranch(BranchType::Enum type, int workerIdx, Tfn fn, Args ... args) {
-//        init_context_call(fn, args...);
+//        auto wrap = wrap_callable(fn, args...);
     	auto current = branchStack_.front();
     	string id = "[elseif]" + current.first;
     	emit_access(id, R_I(*this));
@@ -1143,17 +1158,17 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> fb(Tfn fn, Args ... args) {
-    	init_context_call(fn, args...);
-
-        const string id = make_id(this->space(), "fb", fn, args...);
 		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
 		static_assert((std::is_same<Tfb, cv::UMat>::value || std::is_same<Tfb, const cv::UMat>::value) || !"The first argument must be eiter of type 'cv::UMat&' or 'const cv::UMat&'");
+		auto fbEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->fbCtx()->fb());
+    	auto wrap = wrap_callable(fn, fbEdge, args...);
+        const string id = make_id(this->space(), "fb", fn, args...);
 		emit_access(id, R_I(*this));
 		(emit_access(id, args ),...);
-		auto fbEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->fbCtx()->fb());
+
 		std::function<void((
 				typename decltype(fbEdge)::ref_t,
-				typename Args::ref_t...))> functor(fn);
+				typename Args::ref_t...))> functor(wrap);
 		add_transaction(runtime_->fbCtx(),id, functor, fbEdge, args...);
 		return self<Plan>();
     }
@@ -1189,14 +1204,7 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> capture(Tfn fn, Args ... args) {
-        init_context_call(fn, args...);
-
-        const string id = make_id(this->space(), "capture", fn, args...);
 		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
-		static_assert((std::is_same<Tfb,const cv::UMat>::value) || !"The first argument must be of type 'const cv::UMat&'");
-		emit_access(id, R_I(*this));
-		(emit_access(id, args ),...);
-
 		using isconst_t = std::is_const<Tfb>;
 		using fbEdge_t = std::disjunction<
 			values_equal<isconst_t::value, true, decltype(R_I(runtime_->sourceCtx()->sourceBuffer()))>,
@@ -1204,9 +1212,17 @@ public:
 		>;
 
 		auto srcEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->sourceCtx()->sourceBuffer());
+    	auto wrap = wrap_callable(fn, srcEdge, args...);
+
+        const string id = make_id(this->space(), "capture", fn, args...);
+
+		static_assert((std::is_same<Tfb,const cv::UMat>::value) || !"The first argument must be of type 'const cv::UMat&'");
+		emit_access(id, R_I(*this));
+		(emit_access(id, args ),...);
+
 		std::function<void((
 				typename decltype(srcEdge)::ref_t,
-				typename Args::ref_t...))> functor(fn);
+				typename Args::ref_t...))> functor(wrap);
 		add_transaction(runtime_->sourceCtx(),id, functor, srcEdge, args...);
 		return self<Plan>();
     }
@@ -1225,55 +1241,53 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> write(Tfn fn, Args ... args) {
-        init_context_call(fn, args...);
-
-        const string id = make_id(this->space(), "write", fn, args...);
 		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
 		static_assert((std::is_same<Tfb,cv::UMat>::value) || !"The first argument must be of type 'cv::UMat&'");
+		auto sinkEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->sinkCtx()->sinkBuffer());
+    	auto wrap = wrap_callable(fn, sinkEdge, args...);
+
+        const string id = make_id(this->space(), "write", fn, args...);
 		emit_access(id, R_I(*this));
 		(emit_access(id, args ),...);
 
-		auto sinkEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->sinkCtx()->sinkBuffer());
+
 		std::function<void((
 				typename decltype(sinkEdge)::ref_t,
-				typename Args::ref_t...))> functor(fn);
+				typename Args::ref_t...))> functor(wrap);
 		add_transaction(runtime_->sinkCtx(),id, functor, sinkEdge, args...);
 		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> nvg(Tfn fn, Args... args) {
-        init_context_call(fn, args...);
+        auto wrap = wrap_callable(fn, args...);
 
         const string id = make_id(this->space(), "nvg", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
-		std::function<void((typename Args::ref_t...))> functor(fn);
-		add_transaction(runtime_->nvgCtx(), id, functor, args...);
+		add_transaction(runtime_->nvgCtx(), id, wrap, args...);
 		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> bgfx(Tfn fn, Args... args) {
-        init_context_call(fn, args...);
+        auto wrap = wrap_callable(fn, args...);
 
         const string id = make_id(this->space(), "bgfx", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
-		std::function<void((typename Args::ref_t...))> functor(fn);
-		add_transaction(runtime_->bgfxCtx(), id, functor, args...);
+		add_transaction(runtime_->bgfxCtx(), id, wrap, args...);
 		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> plain(Tfn fn, Args... args) {
-        init_context_call(fn, args...);
+        auto wrap = wrap_callable(fn, args...);
 
         const string id = make_id(this->space(), "plain", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
-        std::function<void((typename Args::ref_t...))> functor(fn);
-		add_transaction(runtime_->plainCtx(), id, functor, args...);
+		add_transaction(runtime_->plainCtx(), id, wrap, args...);
 		return self<Plan>();
     }
 
@@ -1330,14 +1344,14 @@ public:
 	template<typename Tfn, typename ... Args, typename Tkey = decltype(runtime_)::element_type::Keys::Enum>
 	typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
 	set(Tkey key, Tfn fn, Args ... args) {
-		init_context_call(fn, args...);
+		auto wrapInner = wrap_callable<true>(fn, args...);
 
 		const string id = make_id(this->space(), "set-fn", fn, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
         auto plan = self<Plan>();
-		std::function wrap = [plan, key, fn](typename Args::ref_t ... values) {
-			plan->runtime_->set(key, fn(values...));
+		std::function wrap = [plan, key, wrapInner](typename Args::ref_t ... values) {
+			plan->runtime_->set(key, wrapInner(values...));
 		};
 
         add_transaction(runtime_->plainCtx(), id, wrap, args...);
@@ -1349,6 +1363,11 @@ public:
 		return Plan::makeSubPlan<TsubPlan>(parent, std::forward<Args>(args)...);
 	}
 
+	template<typename TsubPlan, typename TparentPtr, typename ... Args>
+	auto _sub(TparentPtr parent, Args&& ... args) {
+		return Plan::makeSubPlan<TsubPlan>(parent.get(), std::forward<Args>(args)...);
+	}
+
 	template<typename Tvar>
 	void _shared(Tvar& val) {
 		Global::instance().registerShared(val);
@@ -1356,13 +1375,11 @@ public:
 
 	template<typename Tfn, typename ... Args>
     void imgui(Tfn fn, Args&& ... args) {
-    	init_context_call(fn, args...);
-
         if(!runtime_->hasImguiCtx())
         	return;
 
         runtime_->imguiCtx()->build([fn, &args...]() {
-			fn(args...);
+        	fn(args...);
 		});
     }
 
