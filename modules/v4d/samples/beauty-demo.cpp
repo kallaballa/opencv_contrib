@@ -308,7 +308,7 @@ private:
 		}
 	}
 
-	static void set_state(Params& params, Params::State& state) {
+	static void set_state(Params& params, const Params::State& state) {
 		params.state_ = state;
 	}
 

@@ -180,13 +180,6 @@ class CubeDemoPlan : public Plan {
 		glDrawElements(GL_TRIANGLES, TRIANGLES_ * 3, GL_UNSIGNED_SHORT, NULL);
 	}
 public:
-	CubeDemoPlan(Plan& parent) {
-		_parent(parent);
-	}
-
-	CubeDemoPlan() {
-	}
-
 	void setup() override {
 		gl([](const cv::Rect& vp, Handles& handles){
 			init_scene(vp.size(), handles);

@@ -136,6 +136,9 @@ class BgfxDemoPlan : public Plan {
 
 	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
+	BgfxDemoPlan(){
+
+	}
 	void setup() override {
 		_shared(time_offset_);
 		branch(BranchType::ONCE, always_)

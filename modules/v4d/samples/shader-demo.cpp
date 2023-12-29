@@ -245,9 +245,6 @@ public:
 	ShaderDemoPlan() {
 		_shared(params_);
 	}
-	ShaderDemoPlan(Plan& parent) : ShaderDemoPlan() {
-		_parent(parent);
-	}
 
 	void gui() override {
         imgui([](Params& params) {

@@ -118,10 +118,6 @@ class NanoVGDemoPlan : public Plan {
 	double hue_ = 0;
 	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	NanoVGDemoPlan(Plan& parent) {
-		_parent(parent);
-	}
-
 	NanoVGDemoPlan() {
 	}
 

@@ -386,7 +386,7 @@ public:
 	}
 
 	void infer() override {
-		set(V4D::Keys::STRETCHING, m_(&Params::stretch_), R_SC(params_));
+		set(V4D::Keys::STRETCHING, &Params::stretch_, R_SC(params_));
 		capture();
 
 		fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, Frames& frames, const Params& params) {

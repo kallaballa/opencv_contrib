@@ -132,12 +132,6 @@ public:
 		_shared(tracked_);
 	}
 
-	PedestrianDemoPlan(Plan& parent) {
-		_parent(parent);
-		_shared(tracked_);
-	}
-
-
     void setup() override {
     	plain([](const cv::Rect& vp, Detection& detection, Params& params){
     		detection.params_.desc_pca = cv::TrackerKCF::GRAY;

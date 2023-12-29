@@ -93,7 +93,7 @@ private:
 		using type = std::remove_pointer_t<typename Tval::element_type>;
 	};
 
-	using ispointer_t = std::is_pointer<T>;
+	using ispointer_t = values_equal<std::is_pointer<T>::value || std::is_array<T>::value, true, std::true_type>;
 
 	using issmart_t = typename std::conjunction<
 			has_deref_t<T>,
@@ -102,28 +102,28 @@ private:
 			values_equal<ispointer_t::value, false, std::true_type>
 			>::type;
 
-//	static_assert((!ispointer_t::value && !issmart_t::value) || !copy_t::value, "You are trying to explicitly copy the value of a (smart) pointer.");
+	static_assert((!ispointer_t::value) || !copy_t::value, "You are trying to explicitly copy the value of a (smart) pointer.");
 	static_assert((!temp_t::value) || (!copy_t::value && read_t::value), "Internal error: Trying to form a copy or write edge to a temporary.");
 	static_assert(shared_t::value || !(copy_t::value && !read_t::value), "Internal error: Trying to form  copy-write edge on a non-shared variable.");
 	static_assert(!lockie_t::value || !copy_t::value, "Internal error: Trying to form a copy edge on a to be locked variable.");
 
-	using without_ptr_t = typename std::remove_pointer<T>::type;
- 	using without_ptr_and_const_t = typename std::remove_const<without_ptr_t>::type;
+ 	using base_t = typename std::remove_pointer<typename std::remove_extent<typename std::remove_const<T>::type>::type>::type;
 	using internal_ptr_t = typename std::disjunction<
 			values_equal<temp_t::value, true, Tbase*>,
-			values_equal<read_t::value, true, const without_ptr_and_const_t*>,
-			default_type<without_ptr_and_const_t*>
+			values_equal<ispointer_t::value, true, base_t*>,
+			values_equal<read_t::value && !ispointer_t::value, true, const base_t*>,
+			default_type<base_t*>
 			>::type;
 
 	using holder_t = typename std::disjunction<
-			values_equal<issmart_t::value, true, without_ptr_and_const_t>,
+			values_equal<issmart_t::value, true, base_t>,
 			values_equal<temp_t::value, true, T>,
 			default_type<nullptr_t>
 			>::type;
 
 	using copy_ptr_t = typename std::disjunction<
 			values_equal<issmart_t::value, true, holder_t>,
-			default_type<without_ptr_and_const_t*>
+			default_type<base_t*>
 			>::type;
 
 	internal_ptr_t ptr_ = nullptr;
@@ -132,19 +132,22 @@ private:
 public:
 	using pass_t = typename std::disjunction<
 			values_equal<temp_t::value, true, T>,
+			values_equal<ispointer_t::value, true, internal_ptr_t>,
 			values_equal<read_t::value && !copy_t::value, true, const T&>,
 			default_type<T&>
 			>::type;
 
 	using value_t = typename std::disjunction<
-			values_equal<temp_t::value, true, Tbase>,
+			values_equal<temp_t::value, true, const Tbase>,
 			values_equal<issmart_t::value, true, holder_t>,
+			values_equal<ispointer_t::value, true, pass_t>,
 			values_equal<read_t::value && !copy_t::value, true, const T>,
 			default_type<T>
 			>::type;
 
 	using ref_t = typename std::disjunction<
 			values_equal<!temp_t::value && issmart_t::value, true, holder_t&>,
+			values_equal<ispointer_t::value, true, value_t>,
 			default_type<typename std::add_lvalue_reference<value_t>::type>
 			>::type;;
 
@@ -165,6 +168,8 @@ public:
 
 		if constexpr(temp_t::value){
 			ptr_ = holder_.get();
+		} else if constexpr(ispointer_t::value) {
+			ptr_ = t;
 		} else {
 			ptr_ = &t;
 		}
@@ -189,9 +194,13 @@ public:
 
 	ref_t ref() {
 		if constexpr(!copy_t::value) {
-			return *ptr();
+			if constexpr(ispointer_t::value) {
+				return ptr();
+			} else {
+				return *ptr();
+			}
 		} else {
-			if constexpr(issmart_t::value){
+			if constexpr(issmart_t::value || ispointer_t::value){
 				if constexpr(shared_t::value) {
 					Global::instance().safe_copy(*ptr()->get(), *copyPtr_.get());
 					return copyPtr_;
@@ -213,6 +222,8 @@ public:
 		CV_Assert(false);
 		if constexpr(!temp_t::value && issmart_t::value) {
 			return holder_;
+		} else if constexpr(ispointer_t::value){
+			return copyPtr_;
 		} else {
 			return *copyPtr_;
 		}

@@ -82,28 +82,28 @@ public:
 			tileViewport_ = cv::Rect(0, 0, tileSz_.width, tileSz_.height);
 
 		plans_ = {
-				Plan::makeSubPlan<CubeDemoPlan>(*this),
-				Plan::makeSubPlan<ManyCubesDemoPlan>(*this),
-				Plan::makeSubPlan<VideoDemoPlan>(*this),
-				Plan::makeSubPlan<NanoVGDemoPlan>(*this),
-				Plan::makeSubPlan<ShaderDemoPlan>(*this),
-				Plan::makeSubPlan<FontDemoPlan>(*this),
-				Plan::makeSubPlan<PedestrianDemoPlan>(*this),
-				Plan::makeSubPlan<BeautyDemoPlan>(*this),
-				Plan::makeSubPlan<OptflowDemoPlan>(*this)
+//				Plan::makeSubPlan<CubeDemoPlan>(*this),
+//				Plan::makeSubPlan<ManyCubesDemoPlan>(*this),
+//				Plan::makeSubPlan<VideoDemoPlan>(*this),
+//				Plan::makeSubPlan<NanoVGDemoPlan>(*this),
+//				Plan::makeSubPlan<ShaderDemoPlan>(*this),
+//				Plan::makeSubPlan<FontDemoPlan>(*this),
+//				Plan::makeSubPlan<PedestrianDemoPlan>(*this),
+//				Plan::makeSubPlan<BeautyDemoPlan>(*this),
+//				Plan::makeSubPlan<OptflowDemoPlan>(*this)
 			};
 
 
 		highResPlans_= {
-				Plan::makeSubPlan<CubeDemoPlan>(*this),
-				Plan::makeSubPlan<ManyCubesDemoPlan>(*this),
-				Plan::makeSubPlan<VideoDemoPlan>(*this),
-				Plan::makeSubPlan<NanoVGDemoPlan>(*this),
-				Plan::makeSubPlan<ShaderDemoPlan>(*this),
-				Plan::makeSubPlan<FontDemoPlan>(*this),
-				Plan::makeSubPlan<PedestrianDemoPlan>(*this),
-				Plan::makeSubPlan<BeautyDemoPlan>(*this),
-				Plan::makeSubPlan<OptflowDemoPlan>(*this)
+//				Plan::makeSubPlan<CubeDemoPlan>(*this),
+//				Plan::makeSubPlan<ManyCubesDemoPlan>(*this),
+//				Plan::makeSubPlan<VideoDemoPlan>(*this),
+//				Plan::makeSubPlan<NanoVGDemoPlan>(*this),
+//				Plan::makeSubPlan<ShaderDemoPlan>(*this),
+//				Plan::makeSubPlan<FontDemoPlan>(*this),
+//				Plan::makeSubPlan<PedestrianDemoPlan>(*this),
+//				Plan::makeSubPlan<BeautyDemoPlan>(*this),
+//				Plan::makeSubPlan<OptflowDemoPlan>(*this)
 			};
 
 		CV_Assert(tiling_.width * tiling_.height == plans_.size());

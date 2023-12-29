@@ -184,10 +184,6 @@ private:
 		glDrawElements(GL_TRIANGLES, TRIANGLES_ * 3, GL_UNSIGNED_SHORT, NULL);
 	}
 public:
-	ManyCubesDemoPlan(Plan& parent) {
-		_parent(parent);
-	}
-
 	ManyCubesDemoPlan() {
 	}
 

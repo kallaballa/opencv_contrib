@@ -68,13 +68,6 @@ public:
 		_shared(stars_);
 
 	}
-	FontDemoPlan(Plan& parent) {
-		_parent(parent);
-		_shared(params_);
-		_shared(textVars_);
-		_shared(tm_);
-		_shared(stars_);
-	}
 
 	void gui() override {
         imgui([](Params& params) {
