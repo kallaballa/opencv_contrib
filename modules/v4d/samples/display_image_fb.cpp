@@ -10,14 +10,12 @@ class DisplayImageFB : public Plan {
 	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
 	DisplayImageFB(const string& filename) {
+		//Loads an image as a UMat (just in case we have hardware acceleration available)
 		imread(filename).copyTo(image_);
 	}
 
 	void setup() override {
 		plain([](const cv::Rect& vp, cv::UMat& image, cv::UMat& converted) {
-			//Loads an image as a UMat (just in case we have hardware acceleration available)
-
-
 			//We have to manually resize and color convert the image when using direct frambuffer access.
 			resize(image, converted, vp.size());
 			cvtColor(converted, converted, COLOR_RGB2BGRA);
