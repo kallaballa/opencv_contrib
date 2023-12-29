@@ -5,6 +5,7 @@ using namespace cv;
 using namespace cv::v4d;
 
 class DisplayImageNVG : public Plan {
+	using K = V4D::Keys;
 	//A simple struct to hold our image variables
 	struct Image_t {
 	    std::string filename_;
@@ -12,16 +13,13 @@ class DisplayImageNVG : public Plan {
 	    int w_;
 	    int h_;
 	} image_;
-
-	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	DisplayImageNVG() {
-#		//Set the filename
-		image_.filename_ = samples::findFile("lena.jpg");
+	DisplayImageNVG(const string& filename) {
+		//Set the filename
+		image_.filename_ = filename;
 	}
 
 	void setup() override {
-
 		//Creates a NanoVG context. The wrapped C-functions of NanoVG are available in the namespace cv::v4d::nvg;
 		nvg([](Image_t& img) {
 			using namespace cv::v4d::nvg;
@@ -33,7 +31,7 @@ public:
 			imageSize(handle, &img.w_, &img.h_);
 			//Create a simple image_ pattern with the image dimensions
 			img.paint_ = imagePattern(0, 0, img.w_, img.h_, 0.0f/180.0f*NVG_PI, handle, 1.0);
-		}, RW(image_));
+		}, AUTO(image_));
 	}
 
 	void infer() override{
@@ -50,12 +48,12 @@ public:
 			//Fill the rounded rectangle with our picture
 			fillPaint(img.paint_);
 			fill();
-		}, vp_, R(image_));
+		}, GET<cv::Rect>(K::VIEWPORT), AUTO(image_));
 	}
 };
 
 int main() {
 	cv::Rect viewport(0, 0, 960, 960);
 	Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
-    Plan::run<DisplayImageNVG>(0);
+    Plan::run<DisplayImageNVG>(0, samples::findFile("lena.jpg"));
 }

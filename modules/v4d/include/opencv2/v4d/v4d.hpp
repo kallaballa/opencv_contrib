@@ -1406,6 +1406,15 @@ public:
 	}
 
 	template<typename T>
+	detail::Edge<T, false, false> AUTO(T& t) {
+		if constexpr(std::is_const<T>::value) {
+			return detail::Edge<T, false, true>::make(*this, t, false);
+		} else {
+			return detail::Edge<T, false, false>::make(*this, t, false);
+		}
+	}
+
+	template<typename T>
 	detail::Edge<T, false, false> RW(T& t) {
 		return detail::Edge<T, false, false>::make(*this, t);
 	}

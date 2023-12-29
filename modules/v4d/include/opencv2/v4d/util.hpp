@@ -162,7 +162,6 @@ class Lambda {
         return (Tret) (*(T*)fn<T>());
     }
 public:
-	//FIXME race condition?
     template<typename Tret = void, typename Tfp = Tret(*)(), typename T>
     static Tfp ptr(T& t) {
         fn<T>(&t);
