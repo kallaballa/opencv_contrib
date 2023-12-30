@@ -37,6 +37,8 @@ using std::endl;
 namespace cv {
 namespace v4d {
 namespace detail {
+//https://stackoverflow.com/questions/281818/unmangling-the-result-of-stdtype-infoname
+CV_EXPORTS std::string demangle(const char* name);
 
 template <typename, typename = void>
 struct has_call_operator_t : std::false_type {};
@@ -104,9 +106,6 @@ struct function_traits<R (T::*)(Args...) const> {
 	static const bool value = true;
 };
 
-
-//https://stackoverflow.com/questions/281818/unmangling-the-result-of-stdtype-infoname
-CV_EXPORTS std::string demangle(const char* name);
 
 template <const size_t _UniqueId, typename _Res, typename... _ArgTypes>
 struct fun_ptr_helper
@@ -186,11 +185,13 @@ inline uint64_t get_epoch_nanos() {
 
 class SharedVariables {
 	std::mutex sharedVarsMtx_;
+	std::mutex safeVarsMtx_;
 	std::map<size_t, std::pair<size_t, cv::Ptr<std::mutex>>> sharedVars_;
+	std::map<size_t, std::pair<size_t, cv::Ptr<std::mutex>>> safeVars_;
 	typedef typename std::map<size_t, std::pair<size_t, cv::Ptr<std::mutex>>>::iterator SharedVarsIter;
 
 	template<typename T>
-	void check(const T& shared) {
+	void checkIsMemberOfShared(const T& shared) {
 		off_t varOffset = reinterpret_cast<size_t>(&shared);
 		off_t registeredOffset = 0;
 		off_t registeredSize = 0;
@@ -199,29 +200,91 @@ class SharedVariables {
 			if(varOffset > registeredOffset) {
 				registeredSize = p.second.first;
 				if(varOffset < (registeredOffset + registeredSize)) {
-					throw std::runtime_error("You are trying to register a member of shared variable as shared variable");
+					throw std::runtime_error("You are trying to access a member of shared variable.");
 				}
 			}
 		}
 	}
 
 public:
-	template<typename T>
-	bool isShared(const T& shared) {
+	template<typename Tplan, typename Tvar>
+	static bool isPlanMember(Tplan& plan, Tvar& var) {
+		const char* planPtr = reinterpret_cast<const char*>(&plan);
+		const char* varPtr = reinterpret_cast<const char*>(&var);
+		off_t parentOffset = plan.getParentOffset();
+		off_t parentActualSize = plan.getParentActualTypeSize();
+		off_t actualTypeSize = plan.getActualTypeSize();
+		off_t varOffset = off_t (varPtr);
+		off_t planOffset = off_t (planPtr);
+		off_t planSize = sizeof(Tplan);
+
+		CV_Assert((parentOffset == 0  && parentActualSize == 0) || (parentOffset > 0 && parentActualSize > 0));
+
+		off_t parentLowerBound = parentOffset;
+		off_t parentUpperBound = parentOffset + parentActualSize;
+		off_t lowerBound = planOffset;
+		off_t upperBound = planOffset + actualTypeSize;
+
+		if(! ((varOffset >= lowerBound && varOffset <= upperBound) || (parentOffset > 0 && varOffset >= parentLowerBound && varOffset <= parentUpperBound))) {
+			return false;
+		}
+		return true;
+	}
+
+
+	template<typename T, bool Tcheck = true>
+	void makeShared(const T& candidate) {
+		{
+			std::lock_guard<std::mutex> guard(safeVarsMtx_);
+			CV_Assert(safeVars_.find(reinterpret_cast<size_t>(&candidate)) == safeVars_.end());
+		}
+
 		std::lock_guard<std::mutex> guard(sharedVarsMtx_);
-		return sharedVars_.find(reinterpret_cast<size_t>(&shared)) != sharedVars_.end();
+		if(sharedVars_.find(reinterpret_cast<size_t>(&candidate)) != sharedVars_.end()) {
+			return;
+		} else  {
+			if constexpr(Tcheck) {
+				checkIsMemberOfShared(candidate);
+			}
+
+			sharedVars_.insert({reinterpret_cast<size_t>(&candidate), std::make_pair(sizeof(T), cv::makePtr<std::mutex>())});
+		}
+	}
+
+	template<typename Tplan, typename T, bool Tcheck = true>
+	bool checkShared(Tplan& plan, const T& candidate) {
+		{
+			std::lock_guard<std::mutex> guard(safeVarsMtx_);
+			if(safeVars_.find(reinterpret_cast<size_t>(&candidate)) != safeVars_.end()) {
+				return false;
+			}
+		}
+
+		std::lock_guard<std::mutex> guard(sharedVarsMtx_);
+		if(sharedVars_.find(reinterpret_cast<size_t>(&candidate)) != sharedVars_.end()) {
+			return true;
+		} else if(!isPlanMember(plan, candidate)) {
+			if constexpr(Tcheck) {
+				checkIsMemberOfShared(candidate);
+			}
+
+			sharedVars_.insert({reinterpret_cast<size_t>(&candidate), std::make_pair(sizeof(T), cv::makePtr<std::mutex>())});
+
+			return true;
+		}
+		return false;
 	}
 
 	template<typename T, bool Tcheck = true>
-	void registerShared(const T& shared) {
-		std::lock_guard<std::mutex> guard(sharedVarsMtx_);
-		auto it = sharedVars_.find(reinterpret_cast<size_t>(&shared));
-		if(it == sharedVars_.end()) {
+	void registerSafe(const T& safe) {
+		std::lock_guard<std::mutex> guard(safeVarsMtx_);
+		auto it = safeVars_.find(reinterpret_cast<size_t>(&safe));
+		if(it == safeVars_.end()) {
 			if constexpr(Tcheck) {
-				check(shared);
+				checkIsMemberOfShared(safe);
 			}
 
-			sharedVars_.insert({reinterpret_cast<size_t>(&shared), std::make_pair(sizeof(T), cv::makePtr<std::mutex>())});
+			safeVars_.insert({reinterpret_cast<size_t>(&safe), std::make_pair(sizeof(T), cv::makePtr<std::mutex>())});
 		}
 	}
 

@@ -25,32 +25,7 @@ struct default_type : std::true_type
     using type = T;
 };
 
-class EdgeBase {
-public:
-	template<typename Tplan, typename Tvar>
-	static void check(Tplan& plan, Tvar& var) {
-		const char* planPtr = reinterpret_cast<const char*>(&plan);
-		const char* varPtr = reinterpret_cast<const char*>(&var);
-		off_t parentOffset = plan.getParentOffset();
-		off_t parentActualSize = plan.getParentActualTypeSize();
-		off_t actualTypeSize = plan.getActualTypeSize();
-		off_t varOffset = off_t (varPtr);
-		off_t planOffset = off_t (planPtr);
-		off_t planSize = sizeof(Tplan);
-
-		CV_Assert((parentOffset == 0  && parentActualSize == 0) || (parentOffset > 0 && parentActualSize > 0));
-		CV_Assert(actualTypeSize > planSize);
-
-		off_t parentLowerBound = parentOffset;
-		off_t parentUpperBound = parentOffset + parentActualSize;
-		off_t lowerBound = planOffset;
-		off_t upperBound = planOffset + actualTypeSize;
-
-		if(! ((varOffset >= lowerBound && varOffset <= upperBound) || (parentOffset > 0 && varOffset >= parentLowerBound && varOffset <= parentUpperBound))) {
-			throw std::runtime_error("Variable of type " + demangle(typeid(Tvar).name()) + " not a member of plan. Maybe it is a shared variable and you forgot to declare it?");
-		}
-	}
-};
+class EdgeBase {};
 
 template<typename T, bool Tcopy, bool Tread, bool Tshared = false, typename Tbase = void>
 class Edge : public EdgeBase {
@@ -151,12 +126,8 @@ public:
 			default_type<typename std::add_lvalue_reference<value_t>::type>
 			>::type;;
 
-	template<typename Tplan>
-	static Edge make(Tplan& plan, pass_t t, const bool doCheck = true) {
+	static Edge make(pass_t t) {
 		Edge e;
-		if(doCheck)
-			EdgeBase::check(plan, t);
-
 		e.set(t);
 		return e;
 	}

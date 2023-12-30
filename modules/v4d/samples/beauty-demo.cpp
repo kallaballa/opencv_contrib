@@ -316,7 +316,6 @@ private:
 	cv::Ptr<BeautyFilterPlan> beautyFilterPlan_;
 public:
 	BeautyDemoPlan(Params& params) : params_(params) {
-		_shared(params_);
 		prepareFeatureMasksPlan_ = _sub<FaceFeatureMasksPlan>(this, features_, frames_);
 		beautyFilterPlan_ = _sub<BeautyFilterPlan>(this, params_, frames_);
 	}

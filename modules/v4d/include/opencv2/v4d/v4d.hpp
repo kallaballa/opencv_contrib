@@ -452,7 +452,7 @@ protected:
 class Plan {
 	friend class V4D;
     friend class detail::FrameBufferContext;
-    friend class detail::EdgeBase;
+    friend class SharedVariables;
     struct BranchState {
 		string branchID_;
     	bool isEnabled_ = true;
@@ -543,28 +543,28 @@ class Plan {
 
 	template<typename T>
 	detail::Edge<T, false, true> R_I(T& t) {
-		return detail::Edge<T, false, true>::make(*this, t, false);
+		return detail::Edge<T, false, true>::make(t);
 	}
 
 	template<typename T>
 	detail::Edge<T, true, true> R_C_I(T& t) {
-		return detail::Edge<T, true, true>::make(*this, t, false);
+		return detail::Edge<T, true, true>::make(t);
 	}
 
 	template<typename T>
 	detail::Edge<T, false, false> RW_I(T& t) {
-		return detail::Edge<T, false, false>::make(*this, t, false);
+		return detail::Edge<T, false, false>::make(t);
 	}
 
 //	template<typename T>
 //	detail::Edge<T, true, false> RW_C_I(T& t) {
-//		return detail::Edge<T, true, false>::make(*this, t, false);
+//		return detail::Edge<T, true, false>::make(t, false);
 //	}
 
 	template<typename T>
 	detail::Edge<cv::Ptr<T>, false, true, false, T> VAL_I(T t) {
 		cv::Ptr<T> ptr = new T(t);
-		return detail::Edge<decltype(ptr), false, true, false, T>::make(*this, ptr, false);
+		return detail::Edge<decltype(ptr), false, true, false, T>::make(ptr);
 	}
 
     template<bool Tconst, typename T>
@@ -915,8 +915,8 @@ public:
 	template<typename T>
 	struct Property : detail::Edge<const T, false, true, true> {
 		using parent_t = detail::Edge<const T, false, true, true>;
-		Property(Plan& plan, const T& val) : parent_t(parent_t::make(plan, val, false)) {
-			Global::instance().registerShared<decltype(val),false>(val);
+		Property(Plan& plan, const T& val) : parent_t(parent_t::make(val)) {
+			Global::instance().makeShared(val);
 		}
 	};
 
@@ -1191,7 +1191,7 @@ public:
     	capture([](const cv::UMat& inputFrame, cv::UMat& f){
     		if(!inputFrame.empty())
     			inputFrame.copyTo(f);
-    	}, Edge<cv::UMat, false, false>::make(*this, captureFrame_));
+    	}, Edge<cv::UMat, false, false>::make(captureFrame_));
 
         fb([](cv::UMat& framebuffer, const cv::UMat& f) {
         	if(!f.empty()) {
@@ -1200,7 +1200,7 @@ public:
         		else
         			f.copyTo(framebuffer);
         	}
-        }, Edge<cv::UMat, false, true>::make(*this, captureFrame_));
+        }, Edge<cv::UMat, false, true>::make(captureFrame_));
 		return self<Plan>();
     }
 
@@ -1232,11 +1232,11 @@ public:
     cv::Ptr<Plan> write() {
         fb([](const cv::UMat& framebuffer, cv::UMat& f) {
             framebuffer.copyTo(f);
-        }, Edge<cv::UMat, false, false>::make(*this, writerFrame_));
+        }, Edge<cv::UMat, false, false>::make(writerFrame_));
 
     	write([](cv::UMat& outputFrame, const cv::UMat& f){
    			f.copyTo(outputFrame);
-    	}, Edge<cv::UMat, false, true>::make(*this, writerFrame_));
+    	}, Edge<cv::UMat, false, true>::make(writerFrame_));
 		return self<Plan>();
     }
 
@@ -1370,8 +1370,8 @@ public:
 	}
 
 	template<typename Tvar>
-	void _shared(Tvar& val) {
-		Global::instance().registerShared(val);
+	void _safe(Tvar& val) {
+		Global::instance().registerSafe(val);
 	}
 
 	template<typename Tfn, typename ... Args>
@@ -1386,34 +1386,34 @@ public:
 
 	template<typename T>
 	detail::Edge<T, false, true> R(T& t) {
-		return detail::Edge<T, false, true>::make(*this, t);
+		return detail::Edge<T, false, true>::make(t);
 	}
 
 	template<typename T>
 	detail::Edge<T, false, true, true> RS(T& t) {
-		if(!Global::instance().isShared(t)) {
+		if(!Global::instance().checkShared(*this, t)) {
 			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to declare it?.");
 		}
-		return detail::Edge<T, false, true, true>::make(*this, t, false);
+		return detail::Edge<T, false, true, true>::make(t);
 	}
 
 	template<typename T>
 	detail::Edge<T, false, false> RW(T& t) {
-		return detail::Edge<T, false, false>::make(*this, t);
+		return detail::Edge<T, false, false>::make(t);
 	}
 
 	template<typename T>
 	detail::Edge<T, false, false, true> RWS(T& t) {
-		if(!Global::instance().isShared(t)) {
+		if(!Global::instance().checkShared(*this, t)) {
 			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to declare it?.");
 		}
-		return detail::Edge<T, false, false, true>::make(*this, t, false);
+		return detail::Edge<T, false, false, true>::make(t);
 	}
 
 	template<typename T>
 	detail::Edge<T, true, true, true> CS(T& t) {
-		if(Global::instance().isShared(t)) {
-			return detail::Edge<T, true, true, true>::make(*this, t, false);
+		if(Global::instance().checkShared(*this, t)) {
+			return detail::Edge<T, true, true, true>::make(t);
 		} else {
 			throw std::runtime_error("You are trying to safe-copy a non-shared variable. Maybe you forgot to declare it?.");
 		}
@@ -1421,20 +1421,18 @@ public:
 
 	template<typename T>
 	detail::Edge<T, false, false> A(T& t) {
+		//FIXME only allow in single-thread mode
 		if constexpr(std::is_const<T>::value) {
-			return detail::Edge<T, false, true>::make(*this, t, false);
+			return detail::Edge<T, false, true>::make(t);
 		} else {
-			return detail::Edge<T, false, false>::make(*this, t, false);
+			return detail::Edge<T, false, false>::make(t);
 		}
 	}
 
 	template<typename T>
 	detail::Edge<cv::Ptr<T>, false, true, false, T> V(T t) {
-		if(Global::instance().isShared(t)) {
-			throw std::runtime_error("You declared a shared variable as temporary.");
-		}
 		auto ptr = cv::makePtr<T>(t);
-		return detail::Edge<decltype(ptr), false, true, false, T>::make(*this, ptr, false);
+		return detail::Edge<decltype(ptr), false, true, false, T>::make(ptr);
 	}
 
 	template<typename Tval, typename Tkey = decltype(runtime_)::element_type::Keys::Enum>
