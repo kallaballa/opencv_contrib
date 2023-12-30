@@ -53,7 +53,11 @@ struct has_return_type_t<T, std::void_t<decltype(&T::return_type)>> : std::is_sa
 {};
 
 template<typename T>
-struct is_callable : public std::conjunction<has_call_operator_t<T>, has_return_type_t<T>> {
+struct is_callable : public std::disjunction<std::disjunction<
+									has_call_operator_t<T>,
+									std::is_pointer<T>>,
+									std::is_member_function_pointer<T>,
+									std::is_function<T>> {
 };
 
 //https://stackoverflow.com/a/27885283/1884837

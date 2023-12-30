@@ -4,16 +4,18 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include "opencv2/v4d/detail/extcontext.hpp"
+#include "opencv2/v4d/detail/gl.hpp"
 
 namespace cv {
 namespace v4d {
 namespace detail {
 ExtContext::ExtContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext) :
-        idx_(idx), mainFbContext_(fbContext), extFbContext_(new FrameBufferContext("ExtOpenGL" + std::to_string(idx), fbContext)) {
+        idx_(idx), mainFbContext_(fbContext), extFbContext_(FrameBufferContext::make("ExtOpenGL" + std::to_string(idx), fbContext)) {
 }
 
 int ExtContext::execute(const cv::Rect& vp, std::function<void()> fn) {
-		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER, 0);
+		FrameBufferContext::WindowScope winScope(fbCtx());
+		FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0, true);
 		fn();
 		return 1;
 }

@@ -276,7 +276,7 @@ private:
 
 	cv::Ptr<FaceFeatureExtractor> extractor_;
 
-	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 
 
 	static void prepare_frames(const cv::UMat& framebuffer, const cv::Size& downSize, Frames& frames) {
@@ -369,32 +369,32 @@ public:
 		plain([](const cv::Rect& vp, cv::Size& downSize, cv::Ptr<FaceFeatureExtractor>& extractor) {
 	    	int w = vp.width;
 	    	int h = vp.height;
-	    	downSize = { std::max(480, int(round(w / 2.0))), std::max(270, int(round(h / 2.0))) };
+	    	downSize = { 480, 270 };
 	    	std::cerr << downSize << std::endl;
 	    	extractor = cv::makePtr<FaceFeatureExtractor>(downSize, w / double(downSize.width));
 		}, vp_, RW(downSize_), RW(extractor_));
 	}
 
 	void infer() override {
-		set(K::FULLSCREEN, &Params::fullscreen_, R_SC(params_));
-		set(K::STRETCHING, &Params::stretch_, R_SC(params_));
+		set(K::FULLSCREEN, &Params::fullscreen_, CS(params_));
+		set(K::STRETCHING, &Params::stretch_, CS(params_));
 
 		capture()
 		->fb(prepare_frames, R(downSize_), RW(frames_));
 
-		branch(is_enabled, RW_S(params_))
+		branch(is_enabled, RWS(params_))
 			->branch(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RW(features_))
 				->subInfer(prepareFeatureMasksPlan_)
 				->subInfer(beautyFilterPlan_)
-				->plain(set_state, RW_S(params_), VAL(Params::ON))
+				->plain(set_state, RWS(params_), V(Params::ON))
 			->elseBranch()
-				->plain(set_state, RW_S(params_), VAL(Params::NOT_DETECTED))
+				->plain(set_state, RWS(params_), V(Params::NOT_DETECTED))
 			->endBranch()
 		->elseBranch()
-			->plain(set_state, RW_S(params_), VAL(Params::OFF))
+			->plain(set_state, RWS(params_), V(Params::OFF))
 		->endBranch();
 
-		plain(compose_result, vp_, R(frames_.stitched_), RW(frames_), R_SC(params_))
+		plain(compose_result, vp_, R(frames_.stitched_), RW(frames_), CS(params_))
 		->fb(present, R(frames_.result_));
 	}
 };
@@ -467,7 +467,7 @@ public:
 	}
 
 	void infer() override {
-		plain(adjust_face_features, RW(inputOutputFrames_), RW(channels_), R_SC(inputParams_))
+		plain(adjust_face_features, RW(inputOutputFrames_), RW(channels_), CS(inputParams_))
 		->plain(stitch_face, RW(blender_), RW(inputOutputFrames_), RW(stitchedFloat_));
 	}
 };
@@ -480,7 +480,7 @@ int main(int argc, char **argv) {
 
 	cv::Rect viewport(0, 0, 1280, 720);
 	BeautyDemoPlan::Params params;
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::LOWER_WORKER_PRIORITY);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
     Plan::run<BeautyDemoPlan>(3, params);

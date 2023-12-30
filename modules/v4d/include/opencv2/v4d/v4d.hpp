@@ -93,7 +93,7 @@ struct AllocateFlags {
 		NANOVG = 1,
 		IMGUI = 2,
 		BGFX = 4,
-		DEFAULT = IMGUI
+		DEFAULT = NONE
 	};
 };
 
@@ -126,10 +126,6 @@ using namespace cv::v4d::detail;
 namespace detail {
 
 template <typename T> using static_not = std::integral_constant<bool, !T::value>;
-
-//https://stackoverflow.com/a/34873353/1884837
-template<class T>
-struct is_stateless_lambda : std::integral_constant<bool, sizeof(T) == sizeof(std::true_type)>{};
 
 template<typename T> std::string int_to_hex( T i )
 {
@@ -446,8 +442,8 @@ protected:
     bool hasImguiCtx();
     bool hasGlCtx(uint32_t idx = 0);
     bool hasExtCtx(uint32_t idx = 0);
-    size_t numGlCtx();
-    size_t numExtCtx();
+    int32_t numGlCtx();
+    int32_t numExtCtx();
 
     GLFWwindow* getGLFWWindow() const;
     bool isFocused();
@@ -462,7 +458,7 @@ class Plan {
     	bool isEnabled_ = true;
     	bool isOnce_ = false;
     	bool isSingle_ = false;
-    	bool condition = false;
+    	bool condition_ = false;
     	bool isLocked_ = false;
     };
 
@@ -721,7 +717,7 @@ class Plan {
 						else
 							currentState = BranchState();
 						currentState.branchID_ = n->name_;
-						currentState.condition = n->tx_->performPredicate(countLockContention);
+
 						if(currentState.isEnabled_) {
 							currentState.isOnce_ = ((btype == BranchType::ONCE) || (btype == BranchType::PARALLEL_ONCE));
 							currentState.isSingle_ = ((btype == BranchType::ONCE) || (btype == BranchType::SINGLE));
@@ -731,25 +727,29 @@ class Plan {
 							currentState.isEnabled_ = false;
 						}
 
-						if(currentState.isOnce_) {
-							if((btype == BranchType::ONCE)) {
-								currentState.condition = global.once(n->name_) && currentState.condition;
-							} else if((btype == BranchType::PARALLEL_ONCE)) {
-								currentState.condition = !n->tx_->ran() && currentState.condition;
+						if(currentState.isEnabled_) {
+							if(currentState.isOnce_) {
+								if((btype == BranchType::ONCE)) {
+									currentState.condition_ = global.once(n->name_) && n->tx_->performPredicate(countLockContention);
+								} else if((btype == BranchType::PARALLEL_ONCE)) {
+									currentState.condition_ = !n->tx_->ran() && n->tx_->performPredicate(countLockContention);;
+								} else {
+									CV_Assert(false);
+								}
 							} else {
-								CV_Assert(false);
+								currentState.condition_ = n->tx_->performPredicate(countLockContention);
 							}
-						}
 
-						currentState.isEnabled_ = currentState.isEnabled_ && currentState.condition;
+							currentState.isEnabled_ = currentState.isEnabled_ && currentState.condition_;
 
-						if(currentState.isEnabled_ && currentState.isSingle_) {
-							CV_Assert(btype != BranchType::PARALLEL);
+							if(currentState.isEnabled_ && currentState.isSingle_) {
+								CV_Assert(btype != BranchType::PARALLEL);
 
-							if(global.lockNode(currentState.branchID_)) {
-//								cerr << "lock branch" << endl;
+								if(global.lockNode(currentState.branchID_)) {
+	//								cerr << "lock branch" << endl;
+								}
+								currentState.isLocked_ = true;
 							}
-							currentState.isLocked_ = true;
 						}
 						branchStateStack_.push_front(currentState);
 						pf(branchStateStack_.size(), currentState, n);
@@ -757,9 +757,9 @@ class Plan {
 						if(branchStateStack_.empty())
 							continue;
 						currentState = branchStateStack_.front();
-						currentState.isEnabled_ = !currentState.condition;
+						currentState.isEnabled_ = !currentState.condition_;
 						currentState.isOnce_ = false;
-						currentState.condition = !currentState.condition;
+						currentState.condition_ = !currentState.condition_;
 						currentState.isSingle_ = false;
 
 						if(currentState.isLocked_) {
@@ -927,7 +927,7 @@ public:
 	constexpr static auto and_ = [](const bool& a, const bool& b) { return a && b; };
 	constexpr static auto or_ = [](const bool& a, const bool& b) { return a || b; };
 
-	virtual ~Plan() {};
+	virtual ~Plan() { self_ = nullptr; };
 	virtual void gui() { };
 	virtual void setup() { };
 	virtual void infer() = 0;
@@ -953,7 +953,7 @@ public:
 	}
 
     template <typename Tfn, typename ... Args>
-    typename std::enable_if<is_stateless_lambda<Tfn>::value, cv::Ptr<Plan>>::type
+    typename std::enable_if<is_callable<Tfn>::value, cv::Ptr<Plan>>::type
     gl(Tfn fn, Args ... args) {
     	auto wrap = wrap_callable<void>(fn, args...);
         const string id = make_id(this->space(), "gl-1", fn, args...);
@@ -965,7 +965,7 @@ public:
 
     std::map<size_t, size_t> indexPointerMap_;
     template <typename Tedge, typename Tfn, typename ... Args>
-    typename std::enable_if<is_stateless_lambda<Tfn>::value, cv::Ptr<Plan>>::type
+    typename std::enable_if<!is_callable<Tedge>::value, cv::Ptr<Plan>>::type
 	gl(Tedge indexEdge, Tfn fn, Args ... args) {
         auto wrap = wrap_callable<void>(fn, indexEdge, args...);
         const string id = make_id(this->space(), "gl-" + int_to_hex(indexEdge.ptr()), fn, args...);
@@ -1183,7 +1183,7 @@ public:
 		    const float& a = bgra[3] / 255.0f;
 		    GL_CHECK(glClearColor(r, g, b, a));
 		    GL_CHECK(glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT));
-    	}, GET<cv::Scalar>(V4D::Keys::CLEAR_COLOR));
+    	}, P<cv::Scalar>(V4D::Keys::CLEAR_COLOR));
     	return self<Plan>();
     }
 
@@ -1390,29 +1390,11 @@ public:
 	}
 
 	template<typename T>
-	detail::Edge<T, true, true, true> R_SC(T& t) {
-		if(Global::instance().isShared(t)) {
-			return detail::Edge<T, true, true, true>::make(*this, t, false);
-		} else {
-			throw std::runtime_error("You are trying to safe-copy a non-shared variable. Maybe you forgot to declare it?.");
-		}
-	}
-
-	template<typename T>
-	detail::Edge<T, false, true, true> R_S(T& t) {
+	detail::Edge<T, false, true, true> RS(T& t) {
 		if(!Global::instance().isShared(t)) {
 			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to declare it?.");
 		}
 		return detail::Edge<T, false, true, true>::make(*this, t, false);
-	}
-
-	template<typename T>
-	detail::Edge<T, false, false> AUTO(T& t) {
-		if constexpr(std::is_const<T>::value) {
-			return detail::Edge<T, false, true>::make(*this, t, false);
-		} else {
-			return detail::Edge<T, false, false>::make(*this, t, false);
-		}
 	}
 
 	template<typename T>
@@ -1421,24 +1403,33 @@ public:
 	}
 
 	template<typename T>
-	detail::Edge<T, false, false, true> RW_S(T& t) {
+	detail::Edge<T, false, false, true> RWS(T& t) {
 		if(!Global::instance().isShared(t)) {
 			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to declare it?.");
 		}
 		return detail::Edge<T, false, false, true>::make(*this, t, false);
 	}
 
-//	template<typename T>
-//	detail::Edge<T, true, false> RW_C(T& t) {
-//		if(Global::instance().isShared(t)) {
-//			return detail::Edge<T, true, false>::make(*this, t, false);
-//		} else {
-//			return detail::Edge<T, true, false>::make(*this, t);
-//		}
-//	}
+	template<typename T>
+	detail::Edge<T, true, true, true> CS(T& t) {
+		if(Global::instance().isShared(t)) {
+			return detail::Edge<T, true, true, true>::make(*this, t, false);
+		} else {
+			throw std::runtime_error("You are trying to safe-copy a non-shared variable. Maybe you forgot to declare it?.");
+		}
+	}
 
 	template<typename T>
-	detail::Edge<cv::Ptr<T>, false, true, false, T> VAL(T t) {
+	detail::Edge<T, false, false> A(T& t) {
+		if constexpr(std::is_const<T>::value) {
+			return detail::Edge<T, false, true>::make(*this, t, false);
+		} else {
+			return detail::Edge<T, false, false>::make(*this, t, false);
+		}
+	}
+
+	template<typename T>
+	detail::Edge<cv::Ptr<T>, false, true, false, T> V(T t) {
 		if(Global::instance().isShared(t)) {
 			throw std::runtime_error("You declared a shared variable as temporary.");
 		}
@@ -1446,9 +1437,8 @@ public:
 		return detail::Edge<decltype(ptr), false, true, false, T>::make(*this, ptr, false);
 	}
 
-
 	template<typename Tval, typename Tkey = decltype(runtime_)::element_type::Keys::Enum>
-	Property<Tval> GET(Tkey key) {
+	Property<Tval> P(Tkey key) {
 		const auto& ref = runtime_->get<Tval>(key);
 		return Property<Tval>(*this, ref);
 	}

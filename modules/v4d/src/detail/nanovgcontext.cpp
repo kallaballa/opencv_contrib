@@ -3,19 +3,21 @@
 // of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
-#include "opencv2/v4d/detail/gl.hpp"
+
 #include "opencv2/v4d/detail/nanovgcontext.hpp"
 #include "opencv2/v4d/nvg.hpp"
 #include "nanovg_gl.h"
+#include "opencv2/v4d/detail/gl.hpp"
 
 namespace cv {
 namespace v4d {
 namespace detail {
 
 NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext) :
-        mainFbContext_(fbContext), nvgFbContext_(new FrameBufferContext("NanoVG", fbContext)), context_(
+        mainFbContext_(fbContext), nvgFbContext_(FrameBufferContext::make("NanoVG", fbContext)), context_(
                 nullptr) {
-		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
+		FrameBufferContext::WindowScope winScope(fbCtx());
+		FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER);
 #if defined(OPENCV_V4D_USE_ES3)
 		context_ = nvgCreateGLES3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG);
 #else
@@ -30,7 +32,8 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext) :
 
 int NanoVGContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 	{
-		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
+		FrameBufferContext::WindowScope winScope(fbCtx());
+		FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 //		glViewport(vp.x, vp.y, vp.width, vp.height);
 		NanoVGContext::Scope nvgScope(*this, vp);

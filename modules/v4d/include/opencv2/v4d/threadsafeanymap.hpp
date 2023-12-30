@@ -14,7 +14,7 @@ public:
 	std::function<void(Value& val)> callback_;
 	const bool read_;
 
-	Value(const bool& read) : read_(read) {
+	Value(const bool& read = false) : read_(read) {
 	}
 
     any& operator=(const any& rhs) {
@@ -44,7 +44,8 @@ private:
 public:
     template<bool Tread, typename V>
     void create(K key, const V& value, std::function<void(const V& val)> cb) {
-    	CV_Assert(properties_.size() == key);
+    	properties_.reserve(100);
+//    	CV_Assert(properties_.size() == key);
     	CV_Assert(!Tread || (Tread && !cb));
     	if constexpr(Tread) {
     		Value val(Tread);
@@ -122,7 +123,7 @@ public:
     }
 
     template<typename V> V apply(K key, std::function<V(V&)> func) {
-        std::shared_lock<std::shared_mutex> map_lock(*mapMutexPtr_);
+        std::unique_lock<std::shared_mutex> map_lock(*mapMutexPtr_);
         std::unique_lock<std::shared_mutex> key_lock(*mutexes_.template get<cv::Ptr<std::shared_mutex>>(key));
         return parent_t::template apply<V>(key, func);
     }

@@ -49,7 +49,7 @@ namespace detail {
 
 BgfxContext::BgfxContext(cv::Ptr<FrameBufferContext> fbContext) :
 	mainFbContext_(fbContext),
-	bgfxContext_(new FrameBufferContext("Bgfx", fbContext)) {
+	bgfxContext_(FrameBufferContext::make("Bgfx", fbContext)) {
 //	bgfx::renderFrame();
 	bgfx::Init init;
 #ifndef OPENCV_V4D_USE_ES3
@@ -69,7 +69,8 @@ BgfxContext::BgfxContext(cv::Ptr<FrameBufferContext> fbContext) :
 	init.resolution.width  = sz.width;
 	init.resolution.height = sz.height;
 	init.resolution.reset  = BGFX_RESET_VSYNC;
-	FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER, 0);
+	FrameBufferContext::WindowScope winScope(fbCtx());
+	FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0, true);
 	bgfx::init(init);
 
 	// Enable debug text.
@@ -77,7 +78,8 @@ BgfxContext::BgfxContext(cv::Ptr<FrameBufferContext> fbContext) :
 }
 
 int BgfxContext::execute(const cv::Rect& vp, std::function<void()> fn) {
-	FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER, 0);
+	FrameBufferContext::WindowScope winScope(fbCtx());
+	FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0, true);
 	fn();
 	CV_Assert(fbCtx()->getGLFWWindow() == glfwGetCurrentContext());
 	return 1;

@@ -14,10 +14,10 @@
 #include <map>
 #include <vector>
 #include <string>
-typedef unsigned int GLenum;
-#define GL_FRAMEBUFFER 0x8D40
 
+typedef unsigned int GLenum;
 using std::string;
+#define GL_FRAMEBUFFER 0x8D40
 
 struct GLFWwindow;
 namespace cv {
@@ -33,7 +33,8 @@ struct FBConfigFlags {
 		DEBUG_GL_CONTEXT = 2,
 		ONSCREEN_CHILD_CONTEXTS = 4,
 		VSYNC = 8,
-		DISPLAY_MODE = 16
+		DISPLAY_MODE = 16,
+		DEFAULT = NONE
 	};
 };
 
@@ -100,7 +101,7 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     friend class BgfxContext;
     friend class cv::v4d::V4D;
     friend class cv::v4d::Plan;
-    cv::Ptr<FrameBufferContext> self_ = this;
+    cv::Ptr<FrameBufferContext> self_;
     string title_;
     int major_;
     int minor_;
@@ -108,6 +109,7 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     int configFlags_;
     bool isVisible_;
     GLFWwindow* glfwWindow_ = nullptr;
+    GLFWwindow* currentContext_ = nullptr;
     bool clglSharing_ = true;
     GLuint onscreenTextureID_ = 0;
     GLuint onscreenRenderBufferID_ = 0;
@@ -119,8 +121,6 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     cl_mem clImage_ = nullptr;
     CLExecContext_t context_;
     const cv::Size framebufferSize_;
-    bool hasParent_ = false;
-    GLFWwindow* rootWindow_;
     cv::Ptr<FrameBufferContext> parent_;
     bool isRoot_ = true;
     int index_;
@@ -128,7 +128,13 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     std::map<size_t, GLuint> shader_program_hdls_;
     std::map<size_t, GLuint> copyFramebuffers_;
     std::map<size_t, GLuint> copyTextures_;
+
+    /*!
+     * Create a FrameBufferContext with given size.
+     * @param frameBufferSize The frame buffer size.
+     */
 public:
+
     /*!
      * Acquires and releases the framebuffer from and to OpenGL.
      */
@@ -185,13 +191,16 @@ public:
      */
     class CV_EXPORTS GLScope {
     	cv::Ptr<FrameBufferContext> ctx_;
+    	bool copyBack_;
     public:
         /*!
          * Setup OpenGL states.
          * @param ctx The corresponding #FrameBufferContext.
          */
-        CV_EXPORTS GLScope(cv::Ptr<FrameBufferContext> ctx, GLenum framebufferTarget = GL_FRAMEBUFFER, GLint frameBufferID = -1) :
-			ctx_(ctx) {
+        CV_EXPORTS GLScope(cv::Ptr<FrameBufferContext> ctx, GLenum framebufferTarget, GLint frameBufferID = -1, bool copyBack = false) :
+			ctx_(ctx),
+			copyBack_(copyBack) {
+        	CV_Assert(ctx);
         	if(frameBufferID == -1)
 				frameBufferID = ctx->framebufferID_;
             ctx_->begin(framebufferTarget, frameBufferID);
@@ -200,26 +209,39 @@ public:
          * Tear-down OpenGL states.
          */
         CV_EXPORTS ~GLScope() {
-            ctx_->end();
+            ctx_->end(copyBack_);
         }
     };
 
-    /*!
-     * Create a FrameBufferContext with given size.
-     * @param frameBufferSize The frame buffer size.
-     */
-    FrameBufferContext(const cv::Size& frameBufferSize, const string& title, int major, int minor, int samples, GLFWwindow* rootWindow, cv::Ptr<FrameBufferContext> parent, bool root, int configFlags);
+    class CV_EXPORTS WindowScope {
+    	cv::Ptr<FrameBufferContext> ctx_;
+    public:
+        CV_EXPORTS WindowScope(cv::Ptr<FrameBufferContext> ctx) :
+			ctx_(ctx) {
+        	CV_Assert(ctx_);
+        	ctx_->makeCurrent();
+        }
 
-    FrameBufferContext(const string& title, cv::Ptr<FrameBufferContext> other, int configFlags = -1);
+        CV_EXPORTS ~WindowScope() {
+        	ctx_->makeNoneCurrent();
+        }
+    };
 
-    /*!
-     * Default destructor.
-     */
+private:
+    FrameBufferContext(const cv::Size& frameBufferSize, const string& title, int major, int minor, int samples, GLFWwindow* rootWindow, cv::Ptr<FrameBufferContext> parent, bool root, int configFlags = -1);
+    FrameBufferContext(const string& title, cv::Ptr<FrameBufferContext> other);
+public:
     virtual ~FrameBufferContext();
+
+    static cv::Ptr<FrameBufferContext> make(const string& title, cv::Ptr<FrameBufferContext> other);
+    static cv::Ptr<FrameBufferContext> make(const cv::Size& sz, const string& title, const int& major, const int& minor, const int& samples, GLFWwindow* parentWindow, cv::Ptr<FrameBufferContext> parent, const bool& root, const int& confFlags = -1);
+
 
     cv::Ptr<FrameBufferContext> self() {
     	return self_;
     }
+
+
 
     GLuint getFramebufferID();
     GLuint getTextureID();
@@ -241,6 +263,7 @@ public:
       * @param fn A function object that is passed the framebuffer to be read/manipulated.
       */
     virtual int execute(const cv::Rect& vp, std::function<void()> fn) override {
+        FrameBufferContext::WindowScope winScope(self());
     	if(cv::ocl::useOpenCL() && !getCLExecContext().empty()) {
 			CLExecScope_t clExecScope(getCLExecContext());
 			FrameBufferContext::GLScope glScope(self(), GL_FRAMEBUFFER);
@@ -253,6 +276,7 @@ public:
 			view_ = framebuffer_(vp);
 			fn();
     	}
+
     	return 1;
     }
 
@@ -273,7 +297,6 @@ public:
     bool isClosed();
     bool isRoot();
     bool hasParent();
-    bool hasRootWindow();
 
     /*!
      * Blit the framebuffer to the screen
@@ -305,7 +328,7 @@ public:
     /*!
      * Tear-down OpenGL states.
      */
-    CV_EXPORTS void end();
+    CV_EXPORTS void end(bool copyBack);
     /*!
      * Download the framebuffer to UMat m.
      * @param m The target UMat.
@@ -346,6 +369,7 @@ public:
 
     cv::UMat framebuffer_;
     cv::UMat view_;
+    GLint currentFBO_ = -1;
     GLint currentFBOTarget_ = -1;
 };
 }

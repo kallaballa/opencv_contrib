@@ -10,11 +10,12 @@ namespace cv {
 namespace v4d {
 namespace detail {
 GLContext::GLContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext) :
-        idx_(idx), mainFbContext_(fbContext), glFbContext_(new FrameBufferContext("OpenGL" + std::to_string(idx), fbContext)) {
+        idx_(idx), mainFbContext_(fbContext), glFbContext_(FrameBufferContext::make("OpenGL" + std::to_string(idx), fbContext)) {
 }
 
 int GLContext::execute(const cv::Rect& vp, std::function<void()> fn) {
-		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
+	FrameBufferContext::WindowScope winScope(fbCtx());
+	FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER);
 		glViewport(0, 0, vp.width, vp.height);
 		fn();
 		return 1;
