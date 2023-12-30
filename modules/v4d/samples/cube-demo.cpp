@@ -17,7 +17,7 @@ public:
 	}
 
 	void infer() override {
-		gl(&CubeScene::render, R(scene_));
+		gl(&CubeScene::render, R(scene_), V(true));
 	}
 
 	void teardown() override {

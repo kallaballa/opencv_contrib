@@ -334,7 +334,6 @@ int FrameBufferContext::getIndex() {
 }
 
 void FrameBufferContext::setup() {
-	cerr << "setup before: " << title_ << " = " << framebufferID_ << " -> " << glfwGetCurrentContext() << std::endl;
 	cv::Size sz = framebufferSize_;
     CLExecScope_t clExecScope(getCLExecContext());
     framebuffer_.create(sz, CV_8UC4);
@@ -396,8 +395,6 @@ void FrameBufferContext::setup() {
     	CV_Assert(false);
 
 	currentFBO_ = framebufferID_;
-
-    cerr << "setup after: " << title_ << " = " << textureID_ << " -> " << glfwGetCurrentContext() << std::endl;
 }
 
 void FrameBufferContext::teardown() {

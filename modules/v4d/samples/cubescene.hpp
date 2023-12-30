@@ -139,7 +139,7 @@ public:
 	}
 
 	//Renders a rotating rainbow-colored cube on a blueish background
-	void render(const bool clearColorBuffer = true) const {
+	void render(const bool clearColorBuffer) const {
 		glClear((clearColorBuffer ? GL_COLOR_BUFFER_BIT : 0) | GL_DEPTH_BUFFER_BIT);
 
 		//Use the prepared shader program
