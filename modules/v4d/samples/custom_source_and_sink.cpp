@@ -33,8 +33,8 @@ public:
 		fb([](const cv::UMat& framebuffer, Scalar& last, string& colorName, bool& writeFrame) {
 			//Retrieve the bottom-left pixel (using getMat on a aub-UMat downloads the whole frame)
 			Scalar pix = cv::sum(framebuffer(cv::Rect(0, 0, 1, 1)));
-			int prod = pix[0] * pix[1] * pix[2];
-			double isPureColor = sum(pix)[0] > 0 && fmod(prod - 255.0, pow(255.0, 2.0) - 255.0) == 0;
+			double prod = pix[0] * pix[1] * pix[2];
+			bool isPureColor = sum(pix)[0] > 0 && fmod(prod - 255.0, pow(255.0, 2.0) - 255.0) == 0;
 
 			if(last != pix && isPureColor) {
 				cv::Vec4b binarized = convert_pix<-1, Scalar, cv::Vec4b, true>(pix, 1.0/255);
