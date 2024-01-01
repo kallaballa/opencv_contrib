@@ -10,12 +10,8 @@ class FontWithGuiPlan: public Plan {
 	} params_;
 	//The text
 	string hw_ = "hello world";
-	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	FontWithGuiPlan() {
-		_shared(params_);
-	}
-
 	void gui() override {
 		imgui([](Params& params) {
 			using namespace ImGui;
@@ -36,7 +32,7 @@ public:
 			fillColor(params.color_ * 255.0);
 			textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
 			text(vp.width / 2.0, vp.height / 2.0, str.c_str(), str.c_str() + str.size());
-		}, vp_, R(hw_), R_SC(params_));
+		}, vp_, R(hw_), CS(params_));
 	}
 };
 

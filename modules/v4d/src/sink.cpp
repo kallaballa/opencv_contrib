@@ -123,7 +123,7 @@ bool Sink::isOpen() {
 
 void Sink::operator()(const uint64_t& seq, const cv::UMat& frame) {
 	std::lock_guard<std::mutex> lock(mtx_);
-	if(seq == nextSeq_) {
+	if(seq > nextSeq_) {
 		uint64_t currentSeq = seq;
 		cv::UMat currentFrame = frame;
 		buffer_[seq] = frame;

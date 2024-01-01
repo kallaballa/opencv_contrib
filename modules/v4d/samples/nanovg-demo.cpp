@@ -32,8 +32,8 @@ static void draw_color_wheel(float x, float y, float w, float h, double hue) {
         bx = cx + cosf(a1) * (r0 + r1) * 0.5f;
         by = cy + sinf(a1) * (r0 + r1) * 0.5f;
         paint = linearGradient(ax, ay, bx, by,
-                cv::v4d::colorConvert(cv::Scalar((a0 / (CV_PI * 2.0)) * 180.0, 0.55 * 255.0, 255.0, 255.0), cv::COLOR_HLS2BGR),
-                cv::v4d::colorConvert(cv::Scalar((a1 / (CV_PI * 2.0)) * 180.0, 0.55 * 255, 255, 255), cv::COLOR_HLS2BGR));
+                cv::v4d::convert_pix(cv::Scalar((a0 / (CV_PI * 2.0)) * 180.0, 0.55 * 255.0, 255.0, 255.0), cv::COLOR_HLS2BGR),
+                cv::v4d::convert_pix(cv::Scalar((a1 / (CV_PI * 2.0)) * 180.0, 0.55 * 255, 255, 255), cv::COLOR_HLS2BGR));
         fillPaint(paint);
         fill();
     }
@@ -76,7 +76,7 @@ static void draw_color_wheel(float x, float y, float w, float h, double hue) {
     lineTo(ax, ay);
     lineTo(bx, by);
     closePath();
-    paint = linearGradient(r, 0, ax, ay, cv::v4d::colorConvert(cv::Scalar(hue, 128.0, 255.0, 255.0), cv::COLOR_HLS2BGR_FULL), cv::Scalar(255, 255, 255, 255));
+    paint = linearGradient(r, 0, ax, ay, cv::v4d::convert_pix(cv::Scalar(hue, 128.0, 255.0, 255.0), cv::COLOR_HLS2BGR_FULL), cv::Scalar(255, 255, 255, 255));
     fillPaint(paint);
     fill();
     paint = linearGradient((r + ax) * 0.5f, (0 + ay) * 0.5f, bx, by, cv::Scalar(0, 0, 0, 0), cv::Scalar(0, 0, 0, 255));
@@ -116,7 +116,7 @@ class NanoVGDemoPlan : public Plan {
 	cv::UMat hsv_;
 	cv::UMat hueChannel_;
 	double hue_ = 0;
-	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
 	NanoVGDemoPlan() {
 	}
@@ -132,9 +132,7 @@ public:
 		capture();
 
 		//Acquire the framebuffer and convert it to RGB
-		fb([](const cv::UMat &framebuffer, cv::UMat& rgb) {
-			cvtColor(framebuffer, rgb, cv::COLOR_BGRA2RGB);
-		}, RW(rgb_));
+		fb(&cv::cvtColor, RW(rgb_), V(cv::COLOR_BGRA2RGB), V(0));
 
 		plain([](cv::UMat& rgb, cv::UMat& hsv, std::vector<cv::UMat>& hsvChannels, const double& hue){
 			//Color-conversion from RGB to HSV

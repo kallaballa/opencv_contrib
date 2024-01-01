@@ -56,7 +56,7 @@ private:
     constexpr static auto dontRedect_ = [](const Detection& detection){ return detection.trackerInit_ && !detection.redetect_; };
     constexpr static auto doRedect_ = [](const Detection& detection){ return !detection.trackerInit_ || detection.redetect_; };
 
-	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 
 	//adapted from cv::dnn_objdetect::InferBbox
 	static inline bool pair_comparator(std::pair<double, size_t> l1, std::pair<double, size_t> l2) {
@@ -219,7 +219,7 @@ public:
 			clearScreen();
 			beginPath();
 			strokeWidth(std::fmax(5.0, vp.width / 960.0));
-			strokeColor(cv::v4d::colorConvert(cv::Scalar(0, 127, 255, 200), cv::COLOR_HLS2BGR));
+			strokeColor(cv::v4d::convert_pix(cv::Scalar(0, 127, 255, 200), cv::COLOR_HLS2BGR));
 			ellipse(cx, cy, (width), (height));
 			stroke();
 		}, vp_, R(params_), R_SC(tracked_));

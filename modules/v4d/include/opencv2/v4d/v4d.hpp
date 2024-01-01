@@ -1161,7 +1161,7 @@ public:
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> fb(Tfn fn, Args ... args) {
 		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
-		static_assert((std::is_same<Tfb, cv::UMat>::value || std::is_same<Tfb, const cv::UMat>::value) || !"The first argument must be eiter of type 'cv::UMat&' or 'const cv::UMat&'");
+//		static_assert((std::is_same<Tfb, cv::UMat>::value || std::is_same<Tfb, const cv::UMat>::value) || !"The first argument must be eiter of type 'cv::UMat&' or 'const cv::UMat&'");
 		auto fbEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->fbCtx()->fb());
     	auto wrap = wrap_callable<void>(fn, fbEdge, args...);
         const string id = make_id(this->space(), "fb", fn, args...);

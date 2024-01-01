@@ -57,7 +57,7 @@ private:
         GLuint vbo_, ebo_;
     } handles_;
 
-    Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+    Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 
     //easing function for the bungee zoom
     static float easeInOutQuint(float x) {
@@ -243,7 +243,6 @@ private:
     }
 public:
 	ShaderDemoPlan() {
-		_shared(params_);
 	}
 
 	void gui() override {
@@ -274,11 +273,11 @@ public:
 
         plain([](Params& params) {
 			update_params(params);
-		}, RW_S(params_));
+		}, RWS(params_));
 
 		gl([](const cv::Rect& vp, const Params params, const Handles& handles) {
         	render_scene(vp, params, handles);
-		}, vp_, R_SC(params_), R(handles_));
+		}, vp_, CS(params_), R(handles_));
 
         write();
     }

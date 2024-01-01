@@ -20,6 +20,7 @@ class CV_EXPORTS SinkContext : public V4DContext {
     friend class cv::v4d::V4D;
     CLExecContext_t context_;
     cv::UMat sinkBuffer_;
+    cv::UMat rgb_;
     bool hasContext_ = false;
     cv::Ptr<FrameBufferContext> mainFbContext_;
 public:

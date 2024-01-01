@@ -13,17 +13,6 @@
 namespace cv {
 namespace v4d {
 namespace detail {
-template<auto V1, decltype(V1) V2, typename T>
-struct values_equal : std::bool_constant<V1 == V2>
-{
-    using type = T;
-};
-
-template<typename T>
-struct default_type : std::true_type
-{
-    using type = T;
-};
 
 class EdgeBase {};
 

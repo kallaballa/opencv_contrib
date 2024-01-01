@@ -6,7 +6,7 @@ using namespace cv::v4d;
 class FontRenderingPlan: public Plan {
 	//The text to render
 	string text_ = "Hello World";
-	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
 	void infer() override {
 		//Render the text at the center of the screen. Note that you can load you own fonts.

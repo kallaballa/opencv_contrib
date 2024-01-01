@@ -28,7 +28,8 @@ int SinkContext::execute(const cv::Rect& vp, std::function<void()> fn) {
     }
 	auto v4d = V4D::instance();
 	if(v4d->hasSink() && v4d->getSink()->isOpen()) {
-			v4d->getSink()->operator ()(v4d->getSequenceNumber(), sinkBuffer());
+			cvtColor(sinkBuffer(), rgb_, cv::COLOR_BGRA2RGB);
+			v4d->getSink()->operator ()(v4d->getSequenceNumber(), rgb_);
 			return 1;
 	}
 	return 0;

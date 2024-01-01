@@ -4,7 +4,7 @@ using namespace cv;
 using namespace cv::v4d;
 
 class VectorGraphicsPlan: public Plan {
-Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
 	void infer() override {
 		//Creates a NanoVG context and draws googly eyes that occasionally blink.

@@ -21,7 +21,7 @@ using std::istringstream;
 using namespace cv::v4d;
 
 class FontDemoPlan : public Plan {
-	inline static const cv::Scalar_<float> INITIAL_COLOR = cv::v4d::colorConvert(cv::Scalar(0.15 * 180.0, 128, 255, 255), cv::COLOR_HLS2RGB);
+	inline static const cv::Scalar_<float> INITIAL_COLOR = cv::v4d::convert_pix(cv::Scalar(0.15 * 180.0, 128, 255, 255), cv::COLOR_HLS2RGB);
 	static struct Params {
 		float minStarSize_ = 0.5f;
 		float maxStarSize_ = 1.5f;
@@ -59,16 +59,8 @@ class FontDemoPlan : public Plan {
 
     cv::RNG rng_ = cv::getTickCount();
 
-    Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+    Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
-	FontDemoPlan() {
-		_shared(params_);
-		_shared(textVars_);
-		_shared(tm_);
-		_shared(stars_);
-
-	}
-
 	void gui() override {
         imgui([](Params& params) {
         	using namespace ImGui;

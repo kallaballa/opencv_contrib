@@ -200,7 +200,7 @@ private:
 	                //start drawing
 	                beginPath();
 	                strokeWidth(strokeSize);
-	                strokeColor(colorConvert(params.effectColor_ * 255.0, cv::COLOR_RGB2BGR));
+	                strokeColor(convert_pix(params.effectColor_ * 255.0, cv::COLOR_RGB2BGR));
 
 	                for (size_t i = 0; i < cache.prevPoints_.size(); i++) {
 	                    if (cache.status_[i] == 1 //point was found in prev and new set

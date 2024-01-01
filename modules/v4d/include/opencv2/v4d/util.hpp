@@ -12,6 +12,7 @@
 #include <filesystem>
 #include <string>
 #include <iostream>
+#include <array>
 
 #include "threadsafeanymap.hpp"
 #ifdef __GNUG__
@@ -37,6 +38,19 @@ using std::endl;
 namespace cv {
 namespace v4d {
 namespace detail {
+
+template<auto V1, decltype(V1) V2, typename T>
+struct values_equal : std::bool_constant<V1 == V2>
+{
+    using type = T;
+};
+
+template<typename T>
+struct default_type : std::true_type
+{
+    using type = T;
+};
+
 //https://stackoverflow.com/questions/281818/unmangling-the-result-of-stdtype-infoname
 CV_EXPORTS std::string demangle(const char* name);
 
@@ -515,11 +529,9 @@ public:
 
 		auto it = once_.find(stem);
 		if(it != once_.end()) {
-			std::cerr << "DENIED" << std::endl;
 			return false;
 		} else {
 			once_.insert(stem);
-			std::cerr << "GRANTED" << std::endl;
 			return true;
 		}
 	}
@@ -590,13 +602,113 @@ public:
 CV_EXPORTS void copy_cross(const cv::UMat& src, cv::UMat& dst);
 
 
+template<typename T>
+constexpr int matrix_depth() {
+	if constexpr(std::is_same_v<T, uchar>) {
+		return CV_8U;
+	} else if constexpr(std::is_same_v<T, short>){
+		return CV_16S;
+	} else if constexpr(std::is_same_v<T, ushort>){
+		return CV_16U;
+	} else if constexpr(std::is_same_v<T, int>){
+		return CV_32S;
+	} else if constexpr(std::is_same_v<T, float>){
+		return CV_32F;
+	} else if constexpr(std::is_same_v<T, double>){
+		return CV_64F;
+	} else if constexpr(true) {
+		static_assert(false, "Type not supported for operation.");
+		return 0;
+	}
+}
+
+template<bool Tround, typename T> T doRound(T& t) {
+	if constexpr(Tround) {
+		return std::round(t);
+	} else {
+		return t;
+	}
+
+}
 /*!
- * Convenience function to color convert from Scalar to Scalar
- * @param src The scalar to color convert
+ * Convenience function to color convert from all Vec_ and Scalar_ variants
+ * @param src The color to convert
  * @param code The color converions code
  * @return The color converted scalar
  */
-CV_EXPORTS cv::Scalar colorConvert(const cv::Scalar& src, cv::ColorConversionCodes code);
+template<int Tcode = -1, typename Tsrc, typename Tdst = Vec<typename Tsrc::value_type, Tsrc::channels>, bool Tround = std::is_floating_point_v<typename Tsrc::value_type> && std::is_integral_v<typename Tdst::value_type>>
+Tdst convert_pix(const Tsrc& src, double alpha = 1, double beta = 0) {
+	constexpr int srcCn = Tsrc::channels;
+	constexpr int dstCn = Tdst::channels;
+
+	using srcv_t = typename Tsrc::value_type;
+	using dstv_t = typename Tdst::value_type;
+	using src_internal_t = Vec<srcv_t, srcCn>;
+	using intermediate_t = Vec<srcv_t, dstCn>;
+	using dst_internal_t = Vec<dstv_t, dstCn>;
+	static_assert((srcCn == 3 || srcCn == 4) && (dstCn == 3 || dstCn == 4), "Only 3 or 4 (src/dst) channels supported");
+	constexpr int srcType = CV_MAKETYPE(matrix_depth<typename src_internal_t::value_type>(), src_internal_t::channels);
+	constexpr int intermediateType = CV_MAKETYPE(matrix_depth<typename src_internal_t::value_type>(), dst_internal_t::channels);
+	constexpr int dstType = CV_MAKETYPE(matrix_depth<typename dst_internal_t::value_type>(), dst_internal_t::channels);
+
+	std::array<src_internal_t, 1> srcArr;
+	if constexpr(srcCn == 3) {
+		srcArr[0] = src_internal_t(src[0], src[1], src[2]);
+	} else {
+		srcArr[0] = src_internal_t(src[0], src[1], src[2], src[3]);
+	}
+
+	cv::Mat intermediateMat(cv::Size(1, 1), intermediateType);
+
+	if constexpr(dstCn == srcCn) {
+		intermediateMat = srcArr[0];
+	} else if (dstCn == 3) {
+		intermediateMat =  intermediate_t(srcArr[0][0], srcArr[0][1], srcArr[0][2]);
+	} else if (dstCn == 4) {
+		intermediateMat = intermediate_t(srcArr[0][0], srcArr[0][1], srcArr[0][2], srcArr[0][3]);
+	}
+
+	if constexpr(Tcode >= 0) {
+		cvtColor(srcArr, intermediateMat, Tcode);
+	}
+
+
+	std::array<dst_internal_t, 1> dstArr;
+	if constexpr(!std::is_same<srcv_t, dstv_t>::value) {
+		//will just copy if types match
+		intermediateMat.convertTo(dstArr, dstType);
+	} else {
+		//both value type and channes match
+		dstArr[0] = intermediateMat.at<dst_internal_t>(0.0);
+	}
+
+	Tdst dst;
+	cv::Scalar temp;
+	bool doScale = alpha != 1 || beta != 0;
+	if(doScale) {
+		if constexpr (dstCn == 3) {
+			temp = cv::Scalar(dstArr[0][0], dstArr[0][1], dstArr[0][2]);
+		} else {
+			temp = cv::Scalar(dstArr[0][0], dstArr[0][1], dstArr[0][2], dstArr[0][3]);
+		}
+
+		((temp *= alpha) += Scalar::all(beta));
+
+		if constexpr (dstCn == 3) {
+			dst = Tdst(doRound<Tround>(temp[0]), doRound<Tround>(temp[1]), doRound<Tround>(temp[2]));
+		} else {
+			dst = Tdst(doRound<Tround>(temp[0]), doRound<Tround>(temp[1]), doRound<Tround>(temp[2]), doRound<Tround>(temp[3]));
+		}
+	} else {
+		if constexpr (dstCn == 3) {
+			dst =  Tdst(doRound<Tround>(dstArr[0][0]), doRound<Tround>(dstArr[0][1]), doRound<Tround>(dstArr[0][2]));
+		} else if (dstCn == 4) {
+			dst =  Tdst(doRound<Tround>(dstArr[0][0]), doRound<Tround>(dstArr[0][1]), doRound<Tround>(dstArr[0][2]), doRound<Tround>(dstArr[0][3]));
+		}
+	}
+
+	return dst;
+}
 
 /*!
  * Convenience function to check for OpenGL errors. Should only be used via the macro #GL_CHECK.

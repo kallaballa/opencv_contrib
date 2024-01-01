@@ -6,16 +6,12 @@ using namespace cv::v4d;
 class RenderOpenGLPlan : public Plan {
 public:
 	void setup() override {
-		gl([]() {
-			//Sets the clear color to blue
-			glClearColor(0.0f, 0.0f, 1.0f, 1.0f);
-		});
+		//Sets the clear color to blue
+		gl(glClearColor, V(0), V(0), V(1), V(1));
 	}
 	void infer() override {
-		gl([]() {
-			//Clears the screen. The clear color and other GL-states are preserved between context-calls.
-			glClear(GL_COLOR_BUFFER_BIT);
-		});
+		//Clears the screen. The clear color and other GL-states are preserved between context-calls.
+		gl(glClear, V(GL_COLOR_BUFFER_BIT));
 	}
 };
 

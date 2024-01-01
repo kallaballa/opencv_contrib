@@ -69,17 +69,6 @@ CV_EXPORTS void copy_cross(const cv::UMat& src, cv::UMat& dst) {
 	src.copyTo(m);
 }
 
-CV_EXPORTS cv::Scalar colorConvert(const cv::Scalar& src, cv::ColorConversionCodes code) {
-    cv::Mat tmpIn(1, 1, CV_8UC3);
-    cv::Mat tmpOut(1, 1, CV_8UC3);
-
-    tmpIn.at<cv::Vec3b>(0, 0) = cv::Vec3b(src[0], src[1], src[2]);
-    cvtColor(tmpIn, tmpOut, code);
-    const cv::Vec3b& vdst = tmpOut.at<cv::Vec3b>(0, 0);
-    cv::Scalar dst(vdst[0], vdst[1], vdst[2], src[3]);
-    return dst;
-}
-
 void gl_check_error(const std::filesystem::path& file, unsigned int line, const char* expression) {
     int errorCode = glGetError();
 //    cerr << "TRACE: " << file.filename() << " (" << line << ") : " << expression << " => code: " << errorCode << endl;

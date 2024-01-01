@@ -5,7 +5,7 @@ using namespace cv;
 using namespace cv::v4d;
 
 class VectorGraphicsAndFBPlan : public Plan {
-	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
 	void infer() override {
 		//Again creates a NanoVG context and draws googly eyes
