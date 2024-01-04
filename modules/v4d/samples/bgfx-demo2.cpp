@@ -140,11 +140,10 @@ public:
 
 	}
 	void setup() override {
-		_shared(time_offset_);
 		branch(BranchType::ONCE, always_)
 				->plain([](int64_t& timeOffset) {
 				timeOffset = bx::getHPCounter();
-			}, RW_S(time_offset_))
+			}, RWS(time_offset_))
 		->endBranch();
 
 		bgfx([](const cv::Rect& vp, Params& params){
@@ -275,7 +274,7 @@ public:
 			// Advance to next frame. Rendering thread will be kicked to
 			// process submitted rendering primitives.
 			bgfx::frame();
-		}, R(params_), R_SC(time_offset_));
+		}, R(params_), CS(time_offset_));
 	}
 };
 

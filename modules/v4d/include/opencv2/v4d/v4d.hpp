@@ -916,7 +916,17 @@ public:
 	struct Property : detail::Edge<const T, false, true, true> {
 		using parent_t = detail::Edge<const T, false, true, true>;
 		Property(Plan& plan, const T& val) : parent_t(parent_t::make(val)) {
-			Global::instance().makeShared(val);
+			Global::instance().makeSharedVar(val);
+		}
+	};
+
+	template<typename TeventClass, typename TfnPtr = cv::Ptr<std::function<decltype(cv::v4d::event::fetch<TeventClass>())()>>>
+	struct Event : detail::Edge<TfnPtr, false, true, false> {
+		using parent_t = detail::Edge<TfnPtr, false, true, false>;
+		Event(const typename TeventClass::Type k) : parent_t(parent_t::make(cv::makePtr<typename TfnPtr::element_type>(std::function([k]() {
+			return cv::v4d::event::fetch(k);
+		})))) {
+			static_assert(parent_t::func_t::value, "Internal error: Function not detected!");
 		}
 	};
 
@@ -1161,17 +1171,15 @@ public:
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> fb(Tfn fn, Args ... args) {
 		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
-//		static_assert((std::is_same<Tfb, cv::UMat>::value || std::is_same<Tfb, const cv::UMat>::value) || !"The first argument must be eiter of type 'cv::UMat&' or 'const cv::UMat&'");
-		auto fbEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->fbCtx()->fb());
-    	auto wrap = wrap_callable<void>(fn, fbEdge, args...);
+
+
         const string id = make_id(this->space(), "fb", fn, args...);
 		emit_access(id, R_I(*this));
 		(emit_access(id, args ),...);
 
-		std::function<void((
-				typename decltype(fbEdge)::ref_t,
-				typename Args::ref_t...))> functor(wrap);
-		add_transaction(runtime_->fbCtx(),id, functor, fbEdge, args...);
+		auto fbEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->fbCtx()->fb());
+		auto wrap = wrap_callable<void>(fn, fbEdge, args...);
+		add_transaction(runtime_->fbCtx(),id, wrap, fbEdge, args...);
 		return self<Plan>();
     }
 
@@ -1359,6 +1367,58 @@ public:
 		return self<Plan>();
 	}
 
+
+    template<typename TdstEdge, typename TsrcEdge>
+	typename std::enable_if<std::is_base_of_v<EdgeBase, TsrcEdge>, cv::Ptr<Plan>>::type
+	assign(TdstEdge dst, TsrcEdge src) {
+    	auto fn = [](decltype(dst.ref()) d, decltype(src.ref()) s){
+        	d = s;
+        };
+
+        const string id = make_id(this->space(), "assign", fn, src);
+        emit_access(id, R_I(*this));
+        emit_access(id, dst);
+        emit_access(id, src);
+        std::function<void(decltype(dst.ref()), decltype(src.ref()))> functor(fn);
+		add_transaction(runtime_->plainCtx(), id, functor, dst, src);
+		return self<Plan>();
+	}
+
+	template<typename TdstEdge, typename Tfn, typename ... Args>
+	typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
+	assign(TdstEdge dst, Tfn srcFn, Args ... args) {
+		auto wrapInner = wrap_callable(srcFn, args..., dst);
+
+		const string id = make_id(this->space(), "assign-fn", srcFn, args..., dst);
+        emit_access(id, R_I(*this));
+        (emit_access(id, args ),...);
+        (emit_access(id, dst ));
+		std::function wrap = [wrapInner](typename Args::ref_t ... values, decltype(dst.ref()) d) {
+			d = wrapInner(values...);
+		};
+
+        add_transaction(runtime_->plainCtx(), id, wrap, args..., dst);
+		return self<Plan>();
+	}
+
+	template<typename TsrcEdge, typename Tfn, typename ... Args>
+	typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
+	assign(Tfn dstFn, Args ... args, TsrcEdge src) {
+		auto wrapInner = wrap_callable(dstFn, args..., src);
+
+		const string id = make_id(this->space(), "assign-fn", dstFn, args..., src);
+        emit_access(id, R_I(*this));
+        (emit_access(id, dstFn));
+        (emit_access(id, src));
+        auto plan = self<Plan>();
+		std::function wrap = [wrapInner](typename Args::ref_t ... values, typename TsrcEdge::ref_t s) {
+			wrapInner(values...) = s.ref();
+		};
+
+        add_transaction(runtime_->plainCtx(), id, wrap, args..., src);
+		return self<Plan>();
+	}
+
 	template<typename TsubPlan, typename Tparent, typename ... Args>
 	auto _sub(Tparent* parent, Args&& ... args) {
 		return Plan::makeSubPlan<TsubPlan>(parent, std::forward<Args>(args)...);
@@ -1420,16 +1480,6 @@ public:
 	}
 
 	template<typename T>
-	detail::Edge<T, false, false> A(T& t) {
-		//FIXME only allow in single-thread mode
-		if constexpr(std::is_const<T>::value) {
-			return detail::Edge<T, false, true>::make(t);
-		} else {
-			return detail::Edge<T, false, false>::make(t);
-		}
-	}
-
-	template<typename T>
 	detail::Edge<cv::Ptr<T>, false, true, false, T> V(T t) {
 		auto ptr = cv::makePtr<T>(t);
 		return detail::Edge<decltype(ptr), false, true, false, T>::make(ptr);
@@ -1441,7 +1491,12 @@ public:
 		return Property<Tval>(*this, ref);
 	}
 
-    template<typename Tplan, typename ... Args>
+	template<typename Tclass>
+	Event<Tclass> E(typename Tclass::Type key) {
+		return Event<Tclass>(key);
+	}
+
+	template<typename Tplan, typename ... Args>
 	static cv::Ptr<Tplan> make(Args&& ... args) {
     	cv::Ptr<Tplan> plan = new Tplan(std::forward<Args>(args)...);
     	plan->self_ = plan;
@@ -1584,10 +1639,14 @@ public:
 			} catch(std::exception& ex) {
 				CV_Error_(cv::Error::StsError, ("pipeline teardown failed: %s", ex.what()));
 			}
+			V4D::instance()->setSink(nullptr);
+			V4D::instance()->setSource(nullptr);
 			CV_LOG_DEBUG(&v4d_tag, "Teardown complete on worker: " << plan->runtime_->workerIndex());
 		} else {
 			for(auto& t : threads)
 				t->join();
+			V4D::instance()->setSink(nullptr);
+			V4D::instance()->setSource(nullptr);
 			CV_LOG_INFO(&v4d_tag, "All threads terminated.");
 		}
     }

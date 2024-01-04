@@ -25,15 +25,23 @@ cv::Ptr<Sink> Sink::makeVaSink(cv::Ptr<V4D> window, const string& outputFilename
     if(writer->isOpened()) {
 		return new Sink([=](const uint64_t& seq, const cv::UMat& frame) {
 			CV_UNUSED(seq);
-	        //FIXME cache it
+            cv::UMat context_corrected;
             cv::UMat converted;
-            cv::resize(frame, converted, frameSize);
-            cvtColor(converted, converted, cv::COLOR_BGRA2RGB);
+
+            frame.copyTo(context_corrected);
+            cv::resize(context_corrected, converted, frameSize);
+            cvtColor(converted, converted, cv::COLOR_RGBA2RGB);
             (*writer) << converted;
-			return writer->isOpened();
+            if(!writer->isOpened()) {
+            	writer->release();
+                CV_Error(cv::Error::StsError, "Video write failed");
+            	return false;
+            }
+			return true;
 		});
     } else {
-    	return new Sink();
+        CV_Error(cv::Error::StsError, "Unable to initialize video sink.");
+        return new Sink();
     }
 }
 
@@ -45,15 +53,22 @@ cv::Ptr<Sink> Sink::makeAnyHWSink(const string& outputFilename, const int fourcc
     if(writer->isOpened()) {
         return new Sink([=](const uint64_t& seq, const cv::UMat& frame) {
         	CV_UNUSED(seq);
-            cv::UMat converted;
             cv::UMat context_corrected;
+            cv::UMat converted;
             frame.copyTo(context_corrected);
             cv::resize(context_corrected, converted, frameSize);
-            cvtColor(converted, converted, cv::COLOR_BGRA2RGB);
+            cvtColor(converted, converted, cv::COLOR_RGBA2RGB);
+
             (*writer) << converted;
-            return writer->isOpened();
+            if(!writer->isOpened()) {
+            	writer->release();
+            	CV_Error(cv::Error::StsError, "Video write failed");
+            	return false;
+            }
+			return true;
         });
     } else {
+        CV_Error(cv::Error::StsError, "Unable to initialize video sink.");
         return new Sink();
     }
 }
@@ -89,12 +104,18 @@ cv::Ptr<Sink> Sink::make(cv::Ptr<V4D> window, const string& outputFilename, cons
 			CV_UNUSED(seq);
             cv::UMat converted;
             cv::resize(frame, converted, frameSize);
-            cvtColor(converted, converted, cv::COLOR_BGRA2RGB);
+            cvtColor(converted, converted, cv::COLOR_RGBA2RGB);
             (*writer) << converted;
-			return writer->isOpened();
+            if(!writer->isOpened()) {
+            	writer->release();
+            	CV_Error(cv::Error::StsError, "Video write failed");
+            	return false;
+            }
+			return true;
 		});
     } else {
-    	return new Sink();
+        CV_Error(cv::Error::StsError, "Unable to initialize video sink.");
+        return new Sink();
     }
 }
 
@@ -140,7 +161,7 @@ void Sink::operator()(const uint64_t& seq, const cv::UMat& frame) {
 	} else {
 		buffer_[seq] = frame;
 	}
-	if(buffer_.size() > 2048) {
+	if(buffer_.size() > 300) {
 		CV_LOG_WARNING(nullptr, "Buffer overrun in sink.");
 		buffer_.clear();
 	}

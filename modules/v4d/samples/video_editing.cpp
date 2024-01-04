@@ -7,7 +7,7 @@ class VideoEditingPlan : public Plan {
 	cv::UMat frame_;
 	const string hv_ = "Hello Video!";
 	//Property extends Edge which means it can be directly passed without Edge-directive
-	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
 	void infer() override {
 		//Capture video from the source

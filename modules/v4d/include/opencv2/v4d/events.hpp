@@ -37,7 +37,7 @@ typedef std::function<bool(GLFWwindow*)> WindowCloseCallback;
 
 class Event {
 public:
-	enum class Class {
+	enum Class {
 		KEYBOARD, MOUSE, JOYSTICK, WINDOW
 	};
 
@@ -59,7 +59,8 @@ private:
 
 class Keyboard: public Event {
 public:
-	enum class Key {
+	using list_t = std::vector<std::shared_ptr<Keyboard>>;
+	enum Key {
 	    A,
 	    B,
 	    C,
@@ -182,7 +183,7 @@ public:
 	    MENU
 	};
 
-	enum class Type {
+	enum Type {
 		PRESS, RELEASE, REPEAT, HOLD
 	};
 
@@ -215,8 +216,10 @@ private:
 template<typename Tpoint>
 class Mouse_: public Event {
 public:
-	enum class Button {
-		NONE,
+	using list_t = std::vector<std::shared_ptr<Mouse_<Tpoint>>>;
+
+	enum Button {
+		NO_BUTTON,
 		LEFT,
 		RIGHT,
 		MIDDLE,
@@ -227,7 +230,7 @@ public:
 		N8
 	};
 
-	enum class Type {
+	enum Type {
 		PRESS,
 		RELEASE,
 		MOVE,
@@ -239,12 +242,12 @@ public:
 	};
 
 	Mouse_(Type type, Tpoint position) :
-			Event(Class::MOUSE), button_(Button::NONE), type_(type), position_(
+			Event(Class::MOUSE), button_(NO_BUTTON), type_(type), position_(
 					position) {
 	}
 
 	Mouse_(Type type, Tpoint position, Tpoint data) :
-			Event(Class::MOUSE), button_(Button::NONE), type_(type), position_(
+			Event(Class::MOUSE), button_(NO_BUTTON), type_(type), position_(
 					position), data_(data) {
 	}
 
@@ -291,12 +294,13 @@ private:
 
 class Joystick: public Event {
 public:
-	enum class Type {
+	using list_t = std::vector<std::shared_ptr<Joystick>>;
+	enum Type {
 		PRESS, RELEASE, MOVE
 	};
 
-	enum class Button {
-		NONE,
+	enum Button {
+		NO_BUTTON,
 		A,
 		B,
 		X,
@@ -314,8 +318,8 @@ public:
 		DPAD_LEFT
 	};
 
-	enum class Axis {
-		NONE,
+	enum Axis {
+		NO_AXIS,
 		LEFT_X,
 		LEFT_Y,
 		RIGHT_X,
@@ -326,13 +330,13 @@ public:
 
 	Joystick(Type type, int joystick, Button button) :
 			Event(Class::JOYSTICK), type_(type), joystick_(joystick), button_(button), state_(
-					type == Type::PRESS), axis_(Axis::NONE), init_(0), value_(
+					type == PRESS), axis_(NO_AXIS), init_(0), value_(
 					0), delta_(0) {
 	}
 
 	Joystick(int joystick, Axis axis, float init, float value, float delta) :
-			Event(Class::JOYSTICK), type_(Type::MOVE), joystick_(joystick), button_(
-					Button::NONE), state_(false), axis_(axis), init_(init), value_(value), delta_(delta) {
+			Event(Class::JOYSTICK), type_(MOVE), joystick_(joystick), button_(
+					NO_BUTTON), state_(false), axis_(axis), init_(init), value_(value), delta_(delta) {
 	}
 
 	bool is(Button a) const {
@@ -405,7 +409,8 @@ private:
 template<typename Tpoint>
 class Window_: public Event {
 public:
-	enum class Type {
+	using list_t = std::vector<std::shared_ptr<Window_<Tpoint>>>;
+	enum Type {
 		RESIZE, MOVE, FOCUS, UNFOCUS, CLOSE
 	};
 
@@ -460,219 +465,219 @@ public:
 constexpr Keyboard::Key v4d_key(int glfw_key) {
 	switch (glfw_key) {
 	case GLFW_KEY_A:
-		return Keyboard::Key::A;
+		return Keyboard::A;
 	case GLFW_KEY_B:
-		return Keyboard::Key::B;
+		return Keyboard::B;
 	case GLFW_KEY_C:
-		return Keyboard::Key::C;
+		return Keyboard::C;
 	case GLFW_KEY_D:
-		return Keyboard::Key::D;
+		return Keyboard::D;
 	case GLFW_KEY_E:
-		return Keyboard::Key::E;
+		return Keyboard::E;
 	case GLFW_KEY_F:
-		return Keyboard::Key::F;
+		return Keyboard::F;
 	case GLFW_KEY_G:
-		return Keyboard::Key::G;
+		return Keyboard::G;
 	case GLFW_KEY_H:
-		return Keyboard::Key::H;
+		return Keyboard::H;
 	case GLFW_KEY_I:
-		return Keyboard::Key::I;
+		return Keyboard::I;
 	case GLFW_KEY_J:
-		return Keyboard::Key::J;
+		return Keyboard::J;
 	case GLFW_KEY_K:
-		return Keyboard::Key::K;
+		return Keyboard::K;
 	case GLFW_KEY_L:
-		return Keyboard::Key::L;
+		return Keyboard::L;
 	case GLFW_KEY_M:
-		return Keyboard::Key::M;
+		return Keyboard::M;
 	case GLFW_KEY_N:
-		return Keyboard::Key::N;
+		return Keyboard::N;
 	case GLFW_KEY_O:
-		return Keyboard::Key::O;
+		return Keyboard::O;
 	case GLFW_KEY_P:
-		return Keyboard::Key::P;
+		return Keyboard::P;
 	case GLFW_KEY_Q:
-		return Keyboard::Key::Q;
+		return Keyboard::Q;
 	case GLFW_KEY_R:
-		return Keyboard::Key::R;
+		return Keyboard::R;
 	case GLFW_KEY_S:
-		return Keyboard::Key::S;
+		return Keyboard::S;
 	case GLFW_KEY_T:
-		return Keyboard::Key::T;
+		return Keyboard::T;
 	case GLFW_KEY_U:
-		return Keyboard::Key::U;
+		return Keyboard::U;
 	case GLFW_KEY_V:
-		return Keyboard::Key::V;
+		return Keyboard::V;
 	case GLFW_KEY_W:
-		return Keyboard::Key::W;
+		return Keyboard::W;
 	case GLFW_KEY_X:
-		return Keyboard::Key::X;
+		return Keyboard::X;
 	case GLFW_KEY_Y:
-		return Keyboard::Key::Y;
+		return Keyboard::Y;
 	case GLFW_KEY_Z:
-		return Keyboard::Key::Z;
+		return Keyboard::Z;
 	case GLFW_KEY_0:
-		return Keyboard::Key::N0;
+		return Keyboard::N0;
 	case GLFW_KEY_1:
-		return Keyboard::Key::N1;
+		return Keyboard::N1;
 	case GLFW_KEY_2:
-		return Keyboard::Key::N2;
+		return Keyboard::N2;
 	case GLFW_KEY_3:
-		return Keyboard::Key::N3;
+		return Keyboard::N3;
 	case GLFW_KEY_4:
-		return Keyboard::Key::N4;
+		return Keyboard::N4;
 	case GLFW_KEY_5:
-		return Keyboard::Key::N5;
+		return Keyboard::N5;
 	case GLFW_KEY_6:
-		return Keyboard::Key::N6;
+		return Keyboard::N6;
 	case GLFW_KEY_7:
-		return Keyboard::Key::N7;
+		return Keyboard::N7;
 	case GLFW_KEY_8:
-		return Keyboard::Key::N8;
+		return Keyboard::N8;
 	case GLFW_KEY_9:
-		return Keyboard::Key::N9;
+		return Keyboard::N9;
 	case GLFW_KEY_SPACE:
-		return Keyboard::Key::SPACE;
+		return Keyboard::SPACE;
 	case GLFW_KEY_ENTER:
-		return Keyboard::Key::ENTER;
+		return Keyboard::ENTER;
 	case GLFW_KEY_BACKSPACE:
-		return Keyboard::Key::BACKSPACE;
+		return Keyboard::BACKSPACE;
 	case GLFW_KEY_TAB:
-		return Keyboard::Key::TAB;
+		return Keyboard::TAB;
 	case GLFW_KEY_ESCAPE:
-		return Keyboard::Key::ESCAPE;
+		return Keyboard::ESCAPE;
 	case GLFW_KEY_UP:
-		return Keyboard::Key::UP;
+		return Keyboard::UP;
 	case GLFW_KEY_DOWN:
-		return Keyboard::Key::DOWN;
+		return Keyboard::DOWN;
 	case GLFW_KEY_LEFT:
-		return Keyboard::Key::LEFT;
+		return Keyboard::LEFT;
 	case GLFW_KEY_RIGHT:
-		return Keyboard::Key::RIGHT;
+		return Keyboard::RIGHT;
 	case GLFW_KEY_HOME:
-		return Keyboard::Key::HOME;
+		return Keyboard::HOME;
 	case GLFW_KEY_END:
-		return Keyboard::Key::END;
+		return Keyboard::END;
 	case GLFW_KEY_PAGE_UP:
-		return Keyboard::Key::PAGE_UP;
+		return Keyboard::PAGE_UP;
 	case GLFW_KEY_PAGE_DOWN:
-		return Keyboard::Key::PAGE_DOWN;
+		return Keyboard::PAGE_DOWN;
 	case GLFW_KEY_INSERT:
-		return Keyboard::Key::INSERT;
+		return Keyboard::INSERT;
 	case GLFW_KEY_DELETE:
-		return Keyboard::Key::DELETE;
+		return Keyboard::DELETE;
 	case GLFW_KEY_F1:
-		return Keyboard::Key::F1;
+		return Keyboard::F1;
 	case GLFW_KEY_F2:
-		return Keyboard::Key::F2;
+		return Keyboard::F2;
 	case GLFW_KEY_F3:
-		return Keyboard::Key::F3;
+		return Keyboard::F3;
 	case GLFW_KEY_F4:
-		return Keyboard::Key::F4;
+		return Keyboard::F4;
 	case GLFW_KEY_F5:
-		return Keyboard::Key::F5;
+		return Keyboard::F5;
 	case GLFW_KEY_F6:
-		return Keyboard::Key::F6;
+		return Keyboard::F6;
 	case GLFW_KEY_F7:
-		return Keyboard::Key::F7;
+		return Keyboard::F7;
 	case GLFW_KEY_F8:
-		return Keyboard::Key::F8;
+		return Keyboard::F8;
 	case GLFW_KEY_F9:
-		return Keyboard::Key::F9;
+		return Keyboard::F9;
 	case GLFW_KEY_F10:
-		return Keyboard::Key::F10;
+		return Keyboard::F10;
 	case GLFW_KEY_F11:
-		return Keyboard::Key::F11;
+		return Keyboard::F11;
 	case GLFW_KEY_F12:
-		return Keyboard::Key::F12;
+		return Keyboard::F12;
     case GLFW_KEY_APOSTROPHE:
-        return Keyboard::Key::APOSTROPHE;
+        return Keyboard::APOSTROPHE;
     case GLFW_KEY_COMMA:
-        return Keyboard::Key::COMMA;
+        return Keyboard::COMMA;
     case GLFW_KEY_MINUS:
-        return Keyboard::Key::MINUS;
+        return Keyboard::MINUS;
     case GLFW_KEY_PERIOD:
-        return Keyboard::Key::PERIOD;
+        return Keyboard::PERIOD;
     case GLFW_KEY_SLASH:
-        return Keyboard::Key::SLASH;
+        return Keyboard::SLASH;
     case GLFW_KEY_SEMICOLON:
-        return Keyboard::Key::SEMICOLON;
+        return Keyboard::SEMICOLON;
     case GLFW_KEY_EQUAL:
-        return Keyboard::Key::EQUAL;
+        return Keyboard::EQUAL;
     case GLFW_KEY_LEFT_BRACKET:
-        return Keyboard::Key::LEFT_BRACKET;
+        return Keyboard::LEFT_BRACKET;
     case GLFW_KEY_BACKSLASH:
-        return Keyboard::Key::BACKSLASH;
+        return Keyboard::BACKSLASH;
     case GLFW_KEY_RIGHT_BRACKET:
-        return Keyboard::Key::RIGHT_BRACKET;
+        return Keyboard::RIGHT_BRACKET;
     case GLFW_KEY_GRAVE_ACCENT:
-        return Keyboard::Key::GRAVE_ACCENT;
+        return Keyboard::GRAVE_ACCENT;
     case GLFW_KEY_WORLD_1:
-        return Keyboard::Key::WORLD_1;
+        return Keyboard::WORLD_1;
     case GLFW_KEY_WORLD_2:
-        return Keyboard::Key::WORLD_2;
+        return Keyboard::WORLD_2;
     case GLFW_KEY_CAPS_LOCK:
-        return Keyboard::Key::CAPS_LOCK;
+        return Keyboard::CAPS_LOCK;
     case GLFW_KEY_SCROLL_LOCK:
-        return Keyboard::Key::SCROLL_LOCK;
+        return Keyboard::SCROLL_LOCK;
     case GLFW_KEY_NUM_LOCK:
-        return Keyboard::Key::NUM_LOCK;
+        return Keyboard::NUM_LOCK;
     case GLFW_KEY_PRINT_SCREEN:
-        return Keyboard::Key::PRINT_SCREEN;
+        return Keyboard::PRINT_SCREEN;
     case GLFW_KEY_PAUSE:
-        return Keyboard::Key::PAUSE;
+        return Keyboard::PAUSE;
     case GLFW_KEY_KP_0:
-        return Keyboard::Key::KP_0;
+        return Keyboard::KP_0;
     case GLFW_KEY_KP_1:
-        return Keyboard::Key::KP_1;
+        return Keyboard::KP_1;
     case GLFW_KEY_KP_2:
-        return Keyboard::Key::KP_2;
+        return Keyboard::KP_2;
     case GLFW_KEY_KP_3:
-        return Keyboard::Key::KP_3;
+        return Keyboard::KP_3;
     case GLFW_KEY_KP_4:
-        return Keyboard::Key::KP_4;
+        return Keyboard::KP_4;
     case GLFW_KEY_KP_5:
-        return Keyboard::Key::KP_5;
+        return Keyboard::KP_5;
     case GLFW_KEY_KP_6:
-        return Keyboard::Key::KP_6;
+        return Keyboard::KP_6;
     case GLFW_KEY_KP_7:
-        return Keyboard::Key::KP_7;
+        return Keyboard::KP_7;
     case GLFW_KEY_KP_8:
-        return Keyboard::Key::KP_8;
+        return Keyboard::KP_8;
     case GLFW_KEY_KP_9:
-        return Keyboard::Key::KP_9;
+        return Keyboard::KP_9;
     case GLFW_KEY_KP_DECIMAL:
-        return Keyboard::Key::KP_DECIMAL;
+        return Keyboard::KP_DECIMAL;
     case GLFW_KEY_KP_DIVIDE:
-        return Keyboard::Key::KP_DIVIDE;
+        return Keyboard::KP_DIVIDE;
     case GLFW_KEY_KP_MULTIPLY:
-        return Keyboard::Key::KP_MULTIPLY;
+        return Keyboard::KP_MULTIPLY;
     case GLFW_KEY_KP_SUBTRACT:
-        return Keyboard::Key::KP_SUBTRACT;
+        return Keyboard::KP_SUBTRACT;
     case GLFW_KEY_KP_ADD:
-        return Keyboard::Key::KP_ADD;
+        return Keyboard::KP_ADD;
     case GLFW_KEY_KP_ENTER:
-        return Keyboard::Key::KP_ENTER;
+        return Keyboard::KP_ENTER;
     case GLFW_KEY_KP_EQUAL:
-        return Keyboard::Key::KP_EQUAL;
+        return Keyboard::KP_EQUAL;
     case GLFW_KEY_LEFT_SHIFT:
-        return Keyboard::Key::LEFT_SHIFT;
+        return Keyboard::LEFT_SHIFT;
     case GLFW_KEY_LEFT_CONTROL:
-        return Keyboard::Key::LEFT_CONTROL;
+        return Keyboard::LEFT_CONTROL;
     case GLFW_KEY_LEFT_ALT:
-        return Keyboard::Key::LEFT_ALT;
+        return Keyboard::LEFT_ALT;
     case GLFW_KEY_LEFT_SUPER:
-        return Keyboard::Key::LEFT_SUPER;
+        return Keyboard::LEFT_SUPER;
     case GLFW_KEY_RIGHT_SHIFT:
-        return Keyboard::Key::RIGHT_SHIFT;
+        return Keyboard::RIGHT_SHIFT;
     case GLFW_KEY_RIGHT_CONTROL:
-        return Keyboard::Key::RIGHT_CONTROL;
+        return Keyboard::RIGHT_CONTROL;
     case GLFW_KEY_RIGHT_ALT:
-        return Keyboard::Key::RIGHT_ALT;
+        return Keyboard::RIGHT_ALT;
     case GLFW_KEY_RIGHT_SUPER:
-        return Keyboard::Key::RIGHT_SUPER;
+        return Keyboard::RIGHT_SUPER;
     case GLFW_KEY_MENU:
-        return Keyboard::Key::MENU;
+        return Keyboard::MENU;
 	default:
 		throw std::runtime_error(
 				"Invalid key: " + std::to_string(glfw_key)
@@ -684,21 +689,21 @@ template<typename Tpoint>
 constexpr typename Mouse_<Tpoint>::Button v4d_mouse_button(int glfw_button) {
 	switch (glfw_button) {
 	case GLFW_MOUSE_BUTTON_LEFT:
-		return Mouse_<Tpoint>::Button::LEFT;
+		return Mouse_<Tpoint>::LEFT;
 	case GLFW_MOUSE_BUTTON_RIGHT:
-		return Mouse_<Tpoint>::Button::RIGHT;
+		return Mouse_<Tpoint>::RIGHT;
 	case GLFW_MOUSE_BUTTON_MIDDLE:
-		return Mouse_<Tpoint>::Button::MIDDLE;
+		return Mouse_<Tpoint>::MIDDLE;
 	case GLFW_MOUSE_BUTTON_4:
-		return Mouse_<Tpoint>::Button::N4;
+		return Mouse_<Tpoint>::N4;
 	case GLFW_MOUSE_BUTTON_5:
-		return Mouse_<Tpoint>::Button::N5;
+		return Mouse_<Tpoint>::N5;
 	case GLFW_MOUSE_BUTTON_6:
-		return Mouse_<Tpoint>::Button::N6;
+		return Mouse_<Tpoint>::N6;
 	case GLFW_MOUSE_BUTTON_7:
-		return Mouse_<Tpoint>::Button::N7;
+		return Mouse_<Tpoint>::N7;
 	case GLFW_MOUSE_BUTTON_8:
-		return Mouse_<Tpoint>::Button::N8;
+		return Mouse_<Tpoint>::N8;
 	default:
 		throw std::runtime_error(
 				"Invalid mouse button: " + std::to_string(glfw_button)
@@ -709,35 +714,35 @@ constexpr typename Mouse_<Tpoint>::Button v4d_mouse_button(int glfw_button) {
 constexpr Joystick::Button v4d_joystick_button(int glfw_button) {
 	switch (glfw_button) {
 	case GLFW_GAMEPAD_BUTTON_A:
-		return Joystick::Button::A;
+		return Joystick::A;
 	case GLFW_GAMEPAD_BUTTON_B:
-		return Joystick::Button::B;
+		return Joystick::B;
 	case GLFW_GAMEPAD_BUTTON_X:
-		return Joystick::Button::X;
+		return Joystick::X;
 	case GLFW_GAMEPAD_BUTTON_Y:
-		return Joystick::Button::Y;
+		return Joystick::Y;
 	case GLFW_GAMEPAD_BUTTON_LEFT_BUMPER:
-		return Joystick::Button::LB;
+		return Joystick::LB;
 	case GLFW_GAMEPAD_BUTTON_RIGHT_BUMPER:
-		return Joystick::Button::RB;
+		return Joystick::RB;
 	case GLFW_GAMEPAD_BUTTON_BACK:
-		return Joystick::Button::BACK;
+		return Joystick::BACK;
 	case GLFW_GAMEPAD_BUTTON_START:
-		return Joystick::Button::START;
+		return Joystick::START;
 	case GLFW_GAMEPAD_BUTTON_GUIDE:
-		return Joystick::Button::GUIDE;
+		return Joystick::GUIDE;
 	case GLFW_GAMEPAD_BUTTON_LEFT_THUMB:
-		return Joystick::Button::LEFT_THUMB;
+		return Joystick::LEFT_THUMB;
 	case GLFW_GAMEPAD_BUTTON_RIGHT_THUMB:
-		return Joystick::Button::RIGHT_THUMB;
+		return Joystick::RIGHT_THUMB;
 	case GLFW_GAMEPAD_BUTTON_DPAD_UP:
-		return Joystick::Button::DPAD_UP;
+		return Joystick::DPAD_UP;
 	case GLFW_GAMEPAD_BUTTON_DPAD_RIGHT:
-		return Joystick::Button::DPAD_RIGHT;
+		return Joystick::DPAD_RIGHT;
 	case GLFW_GAMEPAD_BUTTON_DPAD_DOWN:
-		return Joystick::Button::DPAD_DOWN;
+		return Joystick::DPAD_DOWN;
 	case GLFW_GAMEPAD_BUTTON_DPAD_LEFT:
-		return Joystick::Button::DPAD_LEFT;
+		return Joystick::DPAD_LEFT;
 	default:
 		throw std::runtime_error(
 				"Invalid joystick button: " + std::to_string(glfw_button)
@@ -748,17 +753,17 @@ constexpr Joystick::Button v4d_joystick_button(int glfw_button) {
 constexpr Joystick::Axis v4d_joystick_axis(int glfw_axis) {
 	switch (glfw_axis) {
 	case GLFW_GAMEPAD_AXIS_LEFT_X:
-		return Joystick::Axis::LEFT_X;
+		return Joystick::LEFT_X;
 	case GLFW_GAMEPAD_AXIS_LEFT_Y:
-		return Joystick::Axis::LEFT_Y;
+		return Joystick::LEFT_Y;
 	case GLFW_GAMEPAD_AXIS_RIGHT_X:
-		return Joystick::Axis::RIGHT_X;
+		return Joystick::RIGHT_X;
 	case GLFW_GAMEPAD_AXIS_RIGHT_Y:
-		return Joystick::Axis::RIGHT_Y;
+		return Joystick::RIGHT_Y;
 	case GLFW_GAMEPAD_AXIS_LEFT_TRIGGER:
-		return Joystick::Axis::LEFT_TRIGGER;
+		return Joystick::LEFT_TRIGGER;
 	case GLFW_GAMEPAD_AXIS_RIGHT_TRIGGER:
-		return Joystick::Axis::RIGHT_TRIGGER;
+		return Joystick::RIGHT_TRIGGER;
 	default:
 		throw std::runtime_error(
 				"Invalid joystick axis: " + std::to_string(glfw_axis)
@@ -770,13 +775,13 @@ constexpr Keyboard::Type v4d_keyboard_event_type(int glfw_state) {
 	Keyboard::Type type;
 	switch (glfw_state) {
 	case GLFW_PRESS:
-		type = Keyboard::Type::PRESS;
+		type = Keyboard::PRESS;
 		break;
 	case GLFW_RELEASE:
-		type = Keyboard::Type::RELEASE;
+		type = Keyboard::RELEASE;
 		break;
 	case GLFW_REPEAT:
-		type = Keyboard::Type::REPEAT;
+		type = Keyboard::REPEAT;
 		break;
 	default:
 		throw std::runtime_error(
@@ -791,10 +796,10 @@ constexpr typename Mouse_<Tpoint>::Type v4d_mouse_event_type(int glfw_state) {
 	typename Mouse_<Tpoint>::Type type;
 	switch (glfw_state) {
 	case GLFW_PRESS:
-		type = Mouse_<Tpoint>::Type::PRESS;
+		type = Mouse_<Tpoint>::PRESS;
 		break;
 	case GLFW_RELEASE:
-		type = Mouse_<Tpoint>::Type::RELEASE;
+		type = Mouse_<Tpoint>::RELEASE;
 		break;
 	default:
 		throw std::runtime_error(
@@ -808,10 +813,10 @@ constexpr Joystick::Type v4d_joystick_event_type(int glfw_state) {
 	Joystick::Type type;
 	switch (glfw_state) {
 	case GLFW_PRESS:
-		type = Joystick::Type::PRESS;
+		type = Joystick::PRESS;
 		break;
 	case GLFW_RELEASE:
-		type = Joystick::Type::RELEASE;
+		type = Joystick::RELEASE;
 		break;
 	default:
 		throw std::runtime_error(
@@ -1046,7 +1051,7 @@ inline void init(
 					double x, y;
 					glfwGetCursorPos(window, &x, &y);
 					Tpoint position(x, y);
-					std::shared_ptr<Mouse_<Tpoint>> event = std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::Type::SCROLL, position, offset);
+					std::shared_ptr<Mouse_<Tpoint>> event = std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::SCROLL, position, offset);
 					detail::push(event);
 				}
 			});
@@ -1056,9 +1061,7 @@ inline void init(
 				static Tpoint prevMousePos;
 
 				if (!detail::Holder::cursorPosCallback || !detail::Holder::cursorPosCallback(window, xpos, ypos)) {
-					double x, y;
-					glfwGetCursorPos(window, &x, &y);
-					Tpoint position(x, y);
+					Tpoint position(xpos, ypos);
 					bool pressed = false;
 					for (int button = 0; button <= GLFW_MOUSE_BUTTON_LAST;
 							button++) {
@@ -1073,13 +1076,13 @@ inline void init(
 								button++) {
 							if (glfwGetMouseButton(window, button) == GLFW_PRESS) {
 								typename Mouse_<Tpoint>::Button v4d_button = detail::v4d_mouse_button<Tpoint>(button);
-								std::shared_ptr<Mouse_<Tpoint>> event = std::make_shared <Mouse_<Tpoint>>(Mouse_<Tpoint>::Type::DRAG, v4d_button, position, delta);
+								std::shared_ptr<Mouse_<Tpoint>> event = std::make_shared <Mouse_<Tpoint>>(Mouse_<Tpoint>::DRAG, v4d_button, position, delta);
 								detail::push(event);
 							}
 						}
 						prevMousePos = position;
 					} else {
-						std::shared_ptr<Mouse_<Tpoint>> event = std::make_shared<Mouse_<Tpoint>> (Mouse_<Tpoint>::Type::MOVE, position);
+						std::shared_ptr<Mouse_<Tpoint>> event = std::make_shared<Mouse_<Tpoint>> (Mouse_<Tpoint>::MOVE, position);
 						detail::push(event);
 					}
 				}
@@ -1089,7 +1092,7 @@ inline void init(
 			[](GLFWwindow *window, int width, int height) {
 				if(!detail::Holder::windowSizeCallback || !detail::Holder::windowSizeCallback(window, width, height)) {
 					Tpoint sz(width, height);
-					std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::Type::RESIZE, sz);
+					std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::RESIZE, sz);
 					detail::push(event);
 				}
 			});
@@ -1098,7 +1101,7 @@ inline void init(
 			[](GLFWwindow *window, int xpos, int ypos) {
 				if(!detail::Holder::windowPosCallback || !detail::Holder::windowPosCallback(window, xpos, ypos)) {
 					Tpoint position(xpos, ypos);
-					std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::Type::MOVE, position);
+					std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::MOVE, position);
 					detail::push(event);
 				}
 			});
@@ -1106,8 +1109,8 @@ inline void init(
 	glfwSetWindowFocusCallback(win, [](GLFWwindow *window, int focused) {
 		if(!detail::Holder::windowFocusCallback || !detail::Holder::windowFocusCallback(window, focused)) {
 			typename Window_<Tpoint>::Type type = focused
-					? Window_<Tpoint>::Type::FOCUS
-							: Window_<Tpoint>::Type::UNFOCUS;
+					? Window_<Tpoint>::FOCUS
+							: Window_<Tpoint>::UNFOCUS;
 
 			std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(type);
 			detail::push(event);
@@ -1116,7 +1119,7 @@ inline void init(
 
 	glfwSetWindowCloseCallback(win, [](GLFWwindow *window) {
 		if(!detail::Holder::windowCloseCallback || !detail::Holder::windowCloseCallback(window)) {
-			std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::Type::CLOSE);
+			std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::CLOSE);
 			detail::push(event);
 		}
 	});

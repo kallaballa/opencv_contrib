@@ -125,7 +125,7 @@ private:
 
 	inline static cv::UMat foreground_;
 
-	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 
     //Uses background subtraction to generate a "motion mask"
 	static void prepare_motion_mask(const cv::UMat& srcGrey, cv::UMat& motionMaskGrey, cv::Ptr<cv::BackgroundSubtractor> bg_subtractor, Cache& cache) {
@@ -314,8 +314,6 @@ private:
 
 public:
     OptflowDemoPlan() {
-    	_shared(params_);
-		_shared(foreground_);
 		cache_.rng_ = std::mt19937(cache_.rd_());
     }
 
@@ -381,12 +379,12 @@ public:
 				double workers = RunState::instance().get<size_t>(RunState::Keys::WORKERS_STARTED);
 				params.effectColor_[3] /= sqrt(workers);
 				foreground.create(vp.size(), CV_8UC4);
-			}, vp_, RW_S(params_), RW_S(foreground_))
+			}, vp_, RWS(params_), RWS(foreground_))
 		->endBranch();
 	}
 
 	void infer() override {
-		set(V4D::Keys::STRETCHING, &Params::stretch_, R_SC(params_));
+		set(V4D::Keys::STRETCHING, &Params::stretch_, CS(params_));
 		capture();
 
 		fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, Frames& frames, const Params& params) {
@@ -394,7 +392,7 @@ public:
 			cv::resize(framebuffer, frames.down_, cv::Size(viewport.width * params.fgScale_, viewport.height * params.fgScale_));
 			//save video background
 			framebuffer.copyTo(frames.background_);
-		}, vp_, RW(frames_), R_SC(params_));
+		}, vp_, RW(frames_), CS(params_));
 
 		plain([](Frames& frames, std::vector<cv::Point2f>& detected, cv::Ptr<cv::BackgroundSubtractor>& bg_subtractor, cv::Ptr<cv::FastFeatureDetector>& detector, Cache& cache){
 			cv::cvtColor(frames.down_, frames.downNextGrey_, cv::COLOR_RGBA2GRAY);
@@ -407,25 +405,25 @@ public:
 		branch([](const Frames& frames, const Params& params, Cache& cache) {
 			//We don't want the algorithm to get out of hand when there is a scene change, so we suppress it when we detect one.
 			return !detect_scene_change(frames.downMotionMaskGrey_, params, cache);
-		}, RW(frames_), R_SC(params_), RW(cache_))
+		}, RW(frames_), CS(params_), RW(cache_))
 			->nvg([](Frames& frames, const std::vector<cv::Point2f>& detected, const Params& params, Cache& cache) {
 				nvg::clearScreen();
 				if (!frames.downPrevGrey_.empty()) {
 						visualize_sparse_optical_flow(frames.downPrevGrey_, frames.downNextGrey_, detected, params, cache);
 				}
-			}, RW(frames_), R(detectedPoints_), R_SC(params_), RW(cache_))
+			}, RW(frames_), R(detectedPoints_), CS(params_), RW(cache_))
 			->fb([](const cv::UMat& framebuffer, cv::UMat& foreground, const Params& params) {
 				//Lose a bit of foreground brightness based on fgLossPercent
 				cv::subtract(foreground, cv::Scalar::all(255.0f * (params.fgLoss_ / 100.0f)), foreground);
 				//Add foreground an the current framebuffer into foregound
 				cv::add(foreground, framebuffer, foreground);
-			}, RW_S(foreground_), R_SC(params_))
+			}, RWS(foreground_), CS(params_))
 		->endBranch();
 
 		fb([](cv::UMat& framebuffer, const cv::UMat& foreground, cv::UMat& background, const Params& params, Cache& cache) {
 			//Put it all together (OpenCL)
 			composite_layers(background, foreground, framebuffer, params, cache);
-		}, R_SC(foreground_), RW(frames_.background_), R_SC(params_), RW(cache_));
+		}, CS(foreground_), RW(frames_.background_), CS(params_), RW(cache_));
 
 		plain([](Frames& frames){
 			frames.downPrevGrey_ = frames.downNextGrey_.clone();
@@ -445,7 +443,7 @@ int main(int argc, char **argv) {
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 	auto src = Source::make(runtime, argv[1]);
 	runtime->setSource(src);
-	Plan::run<OptflowDemoPlan>(0);
+	Plan::run<OptflowDemoPlan>(1);
 
     return 0;
 }

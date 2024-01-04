@@ -19,7 +19,7 @@ public:
 			//We have to manually resize and color convert the image when using direct frambuffer access.
 			resize(image, converted, vp.size());
 			cvtColor(converted, converted, COLOR_RGB2BGRA);
-		}, vp_, A(image_), A(converted_));
+		}, vp_, RW(image_), RW(converted_));
 	}
 
 	void infer() override {
@@ -28,7 +28,7 @@ public:
 		//interop if available), ready for other contexts to use
 		fb([](UMat& framebuffer, const cv::UMat& c){
 			c.copyTo(framebuffer);
-		}, A(converted_));
+		}, R(converted_));
 	}
 };
 

@@ -105,6 +105,14 @@ class CubeScene {
 	}
 
 public:
+	CubeScene() {
+
+	}
+
+	~CubeScene() {
+
+	}
+
 	//Initializes objects, buffers, shaders and uniforms
 	void init() {
 		glEnable (GL_DEPTH_TEST);

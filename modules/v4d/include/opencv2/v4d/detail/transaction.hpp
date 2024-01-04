@@ -18,13 +18,6 @@ class EdgeBase {};
 
 template<typename T, bool Tcopy, bool Tread, bool Tshared = false, typename Tbase = void>
 class Edge : public EdgeBase {
-public:
-	using copy_t = std::integral_constant<bool, Tcopy>;
-	using read_t = std::integral_constant<bool, Tread>;
-	using shared_t = std::integral_constant<bool, Tshared>;
-	using temp_t = values_equal<std::is_same<Tbase, void>::value, false, std::true_type>;
-	using lockie_t = values_equal<!copy_t::value && shared_t::value, true, std::true_type>;
-private:
 	template <typename, typename = void>
 	struct has_deref_t : std::false_type {};
 
@@ -51,69 +44,105 @@ private:
 		using type = std::false_type ;
 	};
 
-	template <typename Tval>
-	struct element_t<Tval, std::void_t<decltype(&Tval::get)>> : std::is_same<std::true_type, std::true_type>
+	template <typename Tptr>
+	struct element_t<Tptr, std::void_t<decltype(&Tptr::get)>> : std::is_same<std::true_type, std::true_type>
 	{
-		using type = std::remove_pointer_t<typename Tval::element_type>;
+		using type = std::remove_pointer_t<typename Tptr::element_type>;
 	};
 
+	template <typename, typename = void>
+	struct return_t : std::false_type {
+		using type = std::false_type ;
+	};
+
+	template <typename Tfn>
+	struct return_t<Tfn, std::void_t<decltype(&Tfn::operator())>> : std::is_same<std::true_type, std::true_type>
+	{
+		using type = typename function_traits<Tfn>::result_type;
+	};
+public:
+
+	using value_type_t = T;
+	using copy_t = std::integral_constant<bool, Tcopy>;
+	using read_t = std::integral_constant<bool, Tread>;
+	using shared_t = std::integral_constant<bool, Tshared>;
+	using temp_t = values_equal<std::is_same<Tbase, void>::value, false, std::true_type>;
+	using lockie_t = values_equal<!copy_t::value && shared_t::value, true, std::true_type>;
+	using func_t = values_equal<
+					!std::is_same<typename element_t<value_type_t>::type, std::false_type>::value
+				    && !std::is_same<typename return_t<typename element_t<value_type_t>::type>::type, std::false_type>::value, true, std::true_type>;
+private:
 	using ispointer_t = values_equal<std::is_pointer<T>::value || std::is_array<T>::value, true, std::true_type>;
 
 	using issmart_t = typename std::conjunction<
-			has_deref_t<T>,
-			has_arrow_t<T>,
-			has_get_t<T>,
+			has_deref_t<value_type_t>,
+			has_arrow_t<value_type_t>,
+			has_get_t<value_type_t>,
 			values_equal<ispointer_t::value, false, std::true_type>
 			>::type;
 
-	static_assert((!ispointer_t::value) || !copy_t::value, "You are trying to explicitly copy the value of a (smart) pointer.");
+	using func_ret_t = typename return_t<typename element_t<value_type_t>::type>::type;
+
+ 	using orig_t = typename std::disjunction<
+			values_equal<temp_t::value, true, Tbase>,
+			default_type<value_type_t>
+			>::type;
+
+ 	using base_maybe_const_t = typename std::remove_pointer<typename std::remove_extent<orig_t>::type>::type;
+ 	using base_t = typename std::remove_const<base_maybe_const_t>::type;
+
+
+ 	using iswriteable_func_t = typename std::conjunction<
+			values_equal<std::is_reference<func_ret_t>::value, true, std::true_type>,
+ 			values_equal<std::is_const<func_ret_t>::value, false, std::true_type>
+			>::type;
+// 	static_assert(!read_t::value || !iswriteable_func_t::value, "You are trying to write to the return value of a function which is not writable and/or not a reference");
+ 	static_assert((!ispointer_t::value) || !copy_t::value, "You are trying to explicitly copy the value of a (smart) pointer.");
 	static_assert((!temp_t::value) || (!copy_t::value && read_t::value), "Internal error: Trying to form a copy or write edge to a temporary.");
 	static_assert(shared_t::value || !(copy_t::value && !read_t::value), "Internal error: Trying to form  copy-write edge on a non-shared variable.");
 	static_assert(!lockie_t::value || !copy_t::value, "Internal error: Trying to form a copy edge on a to be locked variable.");
 
- 	using base_t = typename std::remove_pointer<typename std::remove_extent<typename std::remove_const<T>::type>::type>::type;
-	using internal_ptr_t = typename std::disjunction<
-			values_equal<temp_t::value, true, Tbase*>,
-			values_equal<ispointer_t::value, true, base_t*>,
-			values_equal<read_t::value && !ispointer_t::value, true, const base_t*>,
-			default_type<base_t*>
+ 	using internal_base_t = typename std::disjunction<
+			values_equal<func_t::value, true, func_ret_t>,
+			values_equal<temp_t::value, true, const base_t>,
+			values_equal<issmart_t::value, true, base_t>,
+			values_equal<read_t::value, true, const base_t>,
+			default_type<base_maybe_const_t>
 			>::type;
 
-	using holder_t = typename std::disjunction<
+ 	using internal_base_ptr_t = typename std::disjunction<
+ 			values_equal<func_t::value, true, internal_base_t*>,
+ 			values_equal<temp_t::value, true, internal_base_t*>,
+			values_equal<issmart_t::value, true, internal_base_t>,
+			default_type<internal_base_t*>
+ 			>::type;
+
+ 	using internal_copy_ptr_t = typename std::disjunction<
+			values_equal<func_t::value, true, func_ret_t*>,
+ 			values_equal<temp_t::value, true, base_t*>,
 			values_equal<issmart_t::value, true, base_t>,
-			values_equal<temp_t::value, true, T>,
+			default_type<base_t*>
+ 			>::type;
+
+ 	using holder_t = typename std::disjunction<
+			values_equal<func_t::value || issmart_t::value || temp_t::value, true, typename std::remove_const<value_type_t>::type>,
 			default_type<nullptr_t>
 			>::type;
 
-	using copy_ptr_t = typename std::disjunction<
-			values_equal<issmart_t::value, true, holder_t>,
-			default_type<base_t*>
-			>::type;
-
-	internal_ptr_t ptr_ = nullptr;
-	copy_ptr_t copyPtr_ = nullptr;
+ 	internal_base_ptr_t ptr_ = nullptr;
+ 	internal_copy_ptr_t copyPtr_ = nullptr;
 	holder_t holder_ = nullptr;
 public:
 	using pass_t = typename std::disjunction<
-			values_equal<temp_t::value, true, T>,
-			values_equal<ispointer_t::value, true, internal_ptr_t>,
-			values_equal<read_t::value && !copy_t::value, true, const T&>,
-			default_type<T&>
-			>::type;
-
-	using value_t = typename std::disjunction<
-			values_equal<temp_t::value, true, const Tbase>,
-			values_equal<issmart_t::value, true, holder_t>,
-			values_equal<ispointer_t::value, true, pass_t>,
-			values_equal<read_t::value && !copy_t::value, true, const T>,
-			default_type<T>
+			values_equal<func_t::value || temp_t::value || issmart_t::value, true, holder_t>,
+			values_equal<ispointer_t::value, true, internal_base_ptr_t>,
+			default_type<value_type_t&>
 			>::type;
 
 	using ref_t = typename std::disjunction<
-			values_equal<!temp_t::value && issmart_t::value, true, holder_t&>,
-			values_equal<ispointer_t::value, true, value_t>,
-			default_type<typename std::add_lvalue_reference<value_t>::type>
-			>::type;;
+			values_equal<ispointer_t::value || (!temp_t::value && !func_t::value && issmart_t::value), true, internal_base_ptr_t>,
+			default_type<internal_base_t&>
+			>::type;
 
 	static Edge make(pass_t t) {
 		Edge e;
@@ -122,33 +151,47 @@ public:
 	}
 
 	void set(pass_t t) {
-		if constexpr(temp_t::value || issmart_t::value) {
+		if constexpr(temp_t::value || issmart_t::value || func_t::value) {
+			std::cerr << "SET: " << t.get() << std::endl;
 			holder_ = t;
+			std::cerr << "SET2: " << holder_.get() << std::endl;
 		}
 
 		if constexpr(temp_t::value){
 			ptr_ = holder_.get();
 		} else if constexpr(ispointer_t::value) {
 			ptr_ = t;
+		} else if constexpr(func_t::value && read_t::value) {
+			ptr_ = new internal_base_t();
 		} else {
 			ptr_ = &t;
 		}
 
+
 		if constexpr(copy_t::value) {
-			if constexpr(issmart_t::value) {
-				copyPtr_ = new typename holder_t::element_type();
-			} else {
-				copyPtr_ = new typename std::remove_pointer<decltype(copyPtr_)>::type();
-			}
+			copyPtr_ = new typename std::remove_pointer<internal_copy_ptr_t>::type();
 		}
 	}
 
-	internal_ptr_t ptr() const {
+	internal_base_t* ptr() const {
+		if constexpr(func_t::value) {
+			if constexpr(!read_t::value) {
+				ptr_ = &holder_->operator()();
+			} else {
+				std::cerr << "PTR: " << holder_.get() << std::endl;
+				*ptr_ = holder_->operator()();
+			}
+		}
+
 		return ptr_;
 	}
 
 	size_t id() const {
-		return reinterpret_cast<size_t>(ptr_);
+		if constexpr(issmart_t::value && !temp_t::value && !func_t::value) {
+			return reinterpret_cast<size_t>(ptr_.get());
+		} else {
+			return reinterpret_cast<size_t>(ptr_);
+		}
 	}
 
 
@@ -180,7 +223,7 @@ public:
 		}
 
 		CV_Assert(false);
-		if constexpr(!temp_t::value && issmart_t::value) {
+		if constexpr(!temp_t::value && !func_t::value && issmart_t::value) {
 			return holder_;
 		} else if constexpr(ispointer_t::value){
 			return copyPtr_;
@@ -190,9 +233,13 @@ public:
 	}
 
     void copyBack() {
-    	if constexpr(shared_t::value && copy_t::value && !read_t::value) {
-			Global::instance().safe_copy(*copyPtr_, *ptr_);
-		}
+    	if constexpr(!read_t::value && (copy_t::value || iswriteable_func_t::value)) {
+    		if constexpr(shared_t::value) {
+    			Global::instance().safe_copy(*copyPtr_, *ptr_);
+    		} else {
+    			Global::instance().copy(*copyPtr_, *ptr_);
+    		}
+    	}
     }
 
     std::mutex& getMutex() {
