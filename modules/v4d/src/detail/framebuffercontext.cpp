@@ -279,7 +279,7 @@ void FrameBufferContext::init() {
     }
 #endif
     try {
-        if (isRoot() && isClGlSharingSupported())
+        if (isRoot() && is_clgl_sharing_supported())
             cv::ogl::ocl::initializeContextFromGL();
         else
             clglSharing_ = false;
@@ -314,11 +314,13 @@ void FrameBufferContext::init() {
 			}, [](GLFWwindow *window, double xoffset, double yoffset) {
 				if(ImGui::GetCurrentContext()) {
 					ImGui_ImplGlfw_ScrollCallback(window, xoffset, yoffset);
+					return ImGui::GetIO().WantCaptureMouse;
 				}
 				return false;
 			}, [](GLFWwindow *window, double xpos, double ypos) {
 				if(ImGui::GetCurrentContext()) {
 					ImGui_ImplGlfw_CursorPosCallback(window, xpos, ypos);
+					return ImGui::GetIO().WantCaptureMouse;
 				}
 				return false;
 			}, [](GLFWwindow *window, int w, int h) {

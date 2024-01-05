@@ -182,20 +182,20 @@ void init_shaders(unsigned int handles[3], const char* vShader, const char* fSha
 
 }
 
-std::string getGlVendor()  {
+std::string get_gl_vendor()  {
     std::ostringstream oss;
         oss << reinterpret_cast<const char*>(glGetString(GL_VENDOR));
         return oss.str();
 }
 
-std::string getGlInfo() {
+std::string get_gl_info() {
     std::ostringstream oss;
     oss << "\n\t" << reinterpret_cast<const char*>(glGetString(GL_VERSION))
             << "\n\t" << reinterpret_cast<const char*>(glGetString(GL_RENDERER)) << endl;
     return oss.str();
 }
 
-std::string getClInfo() {
+std::string get_cl_info() {
     std::stringstream ss;
 #ifdef HAVE_OPENCL
     if(cv::ocl::useOpenCL()) {
@@ -226,7 +226,7 @@ std::string getClInfo() {
     return ss.str();
 }
 
-bool isIntelVaSupported() {
+bool is_intel_va_supported() {
 #ifdef HAVE_OPENCL
 	if(cv::ocl::useOpenCL()) {
 		try {
@@ -249,7 +249,7 @@ bool isIntelVaSupported() {
     return false;
 }
 
-bool isClGlSharingSupported() {
+bool is_clgl_sharing_supported() {
 #ifdef HAVE_OPENCL
 	if(cv::ocl::haveOpenCL()) {
 		try {
@@ -301,7 +301,7 @@ static void install_signal_handlers() {
     signal(SIGTERM, request_finish);
 }
 
-bool keepRunning() {
+bool keep_running() {
 	std::lock_guard guard(finish_mtx);
     if (!signal_handlers_installed) {
         install_signal_handlers();
@@ -309,16 +309,24 @@ bool keepRunning() {
     return !finish_requested;
 }
 
-void requestFinish() {
+void request_finish() {
 	request_finish(0);
 }
 
-void resizePreserveAspectRatio(const cv::UMat& src, cv::UMat& output, const cv::Size& dstSize, const cv::Scalar& bgcolor) {
-    cv::UMat tmp;
-    double hf = double(dstSize.height) / src.size().height;
-    double wf = double(dstSize.width) / src.size().width;
-    double f = std::min(hf, wf);
+float aspect_preserving_scale(const cv::Size& scaled, const cv::Size& unscaled) {
+	double scale;
+	double scaleX =  double(scaled.width) / unscaled.width;
+	double scaleY = double(scaled.height) / unscaled.height;
+	scale = std::max(scaleX, scaleY);
+	if(scale <= 1.0)
+		scale = std::min(scaleX, scaleY);
+	return scale;
+}
 
+void resize_preserving_aspect_ratio(const cv::UMat& src, cv::UMat& output, const cv::Size& dstSize, const cv::Scalar& bgcolor) {
+    cv::UMat tmp;
+
+    double f = aspect_preserving_scale(dstSize, src.size());
     cv::resize(src, tmp, cv::Size(), f, f);
 
     int top = (dstSize.height - tmp.rows) / 2;

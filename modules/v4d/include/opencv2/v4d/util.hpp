@@ -39,6 +39,7 @@ namespace cv {
 namespace v4d {
 namespace detail {
 
+
 template<auto V1, decltype(V1) V2, typename T>
 struct values_equal : std::bool_constant<V1 == V2>
 {
@@ -67,6 +68,12 @@ struct has_return_type_t : std::false_type {};
 template <typename T>
 struct has_return_type_t<T, std::void_t<decltype(&T::return_type)>> : std::is_same<std::true_type, std::true_type>
 {};
+
+template < template <typename...> class Template, typename T >
+struct is_specialization_of : std::false_type {};
+
+template < template <typename...> class Template, typename... Args >
+struct is_specialization_of< Template, Template<Args...> > : std::true_type {};
 
 template<typename T>
 struct is_callable : public std::disjunction<std::disjunction<
@@ -159,6 +166,88 @@ private:
     fun_ptr_helper() {}
 
     function_type fn_;
+};
+
+template <typename, typename = void>
+struct element_t : std::false_type {
+	using type = std::false_type ;
+};
+
+template <typename Tptr>
+struct element_t<Tptr, std::void_t<decltype(&Tptr::get)>> : std::is_same<std::true_type, std::true_type>
+{
+	using type = std::remove_pointer_t<typename Tptr::element_type>;
+};
+
+template <typename, typename = void>
+struct return_t : std::false_type {
+	using type = std::false_type ;
+};
+
+template <typename Tfn>
+struct return_t<Tfn, std::void_t<decltype(&Tfn::operator())>> : std::is_same<std::true_type, std::true_type>
+{
+	using type = typename function_traits<Tfn>::result_type;
+};
+
+//template <typename T>
+//struct CallableTraits {
+//	using return_t = typename detail::return_t<T>::type;
+//	using data_t = std::false_type;
+//	using object_t = std::false_type;
+//	using args_t = std::false_type;
+//};
+
+template <typename T, typename ... Args>
+struct CallableTraits {
+	using return_t = typename detail::return_t<T>::type;
+	using data_t = std::false_type;
+	using object_t = std::false_type;
+	using args_t = std::tuple<Args...>;
+};
+
+template <typename Return, typename Object>
+struct CallableTraits<Return Object::*>
+{
+    using return_t = Return;
+    using data_t = std::true_type;
+    using object_t = Object;
+    using args_t = std::false_type;
+};
+
+template <typename Return, typename Object, typename... Args>
+struct CallableTraits<Return (Object::*)(Args...)>
+{
+    using return_t = Return;
+    using data_t = std::false_type;
+    using object_t = Object;
+    using args_t = std::tuple<Args...>;
+};
+
+template <typename Return, typename... Args>
+struct CallableTraits<Return (*)(Args...)>
+{
+    using return_t = Return;
+    using data_t = std::false_type;
+    using object_t = std::false_type;
+    using args_t = std::tuple<Args...>;
+};
+
+template<typename Tfn, typename Tret = typename CallableTraits<Tfn>::return_t, typename ... Args>
+struct AssignableMemData {
+	Tfn fn_;
+	std::tuple<Args...> args_;
+	AssignableMemData(Tfn fn, Args ... args) : fn_(fn), args_(args...) {
+
+	}
+
+	void operator=(Tret v) {
+		std::get<0>(args_).*fn_ = v;
+	}
+
+	operator Tret() {
+		return fn_(std::get<0>(args_));
+	}
 };
 
 template <const size_t _UniqueId, typename _Res, typename... _ArgTypes>
@@ -746,37 +835,38 @@ CV_EXPORTS void init_fragment_shader(unsigned int handles[2], const char* fshade
  * Returns the OpenGL vendor string
  * @return a string object with the OpenGL vendor information
  */
-CV_EXPORTS std::string getGlVendor();
+CV_EXPORTS std::string get_gl_vendor();
 /*!
  * Returns the OpenGL Version information.
  * @return a string object with the OpenGL version information
  */
-CV_EXPORTS std::string getGlInfo();
+CV_EXPORTS std::string get_gl_info();
 /*!
  * Returns the OpenCL Version information.
  * @return a string object with the OpenCL version information
  */
-CV_EXPORTS std::string getClInfo();
+CV_EXPORTS std::string get_cl_info();
 /*!
  * Determines if Intel VAAPI is supported
  * @return true if it is supported
  */
-CV_EXPORTS bool isIntelVaSupported();
+CV_EXPORTS bool is_intel_va_supported();
 /*!
  * Determines if cl_khr_gl_sharing is supported
  * @return true if it is supported
  */
-CV_EXPORTS bool isClGlSharingSupported();
+CV_EXPORTS bool is_clgl_sharing_supported();
 /*!
  * Tells the application if it's alright to keep on running.
  * Note: If you use this mechanism signal handlers are installed
  * @return true if the program should keep on running
  */
-CV_EXPORTS bool keepRunning();
+CV_EXPORTS bool keep_running();
 
-CV_EXPORTS void requestFinish();
+CV_EXPORTS void request_finish();
 
-CV_EXPORTS void resizePreserveAspectRatio(const cv::UMat& src, cv::UMat& output, const cv::Size& dstSize, const cv::Scalar& bgcolor = {0,0,0,255});
+CV_EXPORTS float aspect_preserving_scale(const cv::Size& scaled, const cv::Size& unscaled);
+CV_EXPORTS void resize_preserving_aspect_ratio(const cv::UMat& src, cv::UMat& output, const cv::Size& dstSize, const cv::Scalar& bgcolor = {0,0,0,255});
 
 }
 }

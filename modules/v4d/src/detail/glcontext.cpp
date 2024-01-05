@@ -16,7 +16,7 @@ GLContext::GLContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext) 
 int GLContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 	FrameBufferContext::WindowScope winScope(fbCtx());
 	FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER);
-		glViewport(0, 0, vp.width, vp.height);
+		glViewport(vp.x, vp.y, vp.width, vp.height);
 		fn();
 		return 1;
 }

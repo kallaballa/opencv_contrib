@@ -39,27 +39,6 @@ class Edge : public EdgeBase {
 	struct has_get_t<Tval, std::void_t<decltype(&Tval::get)>> : std::is_same<std::true_type, std::true_type>
 	{};
 
-	template <typename, typename = void>
-	struct element_t : std::false_type {
-		using type = std::false_type ;
-	};
-
-	template <typename Tptr>
-	struct element_t<Tptr, std::void_t<decltype(&Tptr::get)>> : std::is_same<std::true_type, std::true_type>
-	{
-		using type = std::remove_pointer_t<typename Tptr::element_type>;
-	};
-
-	template <typename, typename = void>
-	struct return_t : std::false_type {
-		using type = std::false_type ;
-	};
-
-	template <typename Tfn>
-	struct return_t<Tfn, std::void_t<decltype(&Tfn::operator())>> : std::is_same<std::true_type, std::true_type>
-	{
-		using type = typename function_traits<Tfn>::result_type;
-	};
 public:
 
 	using value_type_t = T;
@@ -140,7 +119,8 @@ public:
 			>::type;
 
 	using ref_t = typename std::disjunction<
-			values_equal<ispointer_t::value || (!temp_t::value && !func_t::value && issmart_t::value), true, internal_base_ptr_t>,
+			values_equal<(!temp_t::value && !func_t::value && issmart_t::value), true, internal_base_ptr_t&>,
+			values_equal<ispointer_t::value, true, internal_base_ptr_t>,
 			default_type<internal_base_t&>
 			>::type;
 
@@ -152,17 +132,15 @@ public:
 
 	void set(pass_t t) {
 		if constexpr(temp_t::value || issmart_t::value || func_t::value) {
-			std::cerr << "SET: " << t.get() << std::endl;
 			holder_ = t;
-			std::cerr << "SET2: " << holder_.get() << std::endl;
 		}
 
 		if constexpr(temp_t::value){
 			ptr_ = holder_.get();
-		} else if constexpr(ispointer_t::value) {
-			ptr_ = t;
 		} else if constexpr(func_t::value && read_t::value) {
 			ptr_ = new internal_base_t();
+		} else if constexpr(ispointer_t::value || issmart_t::value) {
+			ptr_ = t;
 		} else {
 			ptr_ = &t;
 		}
@@ -173,12 +151,11 @@ public:
 		}
 	}
 
-	internal_base_t* ptr() const {
+	internal_base_ptr_t ptr() const {
 		if constexpr(func_t::value) {
 			if constexpr(!read_t::value) {
 				ptr_ = &holder_->operator()();
 			} else {
-				std::cerr << "PTR: " << holder_.get() << std::endl;
 				*ptr_ = holder_->operator()();
 			}
 		}
@@ -197,8 +174,8 @@ public:
 
 	ref_t ref() {
 		if constexpr(!copy_t::value) {
-			if constexpr(ispointer_t::value) {
-				return ptr();
+			if constexpr(ispointer_t::value || (!temp_t::value && !func_t::value && issmart_t::value)) {
+				return ptr_;
 			} else {
 				return *ptr();
 			}

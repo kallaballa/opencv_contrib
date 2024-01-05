@@ -222,6 +222,7 @@ static void present(cv::UMat& framebuffer, const cv::UMat& result) {
 }
 
 using namespace cv::v4d;
+using namespace cv::v4d::event;
 
 class FaceFeatureMasksPlan;
 class BeautyFilterPlan;
@@ -277,7 +278,7 @@ private:
 	cv::Ptr<FaceFeatureExtractor> extractor_;
 
 	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
-
+	Event<Mouse> releaseEvents_ = E<Mouse>(Mouse::Type::PRESS);
 
 	static void prepare_frames(const cv::UMat& framebuffer, const cv::Size& downSize, Frames& frames) {
 		cvtColor(framebuffer, frames.orig_, cv::COLOR_BGRA2BGR);
@@ -285,9 +286,8 @@ private:
 		frames.orig_.copyTo(frames.stitched_);
 	}
 
-	static bool is_enabled(Params& params) {
-		using namespace cv::v4d::event;
-		if(consume(Mouse::Type::PRESS)) {
+	static bool is_enabled(Params& params, const Mouse::List& events) {
+		if(!events.empty()) {
 			params.enabled_ = !params.enabled_;
 		}
 
@@ -381,16 +381,16 @@ public:
 		capture()
 		->fb(prepare_frames, R(downSize_), RW(frames_));
 
-		branch(is_enabled, RWS(params_))
+		branch(is_enabled, RWS(params_), releaseEvents_)
 			->branch(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RW(features_))
 				->subInfer(prepareFeatureMasksPlan_)
 				->subInfer(beautyFilterPlan_)
-				->plain(set_state, RWS(params_), V(Params::ON))
+				->assign(RWS(params_.state_), V(Params::ON))
 			->elseBranch()
-				->plain(set_state, RWS(params_), V(Params::NOT_DETECTED))
+				->assign(RWS(params_.state_), V(Params::NOT_DETECTED))
 			->endBranch()
 		->elseBranch()
-			->plain(set_state, RWS(params_), V(Params::OFF))
+			->assign(RWS(params_.state_), V(Params::OFF))
 		->endBranch();
 
 		plain(compose_result, vp_, R(frames_.stitched_), RW(frames_), CS(params_))
@@ -416,13 +416,9 @@ public:
 
 	void infer() override {
 		nvg(&FaceFeatures::drawFaceOvalMask, R(inputFeatures_))
-		->fb([](const cv::UMat& framebuffer, cv::UMat& faceOval) {
-			cvtColor(framebuffer, faceOval, cv::COLOR_BGRA2GRAY);
-		}, RW(inputOutputFrames_.faceOval_))
+		->fb(cv::cvtColor, RW(inputOutputFrames_.faceOval_), V(cv::COLOR_BGRA2GRAY), V(0))
 		->nvg(&FaceFeatures::drawEyesAndLipsMask, R(inputFeatures_))
-		->fb([](const cv::UMat &framebuffer, cv::UMat& eyesAndLipsMaskGrey) {
-			cvtColor(framebuffer, eyesAndLipsMaskGrey, cv::COLOR_BGRA2GRAY);
-		}, RW(inputOutputFrames_.eyesAndLipsMaskGrey_))
+		->fb(cv::cvtColor, RW(inputOutputFrames_.eyesAndLipsMaskGrey_), V(cv::COLOR_BGRA2GRAY), V(0))
 		->plain(prepare_masks, RW(inputOutputFrames_));
 	}
 };

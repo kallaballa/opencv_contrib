@@ -172,7 +172,7 @@ public:
     		INIT_VIEWPORT,
     		VIEWPORT,
 			WINDOW_SIZE,
-			FB_SIZE,
+			FRAMEBUFFER_SIZE,
 			STRETCHING,
 			CLEAR_COLOR,
 			NAMESPACE,
@@ -334,7 +334,7 @@ public:
 		try {
 			if(global.isMain()) {
 				CV_LOG_INFO(&v4d_tag, "Display thread started.");
-				while(keepRunning()) {
+				while(keep_running()) {
 					bool result = true;
 					TimeTracker::getInstance()->execute("display", [&result, runtime](){
 					if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
@@ -355,7 +355,7 @@ public:
 						break;
 				}
 			} else {
-				while(keepRunning()) {
+				while(keep_running()) {
 					bool result = true;
 					TimeTracker::getInstance()->execute("worker", [&result, &state, runtime, runGraph](){
 						event::poll();
@@ -397,7 +397,7 @@ public:
 		} catch(...) {
 			CV_LOG_WARNING(&v4d_tag, "Pipeline terminated with unknown error.");
 		}
-		requestFinish();
+		request_finish();
 		reseq.finish();
 		if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
 			if(global.isMain()) {
@@ -476,6 +476,7 @@ class Plan {
     std::deque<BranchState> branchStateStack_;
     std::deque<std::pair<string, BranchType::Enum>> branchStack_;
 
+
 	template<typename Tedge>
     void emit_access(const string& context, Tedge tp) {
 //    	cout << "access: " << std::this_thread::get_id() << " " << context << string(read ? " <- " : " -> ") << demangle(typeid(std::remove_const_t<T>).name()) << "(" << (long)tp << ") " << endl;
@@ -508,34 +509,16 @@ class Plan {
     	this->add_transaction(btype, [ctx](){ return ctx; }, txID, fn, args...);
     }
 
-    template <typename T>
-    struct ReturnType {
-    	using type = typename std::result_of<T>::type;
-    };
-
-    template <typename Return, typename Object>
-    struct ReturnType<Return Object::*>
-    {
-        using type = Return;
-    };
-
-    template <typename Return, typename Object, typename... Args>
-    struct ReturnType<Return (Object::*)(Args...)>
-    {
-        using type = Return;
-    };
-
-    template <typename Return, typename... Args>
-    struct ReturnType<Return (*)(Args...)>
-    {
-        using type = Return;
-    };
 
     template <typename TReturn = std::false_type, typename Tfn, typename ... Args>
     auto wrap_callable(Tfn fn, Args ... args) {
 //    	static_assert(std::is_invocable_v<Tfn>, "Error: You passed a non-invocable as function argument.");
     	if constexpr(std::is_same<TReturn, std::false_type>::value) {
-    		return std::function<typename ReturnType<decltype(fn)>::type(typename Args::ref_t...)>(fn);
+    		if constexpr(CallableTraits<Tfn>::data_t::value) {
+    			return std::function(std::mem_fun(fn));
+    		} else {
+    			return std::function<typename CallableTraits<decltype(fn)>::return_t(typename Args::ref_t...)>(fn);
+    		}
     	} else {
     		return std::function<TReturn(typename Args::ref_t...)>(fn);
     	}
@@ -567,7 +550,7 @@ class Plan {
 		return detail::Edge<decltype(ptr), false, true, false, T>::make(ptr);
 	}
 
-    template<bool Tconst, typename T>
+	template<bool Tconst, typename T>
     auto makeInternalEdge(T& val) {
 		if constexpr(Tconst) {
 			return R_I(val);
@@ -912,6 +895,24 @@ class Plan {
     	return ss.str();
     }
 public:
+    template<bool read, typename Tfn, typename ... Args>
+    struct edgefun_t {
+    	edgefun_t(Tfn& fn, Args ... args) {}
+    	using type = std::function<typename CallableTraits<Tfn>::return_t(typename Args::ref_t ...)>;
+    };
+
+
+    template<bool read, typename Tfn, typename ... Args, typename Tfun = typename edgefun_t<read, Tfn, Args...>::type>
+    static auto make_function_ptr(Tfn fn, Args ... args) {
+		return cv::makePtr<Tfun>(fn);
+    }
+
+    template<bool read, typename Tfn, typename ... Args>
+    static auto make_function_edge(Tfn fn, Args ...) {
+    	using fun_t = typename edgefun_t<read, Tfn, Args...>::type;
+		return detail::Edge<cv::Ptr<fun_t>, false, read, false>::make(cv::makePtr<fun_t>(fn));
+    }
+
 	template<typename T>
 	struct Property : detail::Edge<const T, false, true, true> {
 		using parent_t = detail::Edge<const T, false, true, true>;
@@ -920,13 +921,12 @@ public:
 		}
 	};
 
-	template<typename TeventClass, typename TfnPtr = cv::Ptr<std::function<decltype(cv::v4d::event::fetch<TeventClass>())()>>>
-	struct Event : detail::Edge<TfnPtr, false, true, false> {
-		using parent_t = detail::Edge<TfnPtr, false, true, false>;
-		Event(const typename TeventClass::Type k) : parent_t(parent_t::make(cv::makePtr<typename TfnPtr::element_type>(std::function([k]() {
+	template<typename TeventClass, typename Tfn = std::function<std::vector<std::shared_ptr<TeventClass>>()>, typename Tparent = Edge<cv::Ptr<Tfn>, false, true, false>>
+	struct Event : Tparent {
+		Event(const typename TeventClass::Type k) : Tparent(Tparent::make(make_function_ptr<true, Tfn>([k]() {
 			return cv::v4d::event::fetch(k);
-		})))) {
-			static_assert(parent_t::func_t::value, "Internal error: Function not detected!");
+		}))) {
+			static_assert(Tparent::func_t::value, "Internal error: Function not detected!");
 		}
 	};
 
@@ -1204,7 +1204,7 @@ public:
         fb([](cv::UMat& framebuffer, const cv::UMat& f) {
         	if(!f.empty()) {
         		if(f.size() != framebuffer.size())
-        			resizePreserveAspectRatio(f, framebuffer, framebuffer.size());
+        			resize_preserving_aspect_ratio(f, framebuffer, framebuffer.size());
         		else
         			f.copyTo(framebuffer);
         	}
@@ -1369,7 +1369,7 @@ public:
 
 
     template<typename TdstEdge, typename TsrcEdge>
-	typename std::enable_if<std::is_base_of_v<EdgeBase, TsrcEdge>, cv::Ptr<Plan>>::type
+	typename std::enable_if<std::is_base_of_v<EdgeBase, TdstEdge> && std::is_base_of_v<EdgeBase, TsrcEdge>, cv::Ptr<Plan>>::type
 	assign(TdstEdge dst, TsrcEdge src) {
     	auto fn = [](decltype(dst.ref()) d, decltype(src.ref()) s){
         	d = s;
@@ -1387,12 +1387,13 @@ public:
 	template<typename TdstEdge, typename Tfn, typename ... Args>
 	typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
 	assign(TdstEdge dst, Tfn srcFn, Args ... args) {
-		auto wrapInner = wrap_callable(srcFn, args..., dst);
+		auto wrapInner = wrap_callable(srcFn, args...);
 
-		const string id = make_id(this->space(), "assign-fn", srcFn, args..., dst);
+		const string id = make_id(this->space(), "assign-fn", srcFn, dst, args...);
         emit_access(id, R_I(*this));
         (emit_access(id, args ),...);
         (emit_access(id, dst ));
+
 		std::function wrap = [wrapInner](typename Args::ref_t ... values, decltype(dst.ref()) d) {
 			d = wrapInner(values...);
 		};
@@ -1416,6 +1417,57 @@ public:
 		};
 
         add_transaction(runtime_->plainCtx(), id, wrap, args..., src);
+		return self<Plan>();
+	}
+
+//	template<typename Tfn, typename ... Args>
+//	auto F(Tfn fn, Args ... args) {
+//		if constexpr(ReturnType<Tfn>::data_t::value) {
+//			std::function functor = [fn](typename Args::ref_t... args){
+//				return AssignableMemData<Tfn, typename ReturnType<Tfn>::type, typename Args::ref_t...>(fn, args...);
+//			};
+//
+//			return std::make_tuple(functor, args...);
+//		} else {
+//			auto wrap = wrap_callable(fn ,args...);
+//			return std::make_tuple(fn, args...);
+//		}
+//	}
+
+//	template<typename TdstTuple, typename TsrcTuple, size_t... TdstIdx, size_t... TsrcIdx>
+//	cv::Ptr<Plan> assign(TdstTuple dstTuple, TsrcTuple srcTuple, std::index_sequence<TdstIdx...> dstSeq, std::index_sequence<TsrcIdx...> srcSeq) {
+//		auto dstFn = make_function_ptr<false>(std::get<0>(std::forward<TdstTuple>(dstTuple)), std::get<TdstIdx + 1>(std::forward<TdstTuple>(dstTuple))...);
+//		auto srcFn = make_function_ptr<true>(std::get<0>(std::forward<TsrcTuple>(srcTuple)), std::get<TsrcIdx + 1>(std::forward<TsrcTuple>(srcTuple))...);
+//		const string id = make_id(this->space(), "assign-fn-fn", std::get<TdstIdx + 1>(std::forward<TdstTuple>(dstTuple))..., std::get<TsrcIdx + 1>(std::forward<TsrcTuple>(srcTuple))...);
+//        emit_access(id, R_I(*this));
+//        (emit_access(id, std::get<TdstIdx + 1>(std::forward<TdstTuple>(dstTuple))),...);
+//        (emit_access(id, std::get<TsrcIdx + 1>(std::forward<TsrcTuple>(srcTuple))),...);
+//        auto plan = self<Plan>();
+//
+//        std::function wrap = [dstFn, srcFn](decltype(std::get<TdstIdx + 1>(std::forward<TdstTuple>(dstTuple)).ref())... dstArgs, decltype(std::get<TsrcIdx + 1>(std::forward<TsrcTuple>(srcTuple)).ref())... srcArgs) {
+//        	dstFn->operator()(dstArgs...) = srcFn->operator()(srcArgs...);
+//        };
+//
+//        add_transaction(runtime_->plainCtx(), id, wrap, std::get<TdstIdx + 1>(std::forward<TdstTuple>(dstTuple))..., std::get<TsrcIdx + 1>(std::forward<TsrcTuple>(srcTuple))...);
+//		return self<Plan>();
+//	}
+//
+//	template<typename TdstTuple, typename TsrcTuple>
+//	typename std::enable_if<is_specialization_of<std::tuple, TdstTuple>::value && is_specialization_of<std::tuple, TsrcTuple>::value, cv::Ptr<Plan>>::type
+//	assign(TdstTuple dstTuple, TsrcTuple srcTuple) {
+//		using dst_idx_t = std::make_index_sequence<std::tuple_size<TdstTuple>::value - 1>;
+//		using src_idx_t = std::make_index_sequence<std::tuple_size<TsrcTuple>::value - 1>;
+//
+//		return assign(dstTuple, srcTuple, dst_idx_t(), src_idx_t());
+//	}
+//
+
+
+	//&& (std::is_base_of_v<EdgeBase, DstArgs> && ...)
+	// && (std::is_base_of_v<EdgeBase, SrcArgs> && ...)
+	template<typename Tdst, typename Tsrc, typename ... DstArgs, typename ... SrcArgs>
+	cv::Ptr<Plan>
+	assign(std::function<Tdst(typename DstArgs::ref_t...)> dstFn, DstArgs ... dargs, std::function<Tsrc(typename SrcArgs::ref_t...)> srcFn, SrcArgs ... sargs) {
 		return self<Plan>();
 	}
 

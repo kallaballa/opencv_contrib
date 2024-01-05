@@ -11,6 +11,11 @@ static double seconds() {
 	return (cv::getTickCount() / cv::getTickFrequency());
 }
 
+//easing function for the bungee zoom
+static float easeInOutQuint(float x) {
+	return x < 0.5f ? 16.0f * x * x * x * x * x : 1.0f - std::pow(-2.0f * x + 2.0f, 5.0f) / 2.0f;
+}
+
 struct Camera2D {
 	double startTime_ = seconds();
 	double autoZoomSeconds_;
@@ -19,8 +24,7 @@ struct Camera2D {
 	float centerX_ = -0.466f;
     //center y coordinate
     float centerY_ = 0.57052f;
-    float lastZoom_ = -1;
-    float currentZoom_ = 0.2;
+    float currentZoom_ = 0.0;
     bool zoomIn_ = true;
 
 
@@ -30,20 +34,20 @@ struct Camera2D {
     Camera2D(double autoZoomSeconds) : autoZoomSeconds_(autoZoomSeconds) {
     }
 
-    void updateAutoBungeeZoom(const cv::Rect vp, const float& maxZoom) {
-		double progress = (fmod((seconds() - startTime_), autoZoomSeconds_)) / autoZoomSeconds_;
-		if(!zoomIn_)
+    void updateAutoZoom(const int& maxIterations) {
+    	double diff = seconds() - startTime_;
+    	double progress = std::min(diff / autoZoomSeconds_, 1.0);
+
+    	if(!zoomIn_)
 			progress = 1.0 - progress;
 
-		currentZoom_ = maxZoom * pow(progress, 6);
-		if (zoomIn_ && currentZoom_ < lastZoom_) {
+		currentZoom_ = maxIterations * easeInOutQuint(progress);
+		if (zoomIn_ && diff >= autoZoomSeconds_) {
 			zoomIn_ = false;
-			lastZoom_ = maxZoom * 2.0;
-		} else if (!zoomIn_ && ((currentZoom_ - lastZoom_) >= 0.2)) {
+			startTime_ = seconds();
+		} else if (!zoomIn_ && diff >= autoZoomSeconds_) {
 			zoomIn_ = true;
-			lastZoom_ = -1;
-		} else  {
-			lastZoom_ = currentZoom_;
+			startTime_ = seconds();
 		}
     }
 };
@@ -197,11 +201,11 @@ public:
         // Red, green, blue and alpha. All from 0.0f to 1.0f
         cv::Scalar_<float> baseColor_{0.2f, 0.6f, 1.0f, 0.8f};
         //contrast boost
-        int contrastBoost_ = 255; //0.0-255
+        int contrastBoost_ = 30; //0.0-255
         //max fractal iterations
-        int maxIterations_ = 10000;
+        int maxIterations_ = 15000;
 
-        bool manualNavigation_ = false;
+        bool autoZoom_ = true;
     };
 
     //Initialize shaders, objects, buffers and uniforms
@@ -235,8 +239,8 @@ public:
 		glUniform4f(handles.baseColorHdl_, settings.baseColor_.val[0], settings.baseColor_.val[1], settings.baseColor_.val[2], settings.baseColor_.val[3]);
 		glUniform1i(handles.contrastBoostHdl_, settings.contrastBoost_);
 		glUniform1i(handles.maxIterationsHdl_, settings.maxIterations_);
-		glUniform1f(handles.centerYHdl_, camera.centerY_);
-		glUniform1f(handles.centerXHdl_, camera.centerX_);
+		glUniform1f(handles.centerXHdl_, (camera.centerX_));
+		glUniform1f(handles.centerYHdl_, (camera.centerY_));
 		glUniform1f(handles.currentZoomHdl_, 1.0f / camera.currentZoom_);
 
 		float res[2] = {vp.width, vp.height};
@@ -249,38 +253,54 @@ public:
 using namespace cv::v4d::event;
 
 class ShaderDemoPlan : public Plan {
-    static struct Params {
+	using K = V4D::Keys;
+	using M = Mouse::Type;
+
+	static struct Params {
     	Camera2D camera_;
     	MandelbrotScene::Settings settings_;
-    	bool manualNavigation_ = false;
     } params_;
 
     int autoZoomSeconds_;
+    double scale_ = 1.0;
     MandelbrotScene scene_;
 
-    Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
-    Event<Mouse> releaseEvents_ = E<Mouse>(Mouse::Type::RELEASE);
-    Event<Mouse> scrollEvents_ = E<Mouse>(Mouse::Type::SCROLL);
+    Property<cv::Rect> vp_ = P<cv::Rect>(K::VIEWPORT);
+    Property<cv::Size> fbSz_ = P<cv::Size>(K::FRAMEBUFFER_SIZE);
+    Property<cv::Size> winSz_ = P<cv::Size>(K::WINDOW_SIZE);
 
-    static bool process_events(const cv::Rect vp, const Mouse::list_t& scrollEvents, const Mouse::list_t& releaseEvents, Params& params) {
-		if(!scrollEvents.empty() || !releaseEvents.empty()) {
+    Event<Mouse> release_ = E<Mouse>(M::RELEASE);
+    Event<Mouse> scroll_ = E<Mouse>(M::SCROLL);
+
+    static bool process_events(const cv::Rect& vp, const cv::Size& fbSize, const cv::Size& winSz, const Mouse::List& scrollEvents, const Mouse::List& releaseEvents, const double& scale, Params& params) {
+    	if(!scrollEvents.empty() || !releaseEvents.empty()) {
+			double borderX = ((fabs((winSz.width / scale) - fbSize.width) / 2.0));
+			double borderY = ((fabs((winSz.height / scale) - fbSize.height) / 2.0));
+
 			for(auto re : releaseEvents) {
-				params.camera_.centerX_ += ((double(re->position().x) / vp.width) - 0.5) / (params.camera_.currentZoom_ / 2.0);
-				params.camera_.centerY_ += (0.5 - (double(re->position().y) / vp.height)) / (params.camera_.currentZoom_ / 2.0);
+				cv::Point2d pos = re->position() / scale;
+				pos.x -= borderX;
+				pos.y -= borderY;
+				if(vp.contains(pos)) {
+					params.camera_.centerX_ += ((double(pos.x) / vp.width) - 0.5) / (params.camera_.currentZoom_ / 2.0);
+					params.camera_.centerY_ += ((double(pos.y) / vp.height) - 0.5) / (params.camera_.currentZoom_ / 2.0);
+					params.settings_.autoZoom_ = false;
+				}
 			}
 
 			for(auto se : scrollEvents) {
-				params.camera_.currentZoom_ += (params.camera_.currentZoom_ / params.settings_.maxIterations_) * (params.settings_.maxIterations_ / 3.0) * se->data().y;
-				params.camera_.currentZoom_ = std::min(params.camera_.currentZoom_, float(params.settings_.maxIterations_));
+				if(vp.contains(se->position() / scale)) {
+					params.camera_.currentZoom_ += (params.camera_.currentZoom_ / params.settings_.maxIterations_) * (params.settings_.maxIterations_ / 3.0) * se->data().y;
+					params.camera_.currentZoom_ = std::min(params.camera_.currentZoom_, float(params.settings_.maxIterations_));
+					params.settings_.autoZoom_ = false;
+				}
 			}
-			params.settings_.manualNavigation_ = true;
 		}
-
-		return !params.settings_.manualNavigation_;
+//		std::cerr << "RET: " << !params.settings_.autoZoom_ << std::endl;
+		return params.settings_.autoZoom_;
     }
 public:
     ShaderDemoPlan(int autoZoomSeconds) : autoZoomSeconds_(autoZoomSeconds) {
-		std::cerr << "EVENT: " << releaseEvents_.ptr() << std::endl;
     }
 
     void gui() override {
@@ -288,14 +308,16 @@ public:
             using namespace ImGui;
             Begin("Fractal");
             Text("Navigation");
-            SliderInt("Iterations", &params.settings_.maxIterations_, 3, 100000);
+            if(SliderInt("Iterations", &params.settings_.maxIterations_, 3, 100000))
+            	params.settings_.autoZoom_ = false;
             if(DragFloat("Zoom", &params.camera_.currentZoom_, 0.01f * params.camera_.currentZoom_, 0.02f, params.settings_.maxIterations_))
-                params.manualNavigation_ = true;
+                params.settings_.autoZoom_ = false;
             if(DragFloat("X", &params.camera_.centerX_, 0.001f / params.camera_.currentZoom_, -1.0f, 1.0f, "%.12f"))
-            	params.manualNavigation_ = true;
+            	params.settings_.autoZoom_ = false;
             if(DragFloat("Y", &params.camera_.centerY_, 0.001f / params.camera_.currentZoom_, -1.0f, 1.0f, "%.12f"))
-            	params.manualNavigation_ = true;
-            Text("Color");
+            	params.settings_.autoZoom_ = false;
+            Checkbox("Auto Zoom", &params.settings_.autoZoom_);
+			Text("Color");
             ColorPicker4("Color", params.settings_.baseColor_.val);
             SliderInt("Contrast boost", &params.settings_.contrastBoost_, 1, 255);
             End();
@@ -310,10 +332,12 @@ public:
     }
 
     void infer() override {
-        capture();
+    	assign(RW(scale_), aspect_preserving_scale, winSz_, fbSz_);
 
-        branch(&ShaderDemoPlan::process_events, vp_, scrollEvents_, releaseEvents_, RWS(params_))
-        	->plain(&Camera2D::updateAutoBungeeZoom, RWS(params_.camera_), vp_, RWS(params_.settings_.maxIterations_))
+    	capture();
+
+    	branch(process_events, vp_, fbSz_, winSz_, scroll_, release_, R(scale_), RWS(params_))
+        	->plain(&Camera2D::updateAutoZoom, RWS(params_.camera_), R(params_.settings_.maxIterations_))
 		->endBranch();
 
         gl(&MandelbrotScene::render, R(scene_), vp_, CS(params_.settings_), CS(params_.camera_));
@@ -333,12 +357,12 @@ int main(int argc, char** argv) {
     }
 
     cv::Rect viewport(0, 0, 1280, 720);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Mandelbrot Shader Demo", AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::PRINT_CONTROL_FLOW);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Mandelbrot Shader Demo", AllocateFlags::IMGUI, ConfigFlags::DEFAULT);//, DebugFlags::PRINT_CONTROL_FLOW);
 	auto src = Source::make(runtime, argv[1]);
 	runtime->setSource(src);
 
-	//0 extra workers, 10 seconds auto zoom
-	Plan::run<ShaderDemoPlan>(0, 10);
+	//0 extra workers, 15 seconds auto zoom
+	Plan::run<ShaderDemoPlan>(0, 30);
 
 	return 0;
 }

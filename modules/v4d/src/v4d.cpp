@@ -45,7 +45,7 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, int all
 	create<true>(Keys::INIT_VIEWPORT, viewport);
     create<false>(Keys::VIEWPORT, viewport);
     create<false, cv::Size>(Keys::WINDOW_SIZE, viewport.size(), [this](const cv::Size& sz){ fbCtx()->setWindowSize(sz); });
-	create<true>(Keys::FB_SIZE, fbsize);
+	create<true>(Keys::FRAMEBUFFER_SIZE, fbsize);
     create<false>(Keys::STRETCHING, true);
     create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
     create<false,string>(Keys::NAMESPACE, "default");
@@ -72,7 +72,7 @@ V4D::V4D(const V4D& other, const string& title) :
     		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
 			| (debugFlags() &  DebugFlags::ONSCREEN_CONTEXTS ? FBConfigFlags::ONSCREEN_CHILD_CONTEXTS : FBConfigFlags::OFFSCREEN);
 
-    mainFbContext_ = detail::FrameBufferContext::make(other.get<cv::Size>(V4D::Keys::FB_SIZE), title, 3,
+    mainFbContext_ = detail::FrameBufferContext::make(other.get<cv::Size>(V4D::Keys::FRAMEBUFFER_SIZE), title, 3,
                 2, other.samples_, other.fbCtx()->glfwWindow_, other.fbCtx(), true, fbFlags);
     CLExecScope_t scope(mainFbContext_->getCLExecContext());
     if(allocateFlags() & AllocateFlags::NANOVG)
@@ -405,10 +405,10 @@ GLFWwindow* V4D::getGLFWWindow() const {
 }
 
 void V4D::printSystemInfo() {
-	std::cerr << "OpenGL: " << getGlInfo() << std::endl;
+	std::cerr << "OpenGL: " << get_gl_info() << std::endl;
 #ifdef HAVE_OPENCL
 	if(cv::ocl::useOpenCL())
-		std::cerr << "OpenCL Platforms: " << getClInfo() << endl;
+		std::cerr << "OpenCL Platforms: " << get_cl_info() << endl;
 #endif
 }
 

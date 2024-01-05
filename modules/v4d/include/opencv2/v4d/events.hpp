@@ -59,7 +59,7 @@ private:
 
 class Keyboard: public Event {
 public:
-	using list_t = std::vector<std::shared_ptr<Keyboard>>;
+	using List = std::vector<std::shared_ptr<Keyboard>>;
 	enum Key {
 	    A,
 	    B,
@@ -216,7 +216,7 @@ private:
 template<typename Tpoint>
 class Mouse_: public Event {
 public:
-	using list_t = std::vector<std::shared_ptr<Mouse_<Tpoint>>>;
+	using List = std::vector<std::shared_ptr<Mouse_<Tpoint>>>;
 
 	enum Button {
 		NO_BUTTON,
@@ -294,7 +294,7 @@ private:
 
 class Joystick: public Event {
 public:
-	using list_t = std::vector<std::shared_ptr<Joystick>>;
+	using List = std::vector<std::shared_ptr<Joystick>>;
 	enum Type {
 		PRESS, RELEASE, MOVE
 	};
@@ -409,7 +409,7 @@ private:
 template<typename Tpoint>
 class Window_: public Event {
 public:
-	using list_t = std::vector<std::shared_ptr<Window_<Tpoint>>>;
+	using List = std::vector<std::shared_ptr<Window_<Tpoint>>>;
 	enum Type {
 		RESIZE, MOVE, FOCUS, UNFOCUS, CLOSE
 	};
@@ -450,6 +450,7 @@ class EventQueue;
 
 class EVENT_API_EXPORT Holder {
 public:
+	static std::pair<int, int> window_size;
 	static GLFWwindow* main_window;
 	static KeyCallback keyboardCallback;
 	static MouseButtonCallback mouseButtonCallback;
@@ -460,7 +461,15 @@ public:
 	static WindowFocusCallback windowFocusCallback;
 	static WindowCloseCallback windowCloseCallback;
 	static std::vector<EventQueue*> queue_vector;
+
 };
+
+template<typename Tpoint>
+Tpoint fix_coordinates(Tpoint& point) {
+//	point.x = Holder::window_size.first - point.x;
+	point.y = Holder::window_size.second - point.y;
+	return point;
+}
 
 constexpr Keyboard::Key v4d_key(int glfw_key) {
 	switch (glfw_key) {
@@ -1015,6 +1024,8 @@ inline void init(
 	detail::Holder::windowFocusCallback = windowFocusCallback;
 	detail::Holder::windowCloseCallback = windowCloseCallback;
 
+	glfwGetWindowSize(win, &detail::Holder::window_size.first, &detail::Holder::window_size.second);
+
 	std::vector<detail::EventQueue*> *queues = new std::vector<detail::EventQueue*>();
 	glfwSetKeyCallback(win,
 			[](GLFWwindow *window, int key, int scancode, int action,
@@ -1039,6 +1050,7 @@ inline void init(
 						double x, y;
 						glfwGetCursorPos(window, &x, &y);
 						Tpoint position(x, y);
+						detail::fix_coordinates(position);
 						std::shared_ptr<Mouse_<Tpoint>> event = std::make_shared<Mouse_<Tpoint>>(type, mouseButton, position);
 						detail::push(event);
 					}
@@ -1051,6 +1063,7 @@ inline void init(
 					double x, y;
 					glfwGetCursorPos(window, &x, &y);
 					Tpoint position(x, y);
+					detail::fix_coordinates(position);
 					std::shared_ptr<Mouse_<Tpoint>> event = std::make_shared<Mouse_<Tpoint>>(Mouse_<Tpoint>::SCROLL, position, offset);
 					detail::push(event);
 				}
@@ -1062,6 +1075,7 @@ inline void init(
 
 				if (!detail::Holder::cursorPosCallback || !detail::Holder::cursorPosCallback(window, xpos, ypos)) {
 					Tpoint position(xpos, ypos);
+					detail::fix_coordinates(position);
 					bool pressed = false;
 					for (int button = 0; button <= GLFW_MOUSE_BUTTON_LAST;
 							button++) {
@@ -1090,6 +1104,7 @@ inline void init(
 
 	glfwSetWindowSizeCallback(win,
 			[](GLFWwindow *window, int width, int height) {
+				detail::Holder::window_size = {width, height};
 				if(!detail::Holder::windowSizeCallback || !detail::Holder::windowSizeCallback(window, width, height)) {
 					Tpoint sz(width, height);
 					std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::RESIZE, sz);
@@ -1101,6 +1116,7 @@ inline void init(
 			[](GLFWwindow *window, int xpos, int ypos) {
 				if(!detail::Holder::windowPosCallback || !detail::Holder::windowPosCallback(window, xpos, ypos)) {
 					Tpoint position(xpos, ypos);
+					detail::fix_coordinates(position);
 					std::shared_ptr<Window_<Tpoint>> event = std::make_shared<Window_<Tpoint>>(Window_<Tpoint>::MOVE, position);
 					detail::push(event);
 				}
