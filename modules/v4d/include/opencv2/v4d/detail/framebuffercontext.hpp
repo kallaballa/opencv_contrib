@@ -263,7 +263,7 @@ public:
       * @param fn A function object that is passed the framebuffer to be read/manipulated.
       */
     virtual int execute(const cv::Rect& vp, std::function<void()> fn) override {
-		cv::Rect glAdjustedVp(0, vp.x + (size().height - vp.height), vp.width, vp.height);
+		cv::Rect glAdjustedVp(vp.x, (size().height - (vp.y + vp.height)), vp.width, vp.height);
     	FrameBufferContext::WindowScope winScope(self());
     	if(cv::ocl::useOpenCL() && !getCLExecContext().empty()) {
 			CLExecScope_t clExecScope(getCLExecContext());

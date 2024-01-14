@@ -51,6 +51,7 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, int all
     create<false,string>(Keys::NAMESPACE, "default");
     create<false, bool>(Keys::FULLSCREEN, false, [this](const bool& b){ fbCtx()->setFullscreen(b); });
     create<false>(Keys::DISABLE_VIDEO_IO, false);
+    create<false, size_t>(Keys::WORKER_COUNT, 0);
 
     int fbFlags = FBConfigFlags::VSYNC
     		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
@@ -67,8 +68,9 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, int all
 
 V4D::V4D(const V4D& other, const string& title) :
 		allocateFlags_(other.allocateFlags_), configFlags_(other.configFlags_), debugFlags_(other.debugFlags_), samples_(other.samples_) {
-	workerIdx_ = RunState::instance().apply<size_t>(RunState::Keys::WORKERS_INDEX, [](size_t& v){ return v++; });
-    int fbFlags = (configFlags() &  ConfigFlags::DISPLAY_MODE ? FBConfigFlags::DISPLAY_MODE : 0)
+	workerIdx_ = apply<size_t>(V4D::Keys::WORKER_COUNT, [](size_t& v){ return v++; });
+    RunState::instance().set<size_t>(RunState::Keys::WORKER_INDEX, workerIdx_);
+	int fbFlags = (configFlags() &  ConfigFlags::DISPLAY_MODE ? FBConfigFlags::DISPLAY_MODE : 0)
     		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
 			| (debugFlags() &  DebugFlags::ONSCREEN_CONTEXTS ? FBConfigFlags::ONSCREEN_CHILD_CONTEXTS : FBConfigFlags::OFFSCREEN);
 
@@ -301,9 +303,8 @@ void V4D::swapContextBuffers() {
 
 bool V4D::display() {
 	Global& global = Global::instance();
-	RunState& state = RunState::instance();
     if(!global.isMain()) {
-    	state.apply<size_t>(RunState::Keys::FRAME_COUNT, [](size_t& v){ return v++; });
+    	global.apply<size_t>(Global::Keys::FRAME_COUNT, [](size_t& v){ return v++; });
 
 		if(debugFlags() & DebugFlags::ONSCREEN_CONTEXTS) {
 			swapContextBuffers();
@@ -311,22 +312,22 @@ bool V4D::display() {
     }
 	if (global.isMain()) {
 		bool countLockContention = debugFlags() & DebugFlags::PRINT_LOCK_CONTENTION;
-		auto start = state.get<uint64_t>(RunState::Keys::START_TIME);
+		auto start = global.get<uint64_t>(Global::Keys::START_TIME);
 		auto now = get_epoch_nanos();
 		auto diff = now - start;
 		double diffSeconds = diff / 1000000000.0;
 
-		if(state.get<double>(RunState::Keys::FPS) > 0 && diffSeconds > 1.0) {
-			state.apply<uint64_t>(RunState::Keys::START_TIME, [diff](uint64_t& v) { return (v = v + (diff / 2.0)); } );
-			state.apply<size_t>(RunState::Keys::FRAME_COUNT, [](size_t& v){ return (v = v * 0.5); });
+		if(global.get<double>(Global::Keys::FPS) > 0 && diffSeconds > 1.0) {
+			global.apply<uint64_t>(Global::Keys::START_TIME, [diff](uint64_t& v) { return (v = v + (diff / 2.0)); } );
+			global.apply<size_t>(Global::Keys::FRAME_COUNT, [](size_t& v){ return (v = v * 0.5); });
 			if(countLockContention) {
 				global.apply<size_t>(Global::Keys::LOCK_CONTENTION_CNT, [](size_t& v){ return (v = v * 0.5); });
 			}
 		} else {
-			double fps = state.get<double>(RunState::Keys::FPS);
-			size_t cnt = state.get<size_t>(RunState::Keys::FRAME_COUNT);
+			double fps = global.get<double>(Global::Keys::FPS);
+			size_t cnt = global.get<size_t>(Global::Keys::FRAME_COUNT);
 
-			state.set<double>(RunState::Keys::FPS, (fps * 3.0 + (cnt / diffSeconds)) / 4.0);
+			global.set<double>(Global::Keys::FPS, (fps * 3.0 + (cnt / diffSeconds)) / 4.0);
 			if(countLockContention) {
 				size_t lcnt = global.get<size_t>(Global::Keys::LOCK_CONTENTION_CNT);
 				double rate = global.get<double>(Global::Keys::LOCK_CONTENTION_RATE);
@@ -339,7 +340,7 @@ bool V4D::display() {
 		}
 
 		if(getPrintFPS()) {
-			std::cerr << "\rFPS:" << state.get<double>(RunState::Keys::FPS) << std::endl;
+			std::cerr << "\rFPS:" << global.get<double>(Global::Keys::FPS) << std::endl;
 		}
 
 		{
@@ -360,13 +361,13 @@ bool V4D::display() {
 		}
 		TimeTracker::getInstance()->newCount();
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
-		state.set(RunState::Keys::DISPLAY_READY, true);
+		global.set(Global::Keys::DISPLAY_READY, true);
 		GL_CHECK(glViewport(0, 0, size().width, size().height));
 		GL_CHECK(glClearColor(0,0,0,1));
 		GL_CHECK(glClear(GL_COLOR_BUFFER_BIT));
 		return !glfwWindowShouldClose(getGLFWWindow());
 	} else {
-		if(state.apply<bool>(RunState::Keys::DISPLAY_READY, [](bool& v){
+		if(global.apply<bool>(Global::Keys::DISPLAY_READY, [](bool& v){
 			if(!v)
 				return v;
 			else {

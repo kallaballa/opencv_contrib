@@ -52,9 +52,6 @@ struct default_type : std::true_type
     using type = T;
 };
 
-//https://stackoverflow.com/questions/281818/unmangling-the-result-of-stdtype-infoname
-CV_EXPORTS std::string demangle(const char* name);
-
 template <typename, typename = void>
 struct has_call_operator_t : std::false_type {};
 
@@ -198,19 +195,19 @@ struct return_t<Tfn, std::void_t<decltype(&Tfn::operator())>> : std::is_same<std
 //	using args_t = std::false_type;
 //};
 
-template <typename T, typename ... Args>
+template <typename T>
 struct CallableTraits {
-	using return_t = typename detail::return_t<T>::type;
-	using data_t = std::false_type;
+	using return_type_t = typename detail::return_t<T>::type;
+	using member_t = std::false_type;
 	using object_t = std::false_type;
-	using args_t = std::tuple<Args...>;
+	using args_t = std::false_type;
 };
 
 template <typename Return, typename Object>
 struct CallableTraits<Return Object::*>
 {
-    using return_t = Return;
-    using data_t = std::true_type;
+	using return_type_t = Return;
+    using member_t = std::true_type;
     using object_t = Object;
     using args_t = std::false_type;
 };
@@ -218,8 +215,8 @@ struct CallableTraits<Return Object::*>
 template <typename Return, typename Object, typename... Args>
 struct CallableTraits<Return (Object::*)(Args...)>
 {
-    using return_t = Return;
-    using data_t = std::false_type;
+    using return_type_t = Return;
+    using member_t = std::true_type;
     using object_t = Object;
     using args_t = std::tuple<Args...>;
 };
@@ -227,11 +224,23 @@ struct CallableTraits<Return (Object::*)(Args...)>
 template <typename Return, typename... Args>
 struct CallableTraits<Return (*)(Args...)>
 {
-    using return_t = Return;
-    using data_t = std::false_type;
+    using return_type_t = Return;
+    using member_t = std::false_type;
     using object_t = std::false_type;
     using args_t = std::tuple<Args...>;
 };
+
+template <size_t offset, size_t len, class tuple, size_t ... idx>
+auto sub_tuple(tuple&& t, std::index_sequence<idx...>) {
+    static_assert(offset + len <= std::tuple_size<typename std::remove_reference<tuple>::type>::value, "sub tuple is out of bounds!");
+    return std::make_tuple(std::get<idx + offset>(t)...);
+}
+
+template <size_t offset, size_t len, class tuple>
+auto sub_tuple(tuple&& t) {
+	return sub_tuple<offset, len, tuple>(std::forward<tuple>(t), std::make_index_sequence<len>());
+}
+
 
 template<typename Tfn, typename Tret = typename CallableTraits<Tfn>::return_t, typename ... Args>
 struct AssignableMemData {
@@ -285,6 +294,16 @@ public:
 };
 
 CV_EXPORTS size_t cnz(const cv::UMat& m);
+
+template<bool read, typename Tfn, typename ... Args>
+struct edgefun_t {
+	edgefun_t(Tfn fn, Args ... args) {}
+	using return_type_t = typename CallableTraits<Tfn>::return_type_t;
+	static_assert(!std::is_same<return_type_t, std::false_type>::value, "Invalid callable passed");
+	using type = typename std::disjunction<
+				default_type<std::function<return_type_t(typename Args::ref_t ...)>>
+				>::type;
+};
 
 }
 using std::string;
@@ -484,14 +503,22 @@ CV_EXPORTS class Global : public SharedVariables {
 public:
 	struct Keys {
 		enum Enum {
+			FRAME_COUNT,
+			RUN_COUNT,
+			START_TIME,
+			FPS,
+			WORKERS_READY,
+			WORKERS_STARTED,
+			FRAMEBUFFER_INDEX,
+			LOCKING,
+			DISPLAY_READY,
 			LOCK_CONTENTION_CNT,
 			LOCK_CONTENTION_RATE,
 			PLAN_CNT
 		};
 	};
 private:
-	ThreadSafeAnyMap<Keys::Enum> map_;
-
+	CV_EXPORTS ThreadSafeAnyMap<Keys::Enum> map_;
 	CV_EXPORTS static Global* instance_;
 	std::mutex threadIDMtx_;
 	const std::thread::id defaultThreadID_;
@@ -536,6 +563,15 @@ private:
 	}
 
 	Global() {
+		create<false, size_t>(Keys::FRAME_COUNT, 0);
+		create<false, size_t>(Keys::RUN_COUNT, 0);
+		create<false, uint64_t>(Keys::START_TIME, get_epoch_nanos());
+		create<false, double>(Keys::FPS, 0);
+		create<false, size_t>(Keys::WORKERS_READY, 0);
+		create<false, size_t>(Keys::WORKERS_STARTED, 0);
+		create<false, size_t>(Keys::FRAMEBUFFER_INDEX, 0);
+		create<false, bool>(Keys::LOCKING, false);
+		create<false, bool>(Keys::DISPLAY_READY, false);
 		create<false, size_t>(Keys::LOCK_CONTENTION_CNT, 0);
 		create<false, double>(Keys::LOCK_CONTENTION_RATE, 0.0);
 		create<false, size_t>(Keys::PLAN_CNT, 0);
@@ -640,36 +676,18 @@ public:
 
 
 class RunState {
-	CV_EXPORTS static RunState* instance_;
+	CV_EXPORTS static thread_local RunState* instance_;
 public:
 	struct Keys {
 		enum Enum {
-			FRAME_COUNT,
-			RUN_COUNT,
-			START_TIME,
-			FPS,
-			WORKERS_READY,
-			WORKERS_STARTED,
-			WORKERS_INDEX,
-			FRAMEBUFFER_INDEX,
-			LOCKING,
-			DISPLAY_READY
+			WORKER_INDEX,
 		};
 	};
 private:
 	ThreadSafeAnyMap<Keys::Enum> map_;
 public:
 	RunState() {
-		create<false, size_t>(Keys::FRAME_COUNT, 0);
-		create<false, size_t>(Keys::RUN_COUNT, 0);
-		create<false, uint64_t>(Keys::START_TIME, get_epoch_nanos());
-		create<false, double>(Keys::FPS, 0);
-		create<false, size_t>(Keys::WORKERS_READY, 0);
-		create<false, size_t>(Keys::WORKERS_STARTED, 0);
-		create<false, size_t>(Keys::WORKERS_INDEX, 0);
-		create<false, size_t>(Keys::FRAMEBUFFER_INDEX, 0);
-		create<false, bool>(Keys::LOCKING, false);
-		create<false, bool>(Keys::DISPLAY_READY, false);
+		create<false, size_t>(Keys::WORKER_INDEX, 0);
 	}
 
 	static RunState& instance() {

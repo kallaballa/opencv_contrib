@@ -28,7 +28,7 @@ struct Camera2D {
     bool zoomIn_ = true;
 
 
-    Camera2D(): Camera2D(5.0) {
+    Camera2D(): Camera2D(15.0) {
     }
 
     Camera2D(double autoZoomSeconds) : autoZoomSeconds_(autoZoomSeconds) {
@@ -72,7 +72,7 @@ class MandelbrotScene {
         GLint centerXHdl_;
         GLint centerYHdl_;
         GLint currentZoomHdl_;
-        GLint resolutionHdl_;
+        GLint viewportHdl_;
 
         /* Shader program handle */
         GLuint shaderHdl_;
@@ -135,12 +135,12 @@ class MandelbrotScene {
         uniform float center_y;
         uniform float center_x;
 
-        uniform vec2 resolution;
+        uniform vec4 viewport;
 
         int get_iterations()
         {
-            float pointr = ((((gl_FragCoord.x / resolution[0]) - 0.5f) * 2.0)) * current_zoom + center_x;
-            float pointi = ((((gl_FragCoord.y / resolution[1]) - 0.5f) * 2.0)) * current_zoom + center_y;
+            float pointr = (((((gl_FragCoord.x - viewport[0]) / (viewport[2])) - 0.5f) * 2.0)) * current_zoom + center_x;
+            float pointi = (((((gl_FragCoord.y - viewport[1])  / (viewport[3])) - 0.5f) * 2.0)) * current_zoom + center_y;
             const float four = 4.0f;
 
             int iterations = 0;
@@ -220,7 +220,7 @@ public:
         handles.currentZoomHdl_ = glGetUniformLocation(handles.shaderHdl_, "current_zoom");
         handles.centerXHdl_ = glGetUniformLocation(handles.shaderHdl_, "center_x");
         handles.centerYHdl_ = glGetUniformLocation(handles.shaderHdl_, "center_y");
-        handles.resolutionHdl_ = glGetUniformLocation(handles.shaderHdl_, "resolution");
+        handles.viewportHdl_ = glGetUniformLocation(handles.shaderHdl_, "viewport");
     }
 
     //Free OpenGL resources
@@ -243,8 +243,8 @@ public:
 		glUniform1f(handles.centerYHdl_, (camera.centerY_));
 		glUniform1f(handles.currentZoomHdl_, 1.0f / camera.currentZoom_);
 
-		float res[2] = {vp.width, vp.height};
-		glUniform2fv(handles.resolutionHdl_, 1, res);
+		float vpArr[4] = {vp.x, vp.y, vp.width, vp.height};
+		glUniform4fv(handles.viewportHdl_, 1, vpArr);
         glBindVertexArray(handles.vao_);
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
     }
@@ -282,8 +282,8 @@ class ShaderDemoPlan : public Plan {
 				pos.x -= borderX;
 				pos.y -= borderY;
 				if(vp.contains(pos)) {
-					params.camera_.centerX_ += ((double(pos.x) / vp.width) - 0.5) / (params.camera_.currentZoom_ / 2.0);
-					params.camera_.centerY_ += ((double(pos.y) / vp.height) - 0.5) / (params.camera_.currentZoom_ / 2.0);
+					params.camera_.centerX_ += ((pos.x / fbSize.width) - 0.5) / (params.camera_.currentZoom_ / 2.0);
+					params.camera_.centerY_ += ((pos.y / fbSize.height) - 0.5) / (params.camera_.currentZoom_ / 2.0);
 					params.settings_.autoZoom_ = false;
 				}
 			}

@@ -145,13 +145,13 @@ private:
 	}
 
 	//Detect extrem changes in scene content and report it
-	static bool detect_scene_change(const cv::UMat& srcMotionMaskGrey, const Params& params, Cache& cache) {
+	static bool no_scene_change(const cv::UMat& srcMotionMaskGrey, const Params& params, Cache& cache) {
 	    float movement = cv::countNonZero(srcMotionMaskGrey) / float(srcMotionMaskGrey.cols * srcMotionMaskGrey.rows);
 	    float relation = movement > 0 && cache.lastMovement_ > 0 ? std::max(movement, cache.lastMovement_) / std::min(movement, cache.lastMovement_) : 0;
 	    float relM = relation * log10(1.0f + (movement * 9.0));
 	    float relLM = relation * log10(1.0f + (cache.lastMovement_ * 9.0));
 
-	    bool result = !((movement > 0 && cache.lastMovement_ > 0 && relation > 0)
+	    bool result = ((movement > 0 && cache.lastMovement_ > 0 && relation > 0)
 	            && (relM < params.sceneChangeThresh_ && relLM < params.sceneChangeThresh_ && fabs(relM - relLM) < params.sceneChangeThreshDiff_));
 	    cache.lastMovement_ = (cache.lastMovement_ + movement) / 2.0f;
 	    return result;
@@ -271,7 +271,7 @@ private:
 	}
 
 	//Compose the different layers into the final image
-	static void composite_layers(cv::UMat& background, const cv::UMat& foreground, cv::UMat& dst, const Params& params, Cache& cache) {
+	static void composite_layers(cv::UMat& dst, cv::UMat& background, const cv::UMat& foreground, const Params& params, Cache& cache) {
 	    //Dependin on bgMode prepare the background in different ways
 	    switch (params.backgroundMode_) {
 	    case GREY:
@@ -384,7 +384,7 @@ public:
 	}
 
 	void infer() override {
-		set(V4D::Keys::STRETCHING, &Params::stretch_, CS(params_));
+		set(V4D::Keys::STRETCHING, CS(params_.stretch_));
 		capture();
 
 		fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, Frames& frames, const Params& params) {
@@ -402,10 +402,7 @@ public:
 			detect_points(frames.downMotionMaskGrey_, detected, detector, cache);
 		}, RW(frames_), RW(detectedPoints_), RW(bg_subtractor_), RW(detector_), RW(cache_));
 
-		branch([](const Frames& frames, const Params& params, Cache& cache) {
-			//We don't want the algorithm to get out of hand when there is a scene change, so we suppress it when we detect one.
-			return !detect_scene_change(frames.downMotionMaskGrey_, params, cache);
-		}, RW(frames_), CS(params_), RW(cache_))
+		branch(no_scene_change, RW(frames_.downMotionMaskGrey_), CS(params_), RW(cache_))
 			->nvg([](Frames& frames, const std::vector<cv::Point2f>& detected, const Params& params, Cache& cache) {
 				nvg::clearScreen();
 				if (!frames.downPrevGrey_.empty()) {
@@ -420,14 +417,8 @@ public:
 			}, RWS(foreground_), CS(params_))
 		->endBranch();
 
-		fb([](cv::UMat& framebuffer, const cv::UMat& foreground, cv::UMat& background, const Params& params, Cache& cache) {
-			//Put it all together (OpenCL)
-			composite_layers(background, foreground, framebuffer, params, cache);
-		}, CS(foreground_), RW(frames_.background_), CS(params_), RW(cache_));
-
-		plain([](Frames& frames){
-			frames.downPrevGrey_ = frames.downNextGrey_.clone();
-		}, RW(frames_));
+		fb(composite_layers, RW(frames_.background_), CS(foreground_), CS(params_), RW(cache_));
+		assign(RW(frames_.downPrevGrey_), &cv::UMat::clone, R(&frames_.downNextGrey_));
 	}
 };
 
@@ -443,7 +434,7 @@ int main(int argc, char **argv) {
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 	auto src = Source::make(runtime, argv[1]);
 	runtime->setSource(src);
-	Plan::run<OptflowDemoPlan>(1);
+	Plan::run<OptflowDemoPlan>(0);
 
     return 0;
 }

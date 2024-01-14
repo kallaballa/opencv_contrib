@@ -26,24 +26,6 @@ namespace cv {
 namespace v4d {
 namespace detail {
 
-#ifdef __GNUG__
-std::string demangle(const char* name) {
-    int status = -4; // some arbitrary value to eliminate the compiler warning
-    std::unique_ptr<char, void(*)(void*)> res {
-        abi::__cxa_demangle(name, NULL, NULL, &status),
-        std::free
-    };
-
-    return (status==0) ? res.get() : name ;
-}
-
-#else
-// does nothing if not g++
-std::string demangle(const char* name) {
-    return name;
-}
-#endif
-
 size_t cnz(const cv::UMat& m) {
     cv::UMat grey;
     if(m.channels() == 1) {
@@ -59,8 +41,8 @@ size_t cnz(const cv::UMat& m) {
 }
 }
 
-Global* Global::instance_ = nullptr;
-RunState* RunState::instance_ = nullptr;
+CV_EXPORTS Global* Global::instance_ = nullptr;
+CV_EXPORTS thread_local RunState* RunState::instance_ = nullptr;
 
 CV_EXPORTS void copy_cross(const cv::UMat& src, cv::UMat& dst) {
 	if(dst.empty())

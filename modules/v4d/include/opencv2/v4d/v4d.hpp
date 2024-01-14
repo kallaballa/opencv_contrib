@@ -151,6 +151,19 @@ static std::size_t map_index(const std::thread::id id) {
     return iter->second;
 }
 
+template<bool read, typename Tfn, typename ... Args>
+static auto make_function_ptr(Tfn&& fn, Args ... args) {
+	using fun_t = typename edgefun_t<read, typename std::remove_reference<Tfn>::type, Args...>::type;
+	return cv::makePtr<fun_t>(std::forward<Tfn>(fn));
+}
+
+//template<bool read, typename Tfn, typename ... Args>
+//static auto make_function_edge(Tfn&& fn, Args ...) {
+//
+//	using fun_t = typename edgefun_t<read, typename std::remove_reference<Tfn>::type, Args...>::type;
+//
+//	return detail::Edge<cv::Ptr<fun_t>, false, read, false>::make(self<Plan>(), cv::makePtr<fun_t>(std::forward<Tfn>(fn)));
+//}
 }
 class Plan;
 class CV_EXPORTS V4D {
@@ -177,7 +190,8 @@ public:
 			CLEAR_COLOR,
 			NAMESPACE,
 			FULLSCREEN,
-			DISABLE_VIDEO_IO
+			DISABLE_VIDEO_IO,
+			WORKER_COUNT
     	};
     };
 private:
@@ -222,7 +236,7 @@ public:
 	void set(Keys::Enum key, const Tval& val, bool fire = true) {
     	if(instance()->debugFlags() & DebugFlags::MONITOR_RUNTIME_PROPERTIES) {
     		stringstream ss;
-    		ss << demangle(typeid(decltype(key)).name()) << " = " << val << " (fire: " << fire << ")";
+    		ss << demangle(typeid(decltype(key)).name()) << " = " << size_t(&val) << " (fire: " << fire << ")";
     		CV_LOG_INFO(&mon_tag, ss.str());
     	}
 		properties_.set(key, val, fire);
@@ -231,6 +245,10 @@ public:
     template<typename Tval>
 	const auto& get(Keys::Enum key) const {
 		return properties_.get<Tval>(key);
+	}
+
+	template <typename V> V apply(Keys::Enum k, std::function<V(V&)> f) {
+		return properties_.apply(k, f);
 	}
 
     /*!
@@ -329,7 +347,6 @@ public:
     	static std::binary_semaphore frame_sync_render(0);
 		static std::binary_semaphore frame_sync_sema_swap(0);
 		Global& global = Global::instance();
-		RunState& state = RunState::instance();
 
 		try {
 			if(global.isMain()) {
@@ -357,10 +374,10 @@ public:
 			} else {
 				while(keep_running()) {
 					bool result = true;
-					TimeTracker::getInstance()->execute("worker", [&result, &state, runtime, runGraph](){
+					TimeTracker::getInstance()->execute("worker", [&result, &global, runtime, runGraph](){
 						event::poll();
 						if(!runtime->hasSource() || (runtime->hasSource() && !runtime->getSource()->isOpen())) {
-							state.apply<size_t>(RunState::Keys::RUN_COUNT, [runtime](size_t& s) {
+							global.apply<size_t>(Global::Keys::RUN_COUNT, [runtime](size_t& s) {
 								runtime->setSequenceNumber(++s);
 								return s;
 							});
@@ -401,7 +418,7 @@ public:
 		reseq.finish();
 		if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
 			if(global.isMain()) {
-				for(size_t i = 0; i < state.get<size_t>(RunState::Keys::WORKERS_STARTED); ++i)
+				for(size_t i = 0; i < global.get<size_t>(Global::Keys::WORKERS_STARTED); ++i)
 					frame_sync_render.release();
 			} else {
 				frame_sync_sema_swap.release();
@@ -472,7 +489,8 @@ class Plan {
     cv::Ptr<Plan> self_;
     std::vector<std::tuple<std::string,bool,size_t>> accesses_;
     std::map<std::string, cv::Ptr<Transaction>> transactions_;
-    std::vector<cv::Ptr<Node>> nodes_;
+    std::vector<cv::Ptr<Node>> currentNodes_;
+    std::vector<cv::Ptr<Node>> allNodes_;
     std::deque<BranchState> branchStateStack_;
     std::deque<std::pair<string, BranchType::Enum>> branchStack_;
 
@@ -509,53 +527,33 @@ class Plan {
     	this->add_transaction(btype, [ctx](){ return ctx; }, txID, fn, args...);
     }
 
-
-    template <typename TReturn = std::false_type, typename Tfn, typename ... Args>
-    auto wrap_callable(Tfn fn, Args ... args) {
-//    	static_assert(std::is_invocable_v<Tfn>, "Error: You passed a non-invocable as function argument.");
-    	if constexpr(std::is_same<TReturn, std::false_type>::value) {
-    		if constexpr(CallableTraits<Tfn>::data_t::value) {
-    			return std::function(std::mem_fun(fn));
-    		} else {
-    			return std::function<typename CallableTraits<decltype(fn)>::return_t(typename Args::ref_t...)>(fn);
-    		}
+    template <typename ... Args, typename Tfn>
+    static auto wrap_callable(Tfn fn) {
+    	if constexpr(std::is_void<typename CallableTraits<Tfn>::return_type_t>::value || std::is_same<typename CallableTraits<Tfn>::return_type_t, std::false_type>::value) {
+			if constexpr(CallableTraits<Tfn>::member_t::value) {
+				return std::function([fn](Args... values) -> decltype(std::mem_fn(fn)(values...))  {
+					return std::mem_fn(fn)(values...);
+				});
+			} else {
+				return std::function<void(Args...)>(fn);
+			}
     	} else {
-    		return std::function<TReturn(typename Args::ref_t...)>(fn);
-    	}
-    }
-
-	template<typename T>
-	detail::Edge<T, false, true> R_I(T& t) {
-		return detail::Edge<T, false, true>::make(t);
-	}
-
-	template<typename T>
-	detail::Edge<T, true, true> R_C_I(T& t) {
-		return detail::Edge<T, true, true>::make(t);
-	}
-
-	template<typename T>
-	detail::Edge<T, false, false> RW_I(T& t) {
-		return detail::Edge<T, false, false>::make(t);
-	}
-
-//	template<typename T>
-//	detail::Edge<T, true, false> RW_C_I(T& t) {
-//		return detail::Edge<T, true, false>::make(t, false);
-//	}
-
-	template<typename T>
-	detail::Edge<cv::Ptr<T>, false, true, false, T> VAL_I(T t) {
-		cv::Ptr<T> ptr = new T(t);
-		return detail::Edge<decltype(ptr), false, true, false, T>::make(ptr);
-	}
+			if constexpr(CallableTraits<Tfn>::member_t::value) {
+				return std::function([fn](Args... values) ->  decltype(std::mem_fn(fn)(values...))  {
+					return std::mem_fn(fn)(values...);
+				});
+			} else {
+				return std::function<typename CallableTraits<Tfn>::return_type_t(Args...)>(fn);
+			}
+   	   }
+   }
 
 	template<bool Tconst, typename T>
     auto makeInternalEdge(T& val) {
 		if constexpr(Tconst) {
-			return R_I(val);
+			return R(val);
 		} else {
-			return RW_I(val);
+			return RW(val);
 		}
     }
 
@@ -587,11 +585,11 @@ class Plan {
 
 	void findNode(const string& name, cv::Ptr<Node>& found) {
     	CV_Assert(!name.empty());
-    	if(nodes_.empty())
+    	if(currentNodes_.empty())
     		return;
 
-    	if(nodes_.back()->name_ == name)
-    		found = nodes_.back();
+    	if(currentNodes_.back()->name_ == name)
+    		found = currentNodes_.back();
     }
 
     void makeGraph() {
@@ -610,7 +608,7 @@ class Plan {
      			n->tx_ = transactions_[name];
      			CV_Assert(!n->name_.empty());
      			CV_Assert(n->tx_);
-     			nodes_.push_back(n);
+     			currentNodes_.push_back(n);
  //        		cout << "make: " << std::this_thread::get_id() << " " << n->name_ << endl;
      		}
 
@@ -686,7 +684,7 @@ class Plan {
     	Global& global = Global::instance();
     	bool countLockContention = DebugFlags::PRINT_LOCK_CONTENTION & runtime_->debugFlags();
     	try {
-			for (auto& n : nodes_) {
+			for (auto& n : currentNodes_) {
 				btype = n->tx_->getBranchType();
 				bool isBranch = n->name_.substr(0, 6) == "branch";
 				bool isElse = n->name_.substr(0,6) == "[else]";
@@ -713,14 +711,14 @@ class Plan {
 						if(currentState.isEnabled_) {
 							if(currentState.isOnce_) {
 								if((btype == BranchType::ONCE)) {
-									currentState.condition_ = global.once(n->name_) && n->tx_->performPredicate(countLockContention);
+									currentState.condition_ = global.once(n->name_) && n->tx_->performPredicate();
 								} else if((btype == BranchType::PARALLEL_ONCE)) {
-									currentState.condition_ = !n->tx_->ran() && n->tx_->performPredicate(countLockContention);;
+									currentState.condition_ = !n->tx_->ran() && n->tx_->performPredicate();
 								} else {
 									CV_Assert(false);
 								}
 							} else {
-								currentState.condition_ = n->tx_->performPredicate(countLockContention);
+								currentState.condition_ = n->tx_->performPredicate();
 							}
 
 							currentState.isEnabled_ = currentState.isEnabled_ && currentState.condition_;
@@ -782,7 +780,7 @@ class Plan {
 							int res = ctx->execute(viewport, [countLockContention, n,currentState]() {
 								TimeTracker::getInstance()->execute(n->name_, [countLockContention, n,currentState](){
 //									cerr << "locked: " << currentState.branchID_ << "->" << n->name_ << endl;
-									n->tx_->perform(countLockContention);
+									n->tx_->perform();
 								});
 							});
 							if(res > 0) {
@@ -798,7 +796,7 @@ class Plan {
 							int res = ctx->execute(viewport, [countLockContention, n,currentState]() {
 								TimeTracker::getInstance()->execute(n->name_, [countLockContention, n,currentState](){
 //									cerr << "unlocked: " << currentState.branchID_ << "->" << n->name_ << endl;
-									n->tx_->perform(countLockContention);
+									n->tx_->perform();
 								});
 							});
 							if(res > 0) {
@@ -846,11 +844,14 @@ class Plan {
 	}
 
 	void clearGraph() {
+		//safe all nodes till the end of the plan because they might hold state!
+		std::copy(currentNodes_.begin(), currentNodes_.end(), std::back_inserter(allNodes_));
+
 		accesses_.clear();
 		branchStateStack_.clear();
 		branchStack_.clear();
 		transactions_.clear();
-		nodes_.clear();
+		currentNodes_.clear();
 	}
 
 	size_t id_ = Global::instance().apply<size_t>(Global::Keys::PLAN_CNT, [](size_t& v){
@@ -894,39 +895,45 @@ class Plan {
     	}
     	return ss.str();
     }
+
+//	template<typename ... Args, typename Tkey = decltype(runtime_)::element_type::Keys::Enum>
+//	cv::Ptr<Plan> set(std::tuple<Tkey, Args...> t) {
+////		auto wrapInner = wrap_callable<typename Args::ref_t ...>(fn);
+////
+////		const string id = make_id(this->space(), "set-fn", fn, args...);
+////        emit_access(id, R(*this));
+////        (emit_access(id, args ),...);
+////        auto plan = self<Plan>();
+////		std::function wrap = [plan, key, wrapInner](typename Args::ref_t ... values) {
+////			plan->runtime_->set(key, wrapInner(values...));
+////		};
+////
+////        add_transaction(runtime_->plainCtx(), id, wrap, args...);
+//		return self<Plan>();
+//	}
 public:
-    template<bool read, typename Tfn, typename ... Args>
-    struct edgefun_t {
-    	edgefun_t(Tfn& fn, Args ... args) {}
-    	using type = std::function<typename CallableTraits<Tfn>::return_t(typename Args::ref_t ...)>;
-    };
+//    template<bool read, typename Tfn, typename ... Args>
+//    struct edgefun_t<read, std::false_type, Tfn, Args...> {
+//    	edgefun_t(Tfn fn, Args ... args) {}
+//    	using return_type_t = typename CallableTraits<Tfn>::return_type_t;
+//    	static_assert(!std::is_same<return_type_t, std::false_type>::value, "Invalid callable passed");
+//    	using type = std::function<return_type_t(typename Args::ref_t ...)>;
+//    };
 
-
-    template<bool read, typename Tfn, typename ... Args, typename Tfun = typename edgefun_t<read, Tfn, Args...>::type>
-    static auto make_function_ptr(Tfn fn, Args ... args) {
-		return cv::makePtr<Tfun>(fn);
-    }
-
-    template<bool read, typename Tfn, typename ... Args>
-    static auto make_function_edge(Tfn fn, Args ...) {
-    	using fun_t = typename edgefun_t<read, Tfn, Args...>::type;
-		return detail::Edge<cv::Ptr<fun_t>, false, read, false>::make(cv::makePtr<fun_t>(fn));
-    }
-
-	template<typename T>
+    template<typename T>
 	struct Property : detail::Edge<const T, false, true, true> {
 		using parent_t = detail::Edge<const T, false, true, true>;
-		Property(Plan& plan, const T& val) : parent_t(parent_t::make(val)) {
+		Property(cv::Ptr<Plan> plan, const T& val) : parent_t(parent_t::make(plan, val)) {
 			Global::instance().makeSharedVar(val);
 		}
 	};
 
-	template<typename TeventClass, typename Tfn = std::function<std::vector<std::shared_ptr<TeventClass>>()>, typename Tparent = Edge<cv::Ptr<Tfn>, false, true, false>>
+	template<typename TeventClass, typename Tfn = std::function<std::vector<std::shared_ptr<TeventClass>>()>, typename Tparent = Edge<Tfn, false, true, false>>
 	struct Event : Tparent {
-		Event(const typename TeventClass::Type k) : Tparent(Tparent::make(make_function_ptr<true, Tfn>([k]() {
+		Event(cv::Ptr<Plan> plan, const typename TeventClass::Type k) : Tparent(Tparent::make(plan, wrap_callable<>([k]() {
 			return cv::v4d::event::fetch(k);
 		}))) {
-			static_assert(Tparent::func_t::value, "Internal error: Function not detected!");
+			static_assert(Tparent::func_t::value, "Internal error: Function not recognized!");
 		}
 	};
 
@@ -963,11 +970,11 @@ public:
 	}
 
     template <typename Tfn, typename ... Args>
-    typename std::enable_if<is_callable<Tfn>::value, cv::Ptr<Plan>>::type
+    typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value, cv::Ptr<Plan>>::type
     gl(Tfn fn, Args ... args) {
-    	auto wrap = wrap_callable<void>(fn, args...);
+    	auto wrap = wrap_callable<typename Args::ref_t...>(fn);
         const string id = make_id(this->space(), "gl-1", fn, args...);
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
         (emit_access(id, args ),...);
 		add_transaction(runtime_->glCtx(-1), id, wrap, args...);
 		return self<Plan>();
@@ -975,11 +982,11 @@ public:
 
     std::map<size_t, size_t> indexPointerMap_;
     template <typename Tedge, typename Tfn, typename ... Args>
-    typename std::enable_if<!is_callable<Tedge>::value, cv::Ptr<Plan>>::type
+    typename std::enable_if<std::is_base_of<EdgeBase, Tedge>::value, cv::Ptr<Plan>>::type
 	gl(Tedge indexEdge, Tfn fn, Args ... args) {
-        auto wrap = wrap_callable<void>(fn, indexEdge, args...);
+        auto wrap = wrap_callable<typename Tedge::ref_t, typename Args::ref_t...>(fn);
         const string id = make_id(this->space(), "gl-" + int_to_hex(indexEdge.ptr()), fn, args...);
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
         emit_access(id, indexEdge);
         (emit_access(id, args ),...);
         std::function<void((const int32_t&,typename Args::ref_t...))> functor(wrap);
@@ -991,9 +998,9 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> ext(Tfn fn, Args ... args) {
-    	auto wrap = wrap_callable<void>(fn, args...);
+    	auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
         const string id = make_id(this->space(), "ext", fn, args...);
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
         (emit_access(id, args ),...);
 		add_transaction(runtime_->extCtx(-1), id, wrap, args...);
 		return self<Plan>();
@@ -1001,9 +1008,9 @@ public:
 
     template <typename Tedge, typename Tfn, typename ... Args>
     cv::Ptr<Plan> ext(Tedge indexEdge, Tfn fn, Args ... args) {
-        auto wrap = wrap_callable<void>(fn, args...);
+        auto wrap = wrap_callable<typename Tedge::ref_t, typename Args::ref_t...>(fn);
         const string id = make_id(this->space(), "ext" + int_to_hex(indexEdge.ptr()), fn, args...);
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
         emit_access(id, indexEdge);
         (emit_access(id, args ),...);
         std::function<void((const int32_t&,typename Args::ref_t...))> functor(fn);
@@ -1011,22 +1018,34 @@ public:
 		return self<Plan>();
     }
 
+    template <typename Tedge>
+    typename std::enable_if<std::is_base_of_v<EdgeBase, Tedge>, cv::Ptr<Plan>>::type
+    branch(Tedge edge) {
+        auto wrap = wrap_callable<typename Tedge::ref_t>([](const bool& b){ return b; });
+        const string id = make_id(this->space(), "branch", wrap);
+        branchStack_.push_front({id, BranchType::PARALLEL});
+        emit_access(id, R(*this));
+		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap, edge);
+		return self<Plan>();
+    }
+
     template <typename Tfn>
-    cv::Ptr<Plan> branch(Tfn fn) {
-        auto wrap = wrap_callable<bool>(fn);
+    typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
+    branch(Tfn fn) {
+        auto wrap = wrap_callable(fn);
         const string id = make_id(this->space(), "branch", fn);
         branchStack_.push_front({id, BranchType::PARALLEL});
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap);
 		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(Tfn fn, Args ... args) {
-        auto wrap = wrap_callable<bool>(fn, args...);
+        auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
         const string id = make_id(this->space(), "branch", fn, args...);
         branchStack_.push_front({id, BranchType::PARALLEL});
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
         (emit_access(id, args ),...);
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap, args...);
 		return self<Plan>();
@@ -1034,10 +1053,10 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(int workerIdx, Tfn fn, Args ... args) {
-        auto wrapInner = wrap_callable<bool>(fn, args...);
+        auto wrapInner = wrap_callable<typename Args::ref_t ...>(fn);
         const string id = make_id(this->space(), "branch-pin" + std::to_string(workerIdx), fn, args...);
         branchStack_.push_front({id, BranchType::PARALLEL});
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
         (emit_access(id, args ),...);
 		std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... args){
 			return runtime_->workerIndex() == workerIdx && wrapInner(args...);
@@ -1048,10 +1067,10 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(BranchType::Enum type, Tfn fn, Args ... args) {
-        auto wrap = wrap_callable<bool>(fn, args...);
+        auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
         const string id = make_id(this->space(), "branch-type" + std::to_string((int)type), fn, args...);
         branchStack_.push_front({id, type});
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
         (emit_access(id, args ),...);
 		add_transaction(type, runtime_->plainCtx(), id, wrap, args...);
 		return self<Plan>();
@@ -1059,10 +1078,10 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> branch(BranchType::Enum type, int workerIdx, Tfn fn, Args ... args) {
-        auto wrapInner = wrap_callable<bool>(fn, args...);
+        auto wrapInner = wrap_callable<typename Args::ref_t ...>(fn);
         const string id = make_id(this->space(), "branch-type-pin" + std::to_string((int)type) + "-" + std::to_string(workerIdx), fn, args...);
         branchStack_.push_front({id, type});
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
         (emit_access(id, args ),...);
 		std::function<bool((typename Args::ref_t...))> wrap = [this, workerIdx, wrapInner](Args ... args){
 			return runtime_->workerIndex() == workerIdx && wrapInner(args...);
@@ -1074,10 +1093,10 @@ public:
 
 /*    template <typename Tfn>
     cv::Ptr<Plan> elseIfBranch(Tfn fn) {
-//        auto wrap = wrap_callable<void>(fn, args...);
+//        auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
     	auto current = branchStack_.front();
     	string id = "[elseif]" + current.first;
-    	emit_access(id, R_I(*this));
+    	emit_access(id, R(*this));
     	std::function functor = fn;
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, functor);
 		return self<Plan>();
@@ -1085,10 +1104,10 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> elseIfBranch(Tfn fn, Args ... args) {
-//        auto wrap = wrap_callable<void>(fn, args...);
+//        auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
     	auto current = branchStack_.front();
     	string id = "[elseif]" + current.first;
-    	emit_access(id, R_I(*this));
+    	emit_access(id, R(*this));
         (emit_access(id, args ),...);
         std::function<bool(typename Args::ref_t...)> functor = fn;
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, functor, args...);
@@ -1097,10 +1116,10 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> elseIfBranch(int workerIdx, Tfn fn, Args ... args) {
-//        auto wrap = wrap_callable<void>(fn, args...);
+//        auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
     	auto current = branchStack_.front();
     	string id = "[elseif]" + current.first;
-    	emit_access(id, R_I(*this));
+    	emit_access(id, R(*this));
     	(emit_access(id, args ),...);
         std::function<bool(typename Args::ref_t...)> functor = fn;
 		std::function<bool(typename Args::ref_t...)> wrap = [this, workerIdx, functor](Args ... args){
@@ -1112,10 +1131,10 @@ public:
 
     template <typename Tfn>
     cv::Ptr<Plan> elseIfBranch(BranchType::Enum type, Tfn fn) {
-//        auto wrap = wrap_callable<void>(fn, args...);
+//        auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
     	auto current = branchStack_.front();
     	string id = "[elseif]" + current.first;
-    	emit_access(id, R_I(*this));
+    	emit_access(id, R(*this));
     	std::function functor = fn;
 		add_transaction(type, runtime_->plainCtx(), id, functor);
 		return self<Plan>();
@@ -1123,10 +1142,10 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> elseIfBranch(BranchType::Enum type, Tfn fn, Args ... args) {
-//        auto wrap = wrap_callable<void>(fn, args...);
+//        auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
     	auto current = branchStack_.front();
     	string id = "[elseif]" + current.first;
-    	emit_access(id, R_I(*this));
+    	emit_access(id, R(*this));
     	(emit_access(id, args ),...);
         std::function<bool(typename Args::ref_t...)> functor = fn;
 		add_transaction(type, runtime_->plainCtx(), id, functor, args...);
@@ -1135,10 +1154,10 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> elseIfBranch(BranchType::Enum type, int workerIdx, Tfn fn, Args ... args) {
-//        auto wrap = wrap_callable<void>(fn, args...);
+//        auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
     	auto current = branchStack_.front();
     	string id = "[elseif]" + current.first;
-    	emit_access(id, R_I(*this));
+    	emit_access(id, R(*this));
         (emit_access(id, args ),...);
         std::function<bool(typename Args::ref_t...)> functor = fn;
         std::function<bool(typename Args::ref_t...)> wrap = [this, workerIdx, functor](Args ... args){
@@ -1153,7 +1172,7 @@ public:
     	auto current = branchStack_.front();
     	branchStack_.pop_front();
         string id = "[end]" + current.first;
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
         std::function functor = [](){ return true; };
 		add_transaction(current.second, runtime_->plainCtx(), id, functor);
 		return self<Plan>();
@@ -1162,25 +1181,37 @@ public:
     cv::Ptr<Plan> elseBranch() {
     	auto current = branchStack_.front();
     	string id = "[else]" + current.first;
-    	emit_access(id, R_I(*this));
+    	emit_access(id, R(*this));
 		std::function functor = [](){ return true; };
 		add_transaction(current.second, runtime_->plainCtx(), id, functor);
 		return self<Plan>();
     }
 
-    template <typename Tfn, typename ... Args>
-    cv::Ptr<Plan> fb(Tfn fn, Args ... args) {
-		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
-
-
-        const string id = make_id(this->space(), "fb", fn, args...);
-		emit_access(id, R_I(*this));
-		(emit_access(id, args ),...);
-
-		auto fbEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->fbCtx()->fb());
-		auto wrap = wrap_callable<void>(fn, fbEdge, args...);
-		add_transaction(runtime_->fbCtx(),id, wrap, fbEdge, args...);
+    template <typename Tfn, typename Tuple, size_t ... idx>
+    cv::Ptr<Plan> call(Tfn fn, Tuple&& args, std::index_sequence<idx...>) {
+		const string id = make_id(this->space(), "fb", fn, std::get<idx>(args)...);
+		emit_access(id, R(*this));
+		(emit_access(id, std::get<idx>(args) ),...);
+		auto wrap = wrap_callable<typename std::remove_reference<decltype(std::get<idx>(args))>::type::ref_t...>(fn);
+		add_transaction(runtime_->fbCtx(),id, wrap, std::get<idx>(args)...);
 		return self<Plan>();
+    }
+
+    template <size_t pos = 0, typename Tfn, typename ... Args>
+    cv::Ptr<Plan> fb(Tfn fn, Args ... args) {
+		using Tfb = typename std::tuple_element<pos, typename function_traits<Tfn>::argument_types>::type;
+		auto argsTuple = std::make_tuple(args...);
+		if constexpr(pos > 0) {
+			auto beforeFb = sub_tuple<0,pos>(argsTuple);
+			auto afterFb = sub_tuple<pos, sizeof...(args) - pos>(argsTuple);
+			auto fbEdge = std::make_tuple(makeInternalEdge<std::is_const<Tfb>::value>(runtime_->fbCtx()->fb()));
+			auto allTuple = std::tuple_cat(beforeFb, fbEdge, afterFb);
+			return call(fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
+		} else {
+			auto fbEdge = std::make_tuple(makeInternalEdge<std::is_const<Tfb>::value>(runtime_->fbCtx()->fb()));
+			auto allTuple = std::tuple_cat(fbEdge, argsTuple);
+			return call(fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
+		}
     }
 
     cv::Ptr<Plan> clear() {
@@ -1199,7 +1230,7 @@ public:
     	capture([](const cv::UMat& inputFrame, cv::UMat& f){
     		if(!inputFrame.empty())
     			inputFrame.copyTo(f);
-    	}, Edge<cv::UMat, false, false>::make(captureFrame_));
+    	}, Edge<cv::UMat, false, false>::make(self<Plan>(), captureFrame_));
 
         fb([](cv::UMat& framebuffer, const cv::UMat& f) {
         	if(!f.empty()) {
@@ -1208,26 +1239,18 @@ public:
         		else
         			f.copyTo(framebuffer);
         	}
-        }, Edge<cv::UMat, false, true>::make(captureFrame_));
+        }, Edge<cv::UMat, false, true>::make(self<Plan>(), captureFrame_));
 		return self<Plan>();
     }
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> capture(Tfn fn, Args ... args) {
-		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
-		using isconst_t = std::is_const<Tfb>;
-		using fbEdge_t = std::disjunction<
-			values_equal<isconst_t::value, true, decltype(R_I(runtime_->sourceCtx()->sourceBuffer()))>,
-			values_equal<isconst_t::value, false, decltype(RW_I(runtime_->sourceCtx()->sourceBuffer()))>
-		>;
-
-		auto srcEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->sourceCtx()->sourceBuffer());
-    	auto wrap = wrap_callable<void>(fn, srcEdge, args...);
+		auto srcEdge = makeInternalEdge<true>(runtime_->sourceCtx()->sourceBuffer());
+    	auto wrap = wrap_callable<typename decltype(srcEdge)::ref_t, typename Args::ref_t...>(fn);
 
         const string id = make_id(this->space(), "capture", fn, args...);
 
-		static_assert((std::is_same<Tfb,const cv::UMat>::value) || !"The first argument must be of type 'const cv::UMat&'");
-		emit_access(id, R_I(*this));
+		emit_access(id, R(*this));
 		(emit_access(id, args ),...);
 
 		std::function<void((
@@ -1240,11 +1263,11 @@ public:
     cv::Ptr<Plan> write() {
         fb([](const cv::UMat& framebuffer, cv::UMat& f) {
             framebuffer.copyTo(f);
-        }, Edge<cv::UMat, false, false>::make(writerFrame_));
+        }, Edge<cv::UMat, false, false>::make(self<Plan>(), writerFrame_));
 
     	write([](cv::UMat& outputFrame, const cv::UMat& f){
    			f.copyTo(outputFrame);
-    	}, Edge<cv::UMat, false, true>::make(writerFrame_));
+    	}, Edge<cv::UMat, false, true>::make(self<Plan>(), writerFrame_));
 		return self<Plan>();
     }
 
@@ -1254,10 +1277,10 @@ public:
 		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
 		static_assert((std::is_same<Tfb,cv::UMat>::value) || !"The first argument must be of type 'cv::UMat&'");
 		auto sinkEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->sinkCtx()->sinkBuffer());
-    	auto wrap = wrap_callable<void>(fn, sinkEdge, args...);
+    	auto wrap = wrap_callable<typename decltype(sinkEdge)::ref_t, typename Args::ref_t...>(fn);
 
         const string id = make_id(this->space(), "write", fn, args...);
-		emit_access(id, R_I(*this));
+		emit_access(id, R(*this));
 		(emit_access(id, args ),...);
 
 
@@ -1270,10 +1293,10 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> nvg(Tfn fn, Args... args) {
-        auto wrap = wrap_callable<void>(fn, args...);
+        auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
 
         const string id = make_id(this->space(), "nvg", fn, args...);
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
         (emit_access(id, args ),...);
 		add_transaction(runtime_->nvgCtx(), id, wrap, args...);
 		return self<Plan>();
@@ -1281,21 +1304,33 @@ public:
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> bgfx(Tfn fn, Args... args) {
-        auto wrap = wrap_callable<void>(fn, args...);
+        auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
 
         const string id = make_id(this->space(), "bgfx", fn, args...);
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
         (emit_access(id, args ),...);
 		add_transaction(runtime_->bgfxCtx(), id, wrap, args...);
 		return self<Plan>();
     }
 
+    template <typename ... Args>
+    cv::Ptr<Plan> plain(Args... args) {
+        auto fn = [](typename Args::ref_t ...){};
+        auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
+        const string id = make_id(this->space(), "plain", wrap, args...);
+        emit_access(id, R(*this));
+        (emit_access(id, args ),...);
+		add_transaction(runtime_->plainCtx(), id, wrap, args...);
+		return self<Plan>();
+    }
+
     template <typename Tfn, typename ... Args>
-    cv::Ptr<Plan> plain(Tfn fn, Args... args) {
-        auto wrap = wrap_callable<void>(fn, args...);
+    typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value, cv::Ptr<Plan>>::type
+    plain(Tfn fn, Args... args) {
+        auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
 
         const string id = make_id(this->space(), "plain", fn, args...);
-        emit_access(id, R_I(*this));
+        emit_access(id, R(*this));
         (emit_access(id, args ),...);
 		add_transaction(runtime_->plainCtx(), id, wrap, args...);
 		return self<Plan>();
@@ -1334,142 +1369,413 @@ public:
     	return self<Plan>();
     }
 
-    template<typename Tedge, typename Tkey = decltype(runtime_)::element_type::Keys::Enum>
-	typename std::enable_if<std::is_base_of_v<EdgeBase, Tedge>, cv::Ptr<Plan>>::type
-	set(Tkey key, Tedge val) {
-		auto plan = self<Plan>();
-        auto fn = [plan, key](decltype(val.ref()) v){
-        	plan->runtime_->set(key, v);
-        };
-
-        const string id = make_id(this->space(), "set", fn, val);
-        emit_access(id, R_I(*this));
-        emit_access(id, val);
-        std::function<void(decltype(val.ref()))> functor(fn);
-		add_transaction(runtime_->plainCtx(), id, functor, val);
-		return self<Plan>();
-	}
-
-	template<typename Tfn, typename ... Args, typename Tkey = decltype(runtime_)::element_type::Keys::Enum>
-	typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
-	set(Tkey key, Tfn fn, Args ... args) {
-		auto wrapInner = wrap_callable(fn, args...);
-
-		const string id = make_id(this->space(), "set-fn", fn, args...);
-        emit_access(id, R_I(*this));
-        (emit_access(id, args ),...);
-        auto plan = self<Plan>();
-		std::function wrap = [plan, key, wrapInner](typename Args::ref_t ... values) {
-			plan->runtime_->set(key, wrapInner(values...));
-		};
-
-        add_transaction(runtime_->plainCtx(), id, wrap, args...);
-		return self<Plan>();
-	}
-
-
-    template<typename TdstEdge, typename TsrcEdge>
-	typename std::enable_if<std::is_base_of_v<EdgeBase, TdstEdge> && std::is_base_of_v<EdgeBase, TsrcEdge>, cv::Ptr<Plan>>::type
-	assign(TdstEdge dst, TsrcEdge src) {
-    	auto fn = [](decltype(dst.ref()) d, decltype(src.ref()) s){
-        	d = s;
-        };
-
-        const string id = make_id(this->space(), "assign", fn, src);
-        emit_access(id, R_I(*this));
-        emit_access(id, dst);
-        emit_access(id, src);
-        std::function<void(decltype(dst.ref()), decltype(src.ref()))> functor(fn);
-		add_transaction(runtime_->plainCtx(), id, functor, dst, src);
-		return self<Plan>();
-	}
-
-	template<typename TdstEdge, typename Tfn, typename ... Args>
-	typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
-	assign(TdstEdge dst, Tfn srcFn, Args ... args) {
-		auto wrapInner = wrap_callable(srcFn, args...);
-
-		const string id = make_id(this->space(), "assign-fn", srcFn, dst, args...);
-        emit_access(id, R_I(*this));
-        (emit_access(id, args ),...);
-        (emit_access(id, dst ));
-
-		std::function wrap = [wrapInner](typename Args::ref_t ... values, decltype(dst.ref()) d) {
-			d = wrapInner(values...);
-		};
-
-        add_transaction(runtime_->plainCtx(), id, wrap, args..., dst);
-		return self<Plan>();
-	}
-
-	template<typename TsrcEdge, typename Tfn, typename ... Args>
-	typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
-	assign(Tfn dstFn, Args ... args, TsrcEdge src) {
-		auto wrapInner = wrap_callable(dstFn, args..., src);
-
-		const string id = make_id(this->space(), "assign-fn", dstFn, args..., src);
-        emit_access(id, R_I(*this));
-        (emit_access(id, dstFn));
-        (emit_access(id, src));
-        auto plan = self<Plan>();
-		std::function wrap = [wrapInner](typename Args::ref_t ... values, typename TsrcEdge::ref_t s) {
-			wrapInner(values...) = s.ref();
-		};
-
-        add_transaction(runtime_->plainCtx(), id, wrap, args..., src);
-		return self<Plan>();
-	}
-
-//	template<typename Tfn, typename ... Args>
-//	auto F(Tfn fn, Args ... args) {
-//		if constexpr(ReturnType<Tfn>::data_t::value) {
-//			std::function functor = [fn](typename Args::ref_t... args){
-//				return AssignableMemData<Tfn, typename ReturnType<Tfn>::type, typename Args::ref_t...>(fn, args...);
-//			};
-//
-//			return std::make_tuple(functor, args...);
-//		} else {
-//			auto wrap = wrap_callable(fn ,args...);
-//			return std::make_tuple(fn, args...);
-//		}
-//	}
-
-//	template<typename TdstTuple, typename TsrcTuple, size_t... TdstIdx, size_t... TsrcIdx>
-//	cv::Ptr<Plan> assign(TdstTuple dstTuple, TsrcTuple srcTuple, std::index_sequence<TdstIdx...> dstSeq, std::index_sequence<TsrcIdx...> srcSeq) {
-//		auto dstFn = make_function_ptr<false>(std::get<0>(std::forward<TdstTuple>(dstTuple)), std::get<TdstIdx + 1>(std::forward<TdstTuple>(dstTuple))...);
-//		auto srcFn = make_function_ptr<true>(std::get<0>(std::forward<TsrcTuple>(srcTuple)), std::get<TsrcIdx + 1>(std::forward<TsrcTuple>(srcTuple))...);
-//		const string id = make_id(this->space(), "assign-fn-fn", std::get<TdstIdx + 1>(std::forward<TdstTuple>(dstTuple))..., std::get<TsrcIdx + 1>(std::forward<TsrcTuple>(srcTuple))...);
-//        emit_access(id, R_I(*this));
-//        (emit_access(id, std::get<TdstIdx + 1>(std::forward<TdstTuple>(dstTuple))),...);
-//        (emit_access(id, std::get<TsrcIdx + 1>(std::forward<TsrcTuple>(srcTuple))),...);
-//        auto plan = self<Plan>();
-//
-//        std::function wrap = [dstFn, srcFn](decltype(std::get<TdstIdx + 1>(std::forward<TdstTuple>(dstTuple)).ref())... dstArgs, decltype(std::get<TsrcIdx + 1>(std::forward<TsrcTuple>(srcTuple)).ref())... srcArgs) {
-//        	dstFn->operator()(dstArgs...) = srcFn->operator()(srcArgs...);
+//    template<typename Tedge>
+//	typename std::enable_if<std::is_base_of_v<EdgeBase, Tedge>, cv::Ptr<Plan>>::type
+//	set(decltype(runtime_)::element_type::Keys::Enum key, Tedge val) {
+//		auto plan = self<Plan>();
+//        auto fn = [plan, key](decltype(val.ref()) v){
+//        	plan->runtime_->set(key, v);
 //        };
 //
-//        add_transaction(runtime_->plainCtx(), id, wrap, std::get<TdstIdx + 1>(std::forward<TdstTuple>(dstTuple))..., std::get<TsrcIdx + 1>(std::forward<TsrcTuple>(srcTuple))...);
+//        const string id = make_id(this->space(), "set", fn, val);
+//        emit_access(id, R(*this));
+//        emit_access(id, val);
+//        std::function<void(decltype(val.ref()))> functor(fn);
+//		add_transaction(runtime_->plainCtx(), id, functor, val);
 //		return self<Plan>();
 //	}
 //
-//	template<typename TdstTuple, typename TsrcTuple>
-//	typename std::enable_if<is_specialization_of<std::tuple, TdstTuple>::value && is_specialization_of<std::tuple, TsrcTuple>::value, cv::Ptr<Plan>>::type
-//	assign(TdstTuple dstTuple, TsrcTuple srcTuple) {
-//		using dst_idx_t = std::make_index_sequence<std::tuple_size<TdstTuple>::value - 1>;
-//		using src_idx_t = std::make_index_sequence<std::tuple_size<TsrcTuple>::value - 1>;
+//	template<typename Tfn, typename ... Args>
+//	typename std::enable_if<!std::is_base_of_v<EdgeBase, Tfn>, cv::Ptr<Plan>>::type
+//	set(decltype(runtime_)::element_type::Keys::Enum key, Tfn fn, Args ... args) {
+//		auto wrapInner = wrap_callable<typename Args::ref_t ...>(fn);
 //
-//		return assign(dstTuple, srcTuple, dst_idx_t(), src_idx_t());
+//		const string id = make_id(this->space(), "set-fn", fn, args...);
+//        emit_access(id, R(*this));
+//        (emit_access(id, args ),...);
+//        auto plan = self<Plan>();
+//		std::function wrap = [plan, key, wrapInner](typename Args::ref_t ... values) {
+//			plan->runtime_->set(key, wrapInner(values...));
+//		};
+//
+//        add_transaction(runtime_->plainCtx(), id, wrap, args...);
+//		return self<Plan>();
 //	}
-//
 
 
-	//&& (std::is_base_of_v<EdgeBase, DstArgs> && ...)
-	// && (std::is_base_of_v<EdgeBase, SrcArgs> && ...)
-	template<typename Tdst, typename Tsrc, typename ... DstArgs, typename ... SrcArgs>
-	cv::Ptr<Plan>
-	assign(std::function<Tdst(typename DstArgs::ref_t...)> dstFn, DstArgs ... dargs, std::function<Tsrc(typename SrcArgs::ref_t...)> srcFn, SrcArgs ... sargs) {
+	template <typename Tkey, typename Tfn, typename Ttuple, size_t ... idx>
+	auto make_setter_function(Tkey key, Tfn fn, Ttuple&& args, std::index_sequence<idx...>) {
+		auto plan = self<Plan>();
+		return std::function([plan, key, fn](decltype(std::get<idx>(args).ref()) ... values){
+        	plan->runtime_->set(key, fn(values...));
+        });
+	}
+
+	template <typename Ttuple>
+	auto make_setter_function(Ttuple&& values) {
+		using tuple_t = typename std::remove_reference<Ttuple>::type;
+		constexpr size_t sz = std::tuple_size<tuple_t>::value;
+		static_assert(std::is_enum<typename std::tuple_element<0, tuple_t>::type>::value, "Can not set a property without a key as first argument");
+		static_assert(sz > 1, "Can not set a property without value");
+		auto key = std::get<0>(values);
+		auto val = std::get<1>(values);
+		if constexpr(!is_callable<decltype(val)>::value) {
+			static_assert(sz == 2, "Can not set a Property from multiple Edges");
+			auto plan = self<Plan>();
+			return std::function([plan, key](decltype(val.ref()) v){
+	        	plan->runtime_->set(key, v);
+	        });
+		} else {
+
+	////		static_assert(, "The first argument after the key must either be an Edge or a Callable");
+			auto fn = std::get<1>(values);
+			auto args = sub_tuple<1, sz - 1>(values);
+			auto plan = self<Plan>();
+			return make_setter_function(key, fn, args, std::make_index_sequence<sz - 2>());
+		}
+	}
+
+	template <typename TwrapFn, typename Ttuple, size_t ... idx>
+	cv::Ptr<Plan> set(const string& id, TwrapFn wrap, Ttuple&& args, std::index_sequence<idx...>) {
+        emit_access(id, R(*this));
+        (emit_access(id, std::get<idx>(args)),...);
+        add_transaction(runtime_->plainCtx(), id, wrap, std::get<idx>(args)...);
 		return self<Plan>();
 	}
+
+
+	template <typename Ttuple, size_t ... idx>
+	cv::Ptr<Plan> set(Ttuple&& values, std::index_sequence<idx...>) {
+		const string id = make_id(this->space(), "set-fn", std::get<idx>(values)...);
+		std::function wrap = make_setter_function(values);
+		auto args = sub_tuple<1, std::tuple_size<Ttuple>::value - 1>(values);
+		return set(id, wrap, std::forward<decltype(args)>(args), std::make_index_sequence<std::tuple_size<decltype(args)>::value>());
+	}
+
+	template <typename Tedge>
+	cv::Ptr<Plan> set(std::tuple<V4D::Keys::Enum,Tedge>&& values) {
+		using sz = std::tuple_size<std::tuple<V4D::Keys::Enum,Tedge>>;
+		return set(std::forward<std::tuple<V4D::Keys::Enum, Tedge>>(values), std::make_index_sequence<sz::value>());
+	}
+
+	template<typename Tedge>
+	cv::Ptr<Plan> set(V4D::Keys::Enum&& key, Tedge&& e) {
+		return set(std::forward_as_tuple(key, e));
+	}
+
+	template<typename ... Args>
+	typename std::enable_if<(is_specialization_of<std::tuple, Args>::value && ...),cv::Ptr<Plan>>::type
+	set(Args&& ... tuples) {
+		(set(std::forward<Args>(tuples)),...);
+		return self<Plan>();
+	}
+
+//    template<typename TdstEdge, typename TfnOp, typename TsrcEdge>
+//	typename std::enable_if<std::is_base_of_v<EdgeBase, TdstEdge> && std::is_base_of_v<EdgeBase, TsrcEdge>  && is_callable<TfnOp>::value, cv::Ptr<Plan>>::type
+//	op(TdstEdge dst, TfnOp op, TsrcEdge src) {
+//    	auto fn = [op](decltype(dst.ref()) d, decltype(src.ref()) s){
+//        	op(d, s);
+//        };
+//
+//        const string id = make_id(this->space(), "op", op, src);
+//        emit_access(id, R(*this));
+//        emit_access(id, dst);
+//        emit_access(id, src);
+//        std::function<void(decltype(dst.ref()), decltype(src.ref()))> functor(fn);
+//		add_transaction(runtime_->plainCtx(), id, functor, dst, src);
+//		return self<Plan>();
+//	}
+
+//	template<typename TfnOp, typename Tfn, typename ... Args>
+//	auto
+//	uop(TfnOp op, Tfn srcFn, Args ... args) {
+//		auto wrapSrc = wrap_callable(srcFn, args.ref()...);
+//		using ret_src_t = typename CallableTraits<decltype(wrapSrc)>::return_type_t;
+//		auto wrapOp = wrap_callable<std::false_type, TfnOp, void, ret_src_t>(op);
+//		using ret_op_t = typename CallableTraits<decltype(wrapOp)>::return_type_t;
+//		static_assert(!std::is_same<ret_src_t, std::false_type>::value, "Invalid src callable passed to Plan::op");
+//		static_assert(!std::is_same<ret_op_t, std::false_type>::value, "Invalid op callable passed to Plan::op");
+//
+//		constexpr bool hasReturn = !std::is_same<ret_op_t, void>::value;
+//		using val_t = typename std::disjunction<
+//						values_equal<hasReturn, true, ret_op_t>,
+//						default_type<int>
+//					>::type;
+//
+//		cv::Ptr<val_t> retPtr;
+//		if constexpr(hasReturn) {
+//			retPtr = new ret_op_t();
+//		}
+//
+//
+//		const string id = make_id(this->space(), "unary-op", srcFn, args...);
+//        emit_access(id, R(*this));
+//        (emit_access(id, args ),...);
+//
+//		std::function wrap = [retPtr, hasReturn, wrapOp, wrapSrc](typename Args::ref_t ... values) {
+//			if constexpr(hasReturn) {
+//				(*retPtr.get()) = wrapOp(wrapSrc(values...));
+//			} else {
+//				wrapOp(wrapSrc(values...));
+//			}
+//
+//		};
+//
+//		add_transaction(runtime_->plainCtx(), id, wrap, args...);
+//		if constexpr(hasReturn) {
+//			return detail::Edge<decltype(retPtr), false, true, false, val_t>::make(self<Plan>(), retPtr);
+//		} else {
+//			return self<Plan>();
+//		}
+//	}
+
+	template<bool TmakeEdge = true, typename TfnOp, typename ... Args>
+	auto make_op(TfnOp fn, Args ... args) {
+		auto op = wrap_callable<typename Args::ref_t ...>(fn);
+		using ret_t = typename CallableTraits<decltype(op)>::return_type_t;
+		constexpr bool hasReturn = !std::is_same<ret_t, void>::value;
+		static_assert(hasReturn || !TmakeEdge, "Operators may not have a return type of void.");
+		using ret_no_ref_t = typename std::remove_reference<ret_t>::type;
+		static_assert(!std::is_same<ret_no_ref_t, std::false_type>::value, "Invalid callable passed to Plan::op");
+		constexpr bool returnsRef = std::is_lvalue_reference<ret_t>::value;
+		constexpr bool returnsPtr = std::is_pointer<ret_no_ref_t>::value;
+
+		using val_t = typename std::disjunction<
+						values_equal<hasReturn, true, typename std::remove_const<typename std::remove_pointer<ret_no_ref_t>::type>::type>,
+						default_type<int>
+					>::type;
+
+
+		if constexpr(hasReturn && TmakeEdge) {
+			cv::Ptr<cv::Ptr<val_t>> retPtr = new cv::Ptr<val_t>(cv::Ptr<val_t>(), nullptr);
+			std::function wrap = [op](cv::Ptr<val_t>& v, typename Args::ref_t ... values) mutable {
+				if constexpr(returnsPtr) {
+					v = cv::Ptr<val_t>(cv::Ptr<val_t>(),op(values...));
+				} else if constexpr(returnsRef) {
+					v = cv::Ptr<val_t>(cv::Ptr<val_t>(),&op(values...));
+				} else {
+					v = cv::Ptr<val_t>(cv::Ptr<val_t>(),new val_t(op(values...)));
+				}
+			};
+
+			const string id = make_id(this->space(), "nary-op", wrap, args...);
+			emit_access(id, R(*this));
+			(emit_access(id, args ),...);
+
+			auto ptrEdge = detail::Edge<cv::Ptr<cv::Ptr<val_t>>, false, false, false, cv::Ptr<val_t>, true>::make(self<Plan>(), retPtr);
+			add_transaction(runtime_->plainCtx(), id, wrap, ptrEdge, args...);
+
+			return detail::Edge<cv::Ptr<val_t>, false, false, false, val_t>::make(self<Plan>(), *retPtr.get());
+		} else {
+			std::function wrap = [op](typename Args::ref_t ... values) {
+				op(values...);
+			};
+
+			const string id = make_id(this->space(), "nary-op", wrap, args...);
+			emit_access(id, R(*this));
+			(emit_access(id, args ),...);
+			add_transaction(runtime_->plainCtx(), id, wrap, args...);
+			return self<Plan>();
+		}
+	}
+
+
+
+//	template<typename TdstEdge, typename TfnOp, typename ... Args>
+//	auto op(TdstEdge dst, TfnOp op, Args ... args) {
+//		using ret_t = typename CallableTraits<TfnOp>::return_type_t;
+//		static_assert(!std::is_same<ret_t, std::false_type>::value, "Invalid callable passed to Plan::op");
+//		constexpr bool hasReturn = !std::is_same<ret_t, void>::value;
+//		using val_t = typename std::disjunction<
+//						values_equal<hasReturn, true, ret_t>,
+//						default_type<int>
+//					>::type;
+//
+//		cv::Ptr<val_t> retPtr;
+//		if constexpr(hasReturn) {
+//			retPtr = new ret_t();
+//		}
+//
+//		std::function wrap = [retPtr,op](typename TdstEdge::ref_t d, typename Args::ref_t ... values) {
+//			if constexpr(hasReturn) {
+//				(*retPtr.get()) = op(d, values...);
+//			} else {
+//				op(d, values...);
+//			}
+//		};
+//
+//		const string id = make_id(this->space(), "op", wrap, dst, args...);
+//		emit_access(id, R(*this));
+//		(emit_access(id, args ),...);
+//		(emit_access(id, dst ));
+//
+//
+//		add_transaction(runtime_->plainCtx(), id, wrap, dst, args...);
+//		if constexpr(hasReturn) {
+//			return detail::Edge<decltype(retPtr), false, true, false, val_t>::make(self<Plan>(), retPtr);
+//		} else {
+//			return self<Plan>();
+//		}
+//	}
+
+
+	template<Operators Top, typename ... Edges>
+	cv::Ptr<Plan> op(Edges ... edges){
+		return make_op<false>(make_operator_func<check_op<Top, Edges...>::value>(edges...), edges...);
+	}
+
+	template<typename ... Edges>
+	cv::Ptr<Plan> assign(Edges ... edges){
+		return make_op<false>(make_operator_func<check_op<ASSIGN_, Edges...>::value>(edges...), edges...);
+	}
+
+	template<typename ... Edges>
+	cv::Ptr<Plan> construct(Edges ... edges){
+		return make_op<false>(make_operator_func<check_op<CONSTRUCT_, Edges...>::value>(edges...), edges...);
+	}
+
+	template<Operators Top, typename ... Edges>
+	auto OP(Edges ... edges){
+		return make_op(make_operator_func<check_op<Top, Edges...>::value>(edges...), edges...);
+	}
+
+	template<typename ... Edges>
+	auto operator()(Edges&& ... edges){
+		return OP<Operators::CONSTRUCT_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto IF(Edges&& ... edges){
+		return OP<Operators::IF_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto ASSIGN(Edges&& ... edges){
+		return OP<Operators::ASSIGN_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto SUB(Edges&& ... edges){
+		return OP<Operators::SUB_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto MUL(Edges&& ... edges){
+		return OP<Operators::MUL_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto DIV(Edges&& ... edges){
+		return OP<Operators::DIV_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto MOD(Edges&& ... edges){
+		return OP<Operators::MOD_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto INCL(Edges&& ... edges){
+		return OP<Operators::INCL_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto INCR(Edges&& ... edges){
+		return OP<Operators::INCR_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto DECL(Edges&& ... edges){
+		return OP<Operators::DECL_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto DECR(Edges&& ... edges){
+		return OP<Operators::DECR_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto AND(Edges&& ... edges){
+		return OP<Operators::AND_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto OR(Edges&& ... edges){
+		return OP<Operators::OR_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto EQ(Edges&& ... edges){
+		return OP<Operators::EQ_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto NEQ(Edges&& ... edges){
+		return OP<Operators::NEQ_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto LT(Edges&& ... edges){
+		return OP<Operators::LT_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto GT(Edges&& ... edges){
+		return OP<Operators::GT_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto LE(Edges&& ... edges){
+		return OP<Operators::LE_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto GE(Edges&& ... edges){
+		return OP<Operators::GE_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto NOT(Edges&& ... edges){
+		return OP<Operators::NOT_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto XOR(Edges&& ... edges){
+		return OP<Operators::XOR_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto BAND(Edges&& ... edges){
+		return OP<Operators::BAND_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto BOR(Edges&& ... edges){
+		return OP<Operators::BOR_>(edges...);
+	}
+
+
+	template<typename ... Edges>
+	auto SHL(Edges&& ... edges){
+		return OP<Operators::SHL_>(edges...);
+	}
+
+	template<typename ... Edges>
+	auto SHR(Edges&& ... edges){
+		return OP<Operators::SHR_>(edges...);
+	}
+
+	template<typename Tfn, typename ... Args>
+	auto F(Tfn src, Args ... args) {
+		return make_op(src, args...);
+	}
+
+
+	template<typename ... Args>
+	auto _(Args&& ... args) {
+		return std::make_tuple(std::forward<const Args>(args)...);
+	}
+
 
 	template<typename TsubPlan, typename Tparent, typename ... Args>
 	auto _sub(Tparent* parent, Args&& ... args) {
@@ -1497,21 +1803,21 @@ public:
     }
 
 	template<typename T>
-	detail::Edge<T, false, true> R(T& t) {
-		return detail::Edge<T, false, true>::make(t);
+	detail::Edge<T, false, true> R(const T& t) {
+		return detail::Edge<T, false, true>::make(self<Plan>(), t);
 	}
 
 	template<typename T>
-	detail::Edge<T, false, true, true> RS(T& t) {
+	detail::Edge<T, false, true, true> RS(const T& t) {
 		if(!Global::instance().checkShared(*this, t)) {
 			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to declare it?.");
 		}
-		return detail::Edge<T, false, true, true>::make(t);
+		return detail::Edge<T, false, true, true>::make(self<Plan>(), t);
 	}
 
 	template<typename T>
 	detail::Edge<T, false, false> RW(T& t) {
-		return detail::Edge<T, false, false>::make(t);
+		return detail::Edge<T, false, false>::make(self<Plan>(), t);
 	}
 
 	template<typename T>
@@ -1519,33 +1825,45 @@ public:
 		if(!Global::instance().checkShared(*this, t)) {
 			throw std::runtime_error("You declare a non-shared variable as shared. Maybe you forgot to declare it?.");
 		}
-		return detail::Edge<T, false, false, true>::make(t);
+		return detail::Edge<T, false, false, true>::make(self<Plan>(), t);
 	}
 
 	template<typename T>
 	detail::Edge<T, true, true, true> CS(T& t) {
 		if(Global::instance().checkShared(*this, t)) {
-			return detail::Edge<T, true, true, true>::make(t);
+			return detail::Edge<T, true, true, true>::make(self<Plan>(), t);
 		} else {
 			throw std::runtime_error("You are trying to safe-copy a non-shared variable. Maybe you forgot to declare it?.");
 		}
 	}
 
 	template<typename T>
-	detail::Edge<cv::Ptr<T>, false, true, false, T> V(T t) {
+	detail::Edge<cv::Ptr<T>, false, true, false, T, true> V(T t) {
 		auto ptr = cv::makePtr<T>(t);
-		return detail::Edge<decltype(ptr), false, true, false, T>::make(ptr);
+		return detail::Edge<decltype(ptr), false, true, false, T, true>::make(self<Plan>(), ptr);
 	}
 
-	template<typename Tval, typename Tkey = decltype(runtime_)::element_type::Keys::Enum>
-	Property<Tval> P(Tkey key) {
+	template<typename Tval>
+	Property<Tval> P(V4D::Keys::Enum key) {
 		const auto& ref = runtime_->get<Tval>(key);
-		return Property<Tval>(*this, ref);
+		return Property<Tval>(self<Plan>(), ref);
+	}
+
+	template<typename Tval>
+	Property<Tval> P(RunState::Keys::Enum key) {
+		const auto& ref = RunState::instance().get<Tval>(key);
+		return Property<Tval>(self<Plan>(), ref);
+	}
+
+	template<typename Tval>
+	Property<Tval> P(Global::Keys::Enum key) {
+		const auto& ref = Global::instance().get<Tval>(key);
+		return Property<Tval>(self<Plan>(), ref);
 	}
 
 	template<typename Tclass>
 	Event<Tclass> E(typename Tclass::Type key) {
-		return Event<Tclass>(key);
+		return Event<Tclass>(self<Plan>(), key);
 	}
 
 	template<typename Tplan, typename ... Args>
@@ -1570,7 +1888,6 @@ public:
 
 		cv::Ptr<Tplan> plan;
 		Global& global = Global::instance();
-		RunState& state = RunState::instance();
 
 		std::vector<std::thread*> threads;
 		{
@@ -1589,7 +1906,9 @@ public:
 				const string title = plan->runtime_->title();
 				auto src = plan->runtime_->getSource();
 				auto sink = plan->runtime_->getSink();
-				state.set<size_t>(RunState::Keys::WORKERS_STARTED, workers);
+				std::cerr << "workers: " << workers << std::endl;
+				global.set<size_t>(Global::Keys::WORKERS_STARTED, workers);
+//				std::cerr << "workers: " << global.get<size_t>(Global::Keys::WORKERS_STARTED) << std::endl;
 				static std::mutex worker_init_mtx_;
 				if(!(plan->runtime_->debugFlags() & DebugFlags::DONT_PAUSE_LOG)) {
 					CV_LOG_WARNING(&v4d_tag, "Temporary setting log level to warning.");
@@ -1673,7 +1992,7 @@ public:
 			});
 			CV_LOG_WARNING(&v4d_tag, "Setting loglevel to INFO");
 			cv::utils::logging::setLogLevel(cv::utils::logging::LOG_LEVEL_INFO);
-			CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << state.get<size_t>(RunState::Keys::WORKERS_STARTED) << " workers.");
+			CV_LOG_INFO(&v4d_tag, "Starting pipelines with " << global.get<size_t>(Global::Keys::WORKERS_STARTED) << " workers.");
 		} catch(std::exception& ex) {
 			CV_Error_(cv::Error::StsError, ("Main plan->runtime_: %s", ex.what()));
 		}
@@ -1703,6 +2022,473 @@ public:
 		}
     }
 };
+
+//template<typename Tfirst, typename ... Edges>
+//typename std::enable_if<(std::is_base_of<EdgeBase, Edges>::value && ...), std::tuple<Tfirst, Edges...>>::type
+//operator,(Tfirst&& first, Edges&& ... edges){
+//	return std::make_tuple<Tfirst, Edges...>(std::forward<Tfirst>(first), std::forward<Edges...>(edges...));
+//}
+
+
+
+
+template<typename TedgeL, typename ... Edges>
+auto operator+(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<ADD_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator+(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator+(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator+(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator+(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator+(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator+(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator-(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<SUB_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator-(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator-(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator-(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator-(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator-(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator-(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator*(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<MUL_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator*(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator*(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator*(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator*(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator*(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator*(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator/(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<DIV_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator/(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator/(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator/(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator/(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator/(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator/(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+template<typename TedgeL, typename ... Edges>
+auto operator%(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<MOD_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator%(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator%(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator%(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator%(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator%(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator%(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename ... Edges>
+auto operator++(const std::tuple<Edges...>& tuple){
+	return Operation::op<INCL_>(tuple);
+}
+
+template<typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator++(const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& e){
+	return operator++(std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(e)));
+}
+
+template<typename T>
+auto operator++(const Plan::Property<T>& rhs){
+	return operator--(std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename T>
+auto operator++(const Plan::Event<T>& rhs){
+	return operator--(std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename ... Edges>
+auto operator++(const std::tuple<Edges...>& tuple, int){
+	return Operation::op<INCR_>(tuple);
+}
+
+template<typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator++(const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& e, int){
+	return operator++(std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(e)));
+}
+
+template<typename T>
+auto operator++(const Plan::Property<T>& rhs, int){
+	return operator++(std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename T>
+auto operator++(const Plan::Event<T>& rhs, int){
+	return operator++(std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename ... Edges>
+auto operator--(const std::tuple<Edges...>& tuple){
+	return Operation::op<DECL_>(tuple);
+}
+
+template<typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator--(const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& e){
+	return operator--(std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(e)));
+}
+
+template<typename T>
+auto operator--(const Plan::Property<T>& rhs){
+	return operator--(std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename T>
+auto operator--(const Plan::Event<T>& rhs){
+	return operator--(std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename ... Edges>
+auto operator--(const std::tuple<Edges...>& tuple, int){
+	return Operation::op<DECR_>(tuple);
+}
+
+template<typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator--(const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& e, int){
+	return operator--(std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(e)));
+}
+
+template<typename T>
+auto operator--(const Plan::Property<T>& rhs, int){
+	return operator--(std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename T>
+auto operator--(const Plan::Event<T>& rhs, int){
+	return operator--(std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator&&(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<AND_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator&&(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator&&(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator&&(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator&&(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator&&(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator&&(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+
+template<typename TedgeL, typename ... Edges>
+auto operator||(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<OR_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator||(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator||(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator||(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator||(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator||(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator||(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator==(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<EQ_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator==(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator==(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator==(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator==(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator==(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator==(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator!=(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<NEQ_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator!=(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator!=(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator!=(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator!=(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator!=(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator!=(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+template<typename TedgeL, typename ... Edges>
+auto operator<(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<LT_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator<(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator<(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator<(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator<(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator<(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator<(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator>(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<GT_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator>(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator>(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator>(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator>(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator>(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator>(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+template<typename TedgeL, typename ... Edges>
+auto operator<=(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<LE_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator<=(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator<=(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator<=(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator<=(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator<=(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator<=(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator>=(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<GE_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator>=(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator>=(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator>=(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator>=(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator>=(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator>=(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename ... Edges>
+auto operator!(const std::tuple<Edges...>& tuple){
+	return Operation::op<NOT_>(tuple);
+}
+
+template<typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator!(const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& e){
+	return operator!(std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(e)));
+}
+
+template<typename T>
+auto operator!(const Plan::Property<T>& rhs){
+	return operator!(std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename T>
+auto operator!(const Plan::Event<T>& rhs){
+	return operator!(std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator^(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<XOR_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator^(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator^(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator^(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator^(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator^(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator^(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator&(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<BAND_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator&(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator&(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator&(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator&(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator&(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator&(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator|(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<BAND_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator|(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator|(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator|(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator|(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator|(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator|(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator<<(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<SHL_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator<<(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator<<(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator<<(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator<<(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator<<(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator<<(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename TedgeL, typename ... Edges>
+auto operator>>(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<SHR_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator>>(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator>>(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator>>(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator>>(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator>>(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator>>(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
 
 } /* namespace v4d */
 } /* namespace cv */

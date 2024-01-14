@@ -12,6 +12,7 @@
 
 #include <vector>
 #include <string>
+#include <utility>
 
 using std::vector;
 using std::string;
@@ -187,6 +188,11 @@ public:
     	facemark_->loadModel("modules/v4d/assets/models/lbfmodel.yaml");
 	}
 
+	static cv::Ptr<FaceFeatureExtractor> make(const cv::Size& inputSize, const float& inputScale) {
+		return cv::Ptr<FaceFeatureExtractor>(new FaceFeatureExtractor(inputSize, inputScale));
+	}
+
+
 	bool extract(const cv::UMat& inputFrame, FaceFeatures& outputFeatures) {
 		shapes_.clear();
 		faceRects_.clear();
@@ -217,10 +223,6 @@ static void adjust_saturation(const cv::UMat &srcBGR, cv::UMat &dstBGR, float fa
     cvtColor(tmp, dstBGR, cv::COLOR_HLS2BGR);
 }
 
-static void present(cv::UMat& framebuffer, const cv::UMat& result) {
-	cvtColor(result, framebuffer, cv::COLOR_BGR2BGRA);
-}
-
 using namespace cv::v4d;
 using namespace cv::v4d::event;
 
@@ -243,6 +245,8 @@ public:
 		bool fullscreen_ = false;
 		//Enable or disable the effect
 		bool enabled_ = true;
+
+		size_t frame_cnt = 0;
 
 		enum State {
 			ON,
@@ -269,16 +273,24 @@ public:
 
 	FaceFeatures features_;
 private:
-	using K = V4D::Keys;
+	using G_ = Global::Keys;
+	using S_ = RunState::Keys;
+	using K_ = V4D::Keys;
+	using M_ = Mouse::Type;
+
+	float scale_ = 1;
+	cv::Size size_;
+	const cv::Size downSize_ = { 640, 360 };
 
 	Params& params_;
 	Frames frames_;
-	cv::Size downSize_;
-
 	cv::Ptr<FaceFeatureExtractor> extractor_;
 
-	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
-	Event<Mouse> releaseEvents_ = E<Mouse>(Mouse::Type::PRESS);
+	Property<cv::Rect> vp_ = P<cv::Rect>(K_::VIEWPORT);
+	Property<size_t> numWorkers_ = P<size_t>(G_::WORKERS_STARTED);
+	Property<size_t> workerIndex_ = P<size_t>(S_::WORKER_INDEX);
+
+	Event<Mouse> releaseEvents_ = E<Mouse>(M_::PRESS);
 
 	static void prepare_frames(const cv::UMat& framebuffer, const cv::Size& downSize, Frames& frames) {
 		cvtColor(framebuffer, frames.orig_, cv::COLOR_BGRA2BGR);
@@ -292,6 +304,10 @@ private:
 		}
 
 		return params.enabled_;
+	}
+
+	static bool is_my_turn(const size_t& cnt, const size_t& numWorkers, const size_t& workerIndex){
+		return cnt % numWorkers == workerIndex;
 	}
 
 	static void compose_result(const cv::Rect& vp, const cv::UMat& src, Frames& frames, const Params& params) {
@@ -312,6 +328,7 @@ private:
 		params.state_ = state;
 	}
 
+	std::any any;
 	cv::Ptr<FaceFeatureMasksPlan> prepareFeatureMasksPlan_;
 	cv::Ptr<BeautyFilterPlan> beautyFilterPlan_;
 public:
@@ -365,36 +382,36 @@ public:
 	}
 
 	void setup() override {
-		plain([](const cv::Rect& vp, cv::Size& downSize, cv::Ptr<FaceFeatureExtractor>& extractor) {
-	    	int w = vp.width;
-	    	int h = vp.height;
-	    	downSize = { 480, 270 };
-	    	std::cerr << downSize << std::endl;
-	    	extractor = cv::makePtr<FaceFeatureExtractor>(downSize, w / double(downSize.width));
-		}, vp_, RW(downSize_), RW(extractor_));
+		assign(RW(size_), F(&cv::Rect::size, vp_));
+		assign(RW(scale_), F(aspect_preserving_scale, R(size_), R(downSize_)));
+		construct(RW(extractor_), R(downSize_), R(scale_));
 	}
 
 	void infer() override {
-		set(K::FULLSCREEN, &Params::fullscreen_, CS(params_));
-		set(K::STRETCHING, &Params::stretch_, CS(params_));
+		set(_(K_::FULLSCREEN, CS(params_.fullscreen_)),
+			_(K_::STRETCHING, CS(params_.stretch_)));
 
-		capture()
-		->fb(prepare_frames, R(downSize_), RW(frames_));
+		capture();
+		fb(prepare_frames, R(downSize_), RW(frames_));
 
-		branch(is_enabled, RWS(params_), releaseEvents_)
-			->branch(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RW(features_))
+		branch((RWS(params_.enabled_) = (IF(F(&Mouse::List::empty, releaseEvents_),CS(params_.enabled_),!CS(params_.enabled_)))))
+			->branch(++RWS(params_.frame_cnt) % numWorkers_ == workerIndex_)
+				->plain(RW(std::cerr) << V("Extracting worker: ") << workerIndex_ << V('\n'))
+				->branch(!(F(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RW(features_))));
+					assign(RWS(params_.state_), V(Params::NOT_DETECTED))
+				->endBranch()
+			->endBranch()
+			->branch(!(F(&FaceFeatures::empty, R(features_))));
+				assign(RWS(params_.state_), V(Params::ON))
 				->subInfer(prepareFeatureMasksPlan_)
 				->subInfer(beautyFilterPlan_)
-				->assign(RWS(params_.state_), V(Params::ON))
-			->elseBranch()
-				->assign(RWS(params_.state_), V(Params::NOT_DETECTED))
 			->endBranch()
 		->elseBranch()
 			->assign(RWS(params_.state_), V(Params::OFF))
 		->endBranch();
 
 		plain(compose_result, vp_, R(frames_.stitched_), RW(frames_), CS(params_))
-		->fb(present, R(frames_.result_));
+		->fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2BGRA), V(0));
 	}
 };
 
@@ -475,10 +492,10 @@ int main(int argc, char **argv) {
 
 	cv::Rect viewport(0, 0, 1280, 720);
 	BeautyDemoPlan::Params params;
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::LOWER_WORKER_PRIORITY);
+	cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::DEFAULT);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
-    Plan::run<BeautyDemoPlan>(5, params);
+    Plan::run<BeautyDemoPlan>(2, params);
 
     return 0;
 }

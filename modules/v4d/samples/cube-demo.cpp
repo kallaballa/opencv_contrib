@@ -21,13 +21,13 @@ public:
 	}
 
 	void teardown() override {
-		gl(&CubeScene::destroy, RW(scene_));
+		gl(&CubeScene::destroy, R(scene_));
 	}
 };
 
 int main() {
 	cv::Rect viewport(0, 0, 1280, 720);
-	cv::Ptr<V4D> runtime = V4D::init(viewport, "Cube Demo", AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::LOWER_WORKER_PRIORITY);
+	cv::Ptr<V4D> runtime = V4D::init(viewport, "Cube Demo", AllocateFlags::IMGUI);
 	Plan::run<CubeDemoPlan>(0);
 
 	return 0;

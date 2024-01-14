@@ -72,7 +72,7 @@ FrameBufferContext::FrameBufferContext(const cv::Size& framebufferSize,
         const string& title, int major, int minor, int samples, GLFWwindow* parentWindow, cv::Ptr<FrameBufferContext> parent, bool root, int confFlags) :
         title_(title), major_(major), minor_(minor), samples_(samples), configFlags_(confFlags), isVisible_(!(confFlags & FBConfigFlags::OFFSCREEN)), framebufferSize_(framebufferSize), parent_(parent), framebuffer_(), view_(), isRoot_(root) {
 
-	index_ = RunState::instance().apply<size_t>(RunState::Keys::FRAMEBUFFER_INDEX, [](size_t& v){ return v++; });
+	index_ = Global::instance().apply<size_t>(Global::Keys::FRAMEBUFFER_INDEX, [](size_t& v){ return v++; });
 }
 
 
@@ -649,10 +649,10 @@ void FrameBufferContext::end(bool copyBack) {
 void FrameBufferContext::download(cv::UMat& m) {
     cv::Mat tmp = m.getMat(cv::ACCESS_WRITE);
     assert(tmp.data != nullptr);
-//    GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
-//    GL_CHECK(
-//            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureID_, 0));
-//    assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
+    GL_CHECK(
+            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureID_, 0));
+    assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
 
     GL_CHECK(glReadPixels(0, 0, tmp.cols, tmp.rows, GL_RGBA, GL_UNSIGNED_BYTE, tmp.data));
     tmp.release();
@@ -663,9 +663,9 @@ void FrameBufferContext::upload(const cv::UMat& m) {
 	assert(!tmp.empty());
     assert(tmp.data != nullptr);
 
-//    GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
-//    GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureID_, 0));
-//assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+    GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
+    GL_CHECK(glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureID_, 0));
+    assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
 
     GL_CHECK(
             glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, tmp.cols, tmp.rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, tmp.data));

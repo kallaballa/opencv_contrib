@@ -105,14 +105,6 @@ class CubeScene {
 	}
 
 public:
-	CubeScene() {
-
-	}
-
-	~CubeScene() {
-
-	}
-
 	//Initializes objects, buffers, shaders and uniforms
 	void init() {
 		glEnable (GL_DEPTH_TEST);
@@ -181,7 +173,7 @@ public:
 		glDrawElements(GL_TRIANGLES, TRIANGLES_ * 3, GL_UNSIGNED_SHORT, NULL);
 	}
 
-	void destroy() {
+	void destroy() const {
 		glDeleteProgram(handles_.program_);
 		glDeleteBuffers(1, &handles_.colorsVbo_);
 		glDeleteBuffers(1, &handles_.verticesVbo_);
