@@ -15,17 +15,14 @@ class VideoDemoPlan: public Plan {
 private:
 	CubeScene scene_;
 public:
-	VideoDemoPlan() {
-	}
-
 	void setup() override {
 		gl(&CubeScene::init, RW(scene_));
 	}
 
 	void infer() override {
-		capture()
-		->gl(&CubeScene::render, R(scene_), V(false))
-		->write();
+		capture();
+		gl(&CubeScene::render, R(scene_), V(false));
+		write();
 	}
 
 	void teardown() override {

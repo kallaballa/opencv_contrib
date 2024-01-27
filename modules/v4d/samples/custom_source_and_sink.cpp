@@ -4,10 +4,6 @@
 using namespace cv;
 using namespace cv::v4d;
 
-static double seconds() {
-	return (cv::getTickCount() / cv::getTickFrequency());
-}
-
 class PureColor {
 	Scalar lastColor_;
 	string foundName_;
@@ -29,11 +25,11 @@ public:
 		//the HLS conversion produces ones where there should be zero values when it produces
 		//pure RGB/BGR colors (e.g. 255, 1, 1). Hence the product must be 255 or 255^2
 		double prod = pix[0] * pix[1] * pix[2];
-		bool isPureColor = prod == 0xff | prod == 0xffff;
+		bool isPureColor = prod == 0xff || prod == 0xffff;
 
 		if(lastColor_ != pix && isPureColor) {
 			cv::Vec4b binarized = convert_pix<-1, Scalar, cv::Vec4b, true>(pix, 1.0/255);
-			uchar key = binarized[0] << 2 | binarized[1] << 1 | binarized[2];
+			uchar key = binarized[0] | binarized[1] << 1 | binarized[2] << 2;
 			foundName_ = binarizedBGRIndex_[key - 1];
 			found_ = true;
 			lastColor_ = pix;
@@ -74,7 +70,7 @@ public:
 	void infer() override {
 		capture();
 
-		fb(&PureColor::find, RW(finder_));
+		fb<1>(&PureColor::find, RW(finder_));
 		nvg(&PureColor::draw, R(finder_), vp_);
 
 		branch(&PureColor::found, R(finder_))
@@ -100,9 +96,9 @@ int main() {
 		if(frame.empty()) {
 		    frame.create(Size(960, 960), CV_8UC3);
 		}
-		uchar hue = (int64_t(seconds() * 10) % 180);
+		uchar hue = (int64_t(seconds() * 10) % 255);
 		//convert from HLS to RGB and set the whole frame to the RGB color
-		frame = convert_pix<cv::COLOR_HLS2RGB>(Vec3b(hue, 128, 255));
+		frame = convert_pix<cv::COLOR_HLS2RGB_FULL>(Vec3b(hue, 128, 255));
 	    return true; //false signals end of stream (fatal errors should be propagated through exception)
 	}, 60.f);
 

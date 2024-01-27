@@ -1,4 +1,3 @@
-// This file is part of OpenCV project.
 // It is subject to the license terms in the LICENSE file found in the top-level directory
 // of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
@@ -6,6 +5,7 @@
 #include <opencv2/v4d/v4d.hpp>
 
 #include <opencv2/features2d.hpp>
+#include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/optflow.hpp>
@@ -24,90 +24,357 @@ using std::string;
 
 using namespace cv::v4d;
 
-class OptflowDemoPlan : public Plan {
-private:
-	//How the background will be visualized
-	enum BackgroundModes {
+struct GlowEffect {
+	struct Temp {
+		cv::UMat src_;
+		cv::UMat dst_;
+		cv::UMat dst16_;
+		cv::UMat high_;
+		cv::UMat blur_;
+		cv::UMat low_;
+	} temp_;
+public:
+
+	//Glow post-processing effect
+	void apply(const cv::UMat& srcFloat, cv::UMat& dstFloat, const int ksize) {
+		srcFloat.convertTo(temp_.src_, CV_8U, 127.0);
+
+		cv::bitwise_not(temp_.src_, temp_.dst_);
+
+	    //Resize for some extra performance
+	    cv::resize(temp_.dst_, temp_.low_, cv::Size(), 0.5, 0.5);
+	    //Cheap blur
+	    cv::boxFilter(temp_.low_, temp_.blur_, -1, cv::Size(ksize, ksize), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
+	    //Back to original size
+	    cv::resize(temp_.blur_, temp_.high_, srcFloat.size());
+
+	    //Multiply the src image with a blurred version of itself
+	    cv::multiply(temp_.dst_, temp_.high_, temp_.dst_, 1.0/255.0, CV_8U);
+	    //Normalize and convert back to CV_8U
+
+	    cv::bitwise_not(temp_.dst_, temp_.dst_);
+
+	    temp_.dst_.convertTo(dstFloat, CV_32F, 1.0/255.0);
+	}
+};
+
+struct BloomEffect {
+	struct Temp {
+		cv::UMat bgr_;
+		cv::UMat hls_;
+		cv::UMat ls16_;
+		cv::UMat ls_;
+		cv::UMat blur_;
+		std::vector<cv::UMat> hlsChannels_;
+	} temp_;
+public:
+	//Bloom post-processing effect
+	void apply(const cv::UMat& srcFloat, cv::UMat &dstFloat, int ksize = 3, int threshValue = 235, float gain = 4) {
+	    //remove alpha channel
+	    cv::cvtColor(srcFloat, temp_.bgr_, cv::COLOR_BGRA2RGB);
+	    //convert to hls
+	    cv::cvtColor(temp_.bgr_, temp_.hls_, cv::COLOR_BGR2HLS);
+	    //split channels
+	    cv::split(temp_.hls_, temp_.hlsChannels_);
+	    //invert lightness
+	    cv::bitwise_not(temp_.hlsChannels_[2], temp_.hlsChannels_[2]);
+	    //multiply lightness and saturation
+	    cv::multiply(temp_.hlsChannels_[1], temp_.hlsChannels_[2], temp_.ls_, 255.0, CV_8U);
+	    //binary threhold according to threshValue
+	    cv::threshold(temp_.ls_, temp_.blur_, threshValue, 255, cv::THRESH_BINARY);
+	    //blur
+	    cv::boxFilter(temp_.blur_, temp_.blur_, -1, cv::Size(ksize, ksize), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
+	    //convert to BGRA
+	    cv::cvtColor(temp_.blur_, temp_.blur_, cv::COLOR_GRAY2BGRA);
+	    //add src and the blurred L-S-product according to gain
+	    addWeighted(srcFloat, 1.0, temp_.blur_, gain, 0, dstFloat);
+	}
+};
+
+struct PostProcessor {
+	GlowEffect glow_;
+	BloomEffect bloom_;
+public:
+	//Post-processing modes for the foreground
+	enum Modes {
+	    GLOW,
+	    BLOOM,
+	    DISABLED
+	};
+
+	void perform(const cv::UMat& srcFloat, cv::UMat& dstFloat, const Modes& mode, const int& ksize, const int& bloomThresh, const int& bloomGain) {
+	    switch (mode) {
+	    case GLOW:
+	        glow_.apply(srcFloat, dstFloat, ksize);
+	        break;
+	    case BLOOM:
+	        bloom_.apply(srcFloat, dstFloat, ksize, bloomThresh, bloomGain);
+	        break;
+	    case DISABLED:
+	        srcFloat.copyTo(dstFloat);
+	        break;
+	    default:
+	        break;
+	    }
+	}
+};
+
+class FeaturePoints {
+	cv::Ptr<cv::FastFeatureDetector> detector_;
+	vector<cv::KeyPoint> tmpKeyPoints_;
+public:
+	FeaturePoints() {
+	}
+
+	FeaturePoints(cv::Ptr<cv::FastFeatureDetector> detector) : detector_(detector) {
+	}
+
+	void detect(const cv::UMat& src, vector<cv::Point2f>& output) {
+		detector_->detect(src, tmpKeyPoints_);
+
+	    output.clear();
+	    for (const auto &kp : tmpKeyPoints_) {
+	        output.push_back(kp.pt);
+	    }
+//	    std::cerr << "detected: " << output.size() << std::endl;
+	}
+};
+
+class SceneChange {
+	float lastMovement_ = 0;
+public:
+	bool detect(const cv::UMat& motionMask, const float& sceneChangeThresh, const float& sceneChangeThreshDiff) {
+	    float movement = cv::countNonZero(motionMask) / float(motionMask.cols * motionMask.rows);
+	    float relation = movement > 0 && lastMovement_ > 0 ? std::max(movement, lastMovement_) / std::min(movement, lastMovement_) : 0;
+	    float relM = relation * log10(1.0f + (movement * 9.0));
+	    float relLM = relation * log10(1.0f + (lastMovement_ * 9.0));
+
+	    bool result = ((movement > 0 && lastMovement_ > 0 && relation > 0)
+	            && (relM < sceneChangeThresh && relLM < sceneChangeThresh && fabs(relM - relLM) < sceneChangeThreshDiff));
+	    lastMovement_ = (lastMovement_ + movement) / 2.0f;
+	    return !result;
+	}
+};
+
+class BackgroundStyle {
+	struct Temp {
+	    cv::UMat tmp_;
+	    cv::UMat post_;
+	    cv::UMat backgroundGrey_;
+	    vector<cv::UMat> channels_;
+	} temp_;
+
+public:
+	enum Modes {
 	    GREY,
 	    COLOR,
 	    VALUE,
 	    BLACK
 	};
 
-	//Post-processing modes for the foreground
-	enum PostProcModes {
-	    GLOW,
-	    BLOOM,
-	    DISABLED
-	};
+	void apply(const cv::UMat& srcFloat, cv::UMat& dstFloat, const Modes& bgMode) {
+	    //Dependin on bgMode prepare the background in different ways
+
+		switch (bgMode) {
+	    case GREY:
+	        cv::cvtColor(srcFloat, temp_.backgroundGrey_, cv::COLOR_BGRA2GRAY);
+	        cv::cvtColor(temp_.backgroundGrey_, dstFloat, cv::COLOR_GRAY2BGRA);
+	        break;
+	    case VALUE:
+	        cv::cvtColor(srcFloat, temp_.tmp_, cv::COLOR_BGRA2BGR);
+	        cv::cvtColor(temp_.tmp_, temp_.tmp_, cv::COLOR_BGR2HSV);
+ 	        split(temp_.tmp_, temp_.channels_);
+	        cv::cvtColor(temp_.channels_[2], dstFloat, cv::COLOR_GRAY2BGRA);
+	        break;
+	    case COLOR:
+	    	srcFloat.copyTo(dstFloat);
+	        break;
+	    case BLACK:
+	    	dstFloat = cv::Scalar::all(0);
+	        break;
+	    default:
+	        break;
+	    }
+	}
+};
+
+class Compositor {
+	BackgroundStyle backgroundStyle_;
+	PostProcessor postProcessor_;
+
+	struct Temp {
+		cv::UMat onesFloat_;
+		cv::UMat bgFloat_;
+		cv::UMat fgFloat_;
+		cv::UMat fgInvertedFloat_;
+		cv::UMat fbFloat_;
+	} temp_;
+public:
+	//Compose the different layers into the final image
+	void perform(const cv::UMat& background, cv::UMat& foreground, cv::UMat& framebuffer, const BackgroundStyle::Modes& bgMode, const PostProcessor::Modes& ppMode, const int& ksize, const int& bloomThresh, const int& bloomGain, const float& fgLoss, const size_t& numWorkers) {
+		if(temp_.onesFloat_.empty()) {
+			temp_.onesFloat_ = cv::UMat(framebuffer.size(), CV_32FC4, cv::Scalar(1));
+		}
+		foreground.convertTo(temp_.fgFloat_, CV_32F, 1.0/255.0);
+		background.convertTo(temp_.bgFloat_, CV_32F, 1.0/255.0);
+		double loss = 1.0 - (fgLoss / 100.0);
+		cv::multiply(temp_.fgFloat_, cv::Scalar::all(loss), temp_.fgFloat_);
+		backgroundStyle_.apply(temp_.bgFloat_, temp_.bgFloat_, bgMode);
+	    postProcessor_.perform(temp_.fgFloat_, temp_.fgFloat_, ppMode, ksize, bloomThresh, bloomGain);
+//	    cv::multiply(temp_.fgFloat_, cv::Scalar::all(3), temp_.fgFloat_);
+	    cv::add(temp_.bgFloat_, temp_.fgFloat_, temp_.fbFloat_);
+	    temp_.fbFloat_.convertTo(framebuffer, CV_8U, 255.0);
+	    temp_.fgFloat_.convertTo(foreground, CV_8U, 255.0);
+	}
+};
+
+class SparseOpticalFlow {
+	struct Temp {
+		vector<cv::Point2f> hull_, nextPoints_, trimmedPoints_;;
+		vector<std::tuple<float, int, cv::Point2f>> prevPoints_;
+		vector<std::tuple<float, int, cv::Point2f>> newPoints_;
+		vector<cv::Point2f> upTrimmedPoints_, upNextPoints_;
+		std::vector<uchar> status_;
+		std::vector<float> err_;
+	} temp_;
+
+	std::random_device rd_;
+	std::mt19937 rng_;
+public:
+	SparseOpticalFlow() : rng_(rd_()) {
+
+	}
+
+	//Visualize the sparse optical flow
+	void visualize(const cv::UMat &prevGrey, const cv::UMat &nextGrey, const vector<cv::Point2f> &detectedPoints, const float& maxStroke, const size_t& maxPoints, const float& pointLoss, const float& fgScale, cv::Scalar_<float> effectColor) {
+		//less then 5 points is a degenerate case (e.g. the corners of a video frame)
+	    if (detectedPoints.size() > 4) {
+	        cv::convexHull(detectedPoints, temp_.hull_);
+	        float area = cv::contourArea(temp_.hull_);
+	        //make sure the area of the point cloud is positive
+	        if (area > 0) {
+	            float density = (detectedPoints.size() / area);
+	            //stroke size is biased by the area of the point cloud
+	            float strokeSize = maxStroke * pow(area / (nextGrey.cols * nextGrey.rows), 0.33f);
+	            //max points is biased by the densitiy of the point cloud
+	            size_t currentMaxPoints = ceil(density * maxPoints);
+
+	            //lose a number of random points specified by pointLossPercent
+	            std::shuffle(temp_.prevPoints_.begin(), temp_.prevPoints_.end(), rng_);
+	            temp_.prevPoints_.resize(ceil(temp_.prevPoints_.size() * (1.0f - (pointLoss / 100.0f))));
+	            temp_.trimmedPoints_.clear();
+	            for(size_t i = 0; i < temp_.prevPoints_.size(); ++i) {
+	            	temp_.trimmedPoints_.push_back(std::get<2>(temp_.prevPoints_[i]));
+	            }
+
+	            //calculate how many newly detected points to add
+	            size_t copyn = std::min(detectedPoints.size(), (size_t(std::ceil(currentMaxPoints)) - temp_.trimmedPoints_.size()));
+	            if (temp_.trimmedPoints_.size() < currentMaxPoints) {
+	                std::copy(detectedPoints.begin(), detectedPoints.begin() + copyn, std::back_inserter(temp_.trimmedPoints_));
+	            }
+
+	            //calculate the sparse optical flow
+	            cv::calcOpticalFlowPyrLK(prevGrey, nextGrey, temp_.trimmedPoints_, temp_.nextPoints_, temp_.status_, temp_.err_);
+	            temp_.newPoints_.clear();
+	            if (temp_.trimmedPoints_.size() > 1 && temp_.nextPoints_.size() > 1) {
+	                //scale the points to original size
+	            	temp_.upNextPoints_.clear();
+	            	temp_.upTrimmedPoints_.clear();
+	                for (cv::Point2f pt : temp_.trimmedPoints_) {
+	                	temp_.upTrimmedPoints_.push_back(pt /= fgScale);
+	                }
+
+	                for (cv::Point2f pt : temp_.nextPoints_) {
+	                	temp_.upNextPoints_.push_back(pt /= fgScale);
+	                }
+
+	                for (size_t i = 0; i < temp_.trimmedPoints_.size(); i++) {
+	                    if (temp_.status_[i] == 1 //point was found in prev and new set
+	                            && temp_.err_[i] < (1.0 / density) //with a higher density be more sensitive to the feature error
+	                            && temp_.upNextPoints_[i].y >= 0 && temp_.upNextPoints_[i].x >= 0 //check bounds
+	                            && temp_.upNextPoints_[i].y < nextGrey.rows / fgScale && temp_.upNextPoints_[i].x < nextGrey.cols / fgScale //check bounds
+	                            ) {
+	                        float len = hypot(fabs(temp_.upTrimmedPoints_[i].x - temp_.upNextPoints_[i].x), fabs(temp_.upTrimmedPoints_[i].y - temp_.upNextPoints_[i].y));
+	                        if(len > strokeSize) {
+	                        	temp_.newPoints_.push_back({len, i, temp_.nextPoints_[i]});
+	                        }
+	                    }
+	                }
+//	                std::cerr << "new points:" << temp_.newPoints_.size() << std::endl;
+	                if(temp_.newPoints_.empty())
+	                	return;
+	                float total = 0;
+	                float mean = 0;
+	                for (size_t i = 0; i < temp_.newPoints_.size(); i++) {
+	                	total += std::get<0>(temp_.newPoints_[i]);
+	                }
+
+	                mean = total / temp_.newPoints_.size();
+
+	                using namespace cv::v4d::nvg;
+	                //start drawing
+	                beginPath();
+	                strokeWidth(strokeSize);
+	                strokeColor(cv::Scalar(effectColor[2], effectColor[1], effectColor[0], effectColor[3]) * 255.0);
+
+	                for (size_t i = 0; i < temp_.newPoints_.size(); i++) {
+	                	size_t idx = std::get<1>(temp_.newPoints_[i]);
+	                	float len = std::get<0>(temp_.newPoints_[i]);
+	                	if(len < mean * 2.0) {
+	                		moveTo(temp_.upTrimmedPoints_[idx].x, temp_.upTrimmedPoints_[idx].y);
+	                		lineTo(temp_.upNextPoints_[idx].x, temp_.upNextPoints_[idx].y);
+	                	}
+	                }
+	                //end drawing
+	                stroke();
+	            }
+	            temp_.prevPoints_ = temp_.newPoints_;
+	        }
+	    }
+	}
+
+};
+
+class OptflowDemoPlan : public Plan {
+private:
+	constexpr static auto UMAT_CREATE = _OLM_(void, cv::UMat, &cv::UMat::create, cv::Size, int, cv::UMatUsageFlags);
+	constexpr static auto UMAT_DIVIDE_= _OL_(void, cv::divide, cv::InputArray, cv::InputArray, cv::OutputArray, double, int);
+	constexpr static auto UMAT_COPY_TO_= _OLMC_(void, cv::UMat, &cv::UMat::copyTo, cv::OutputArray);
 
 	static struct Params {
 		// Generate the foreground at this scale.
 		float fgScale_ = 0.5f;
 		// On every frame the foreground loses on brightness. Specifies the loss in percent.
-		float fgLoss_ = 1;
+		float fgLoss_ = 8.0f;
+		PostProcessor::Modes postProcMode_ = PostProcessor::DISABLED;
+		// Intensity of glow or bloom defined by kernel size. The default scales with the image diagonal.
+		int kernelSize_ = 0;
+		//The lightness selection threshold
+		int bloomThresh_ = 210;
+		//The intensity of the bloom filter
+		float bloomGain_ = 3;
 		//Convert the background to greyscale
-		BackgroundModes backgroundMode_ = GREY;
+		BackgroundStyle::Modes backgroundMode_ = BackgroundStyle::GREY;
 		// Peak thresholds for the scene change detection. Lowering them makes the detection more sensitive but
 		// the default should be fine.
 		float sceneChangeThresh_ = 0.29f;
 		float sceneChangeThreshDiff_ = 0.1f;
 		// The theoretical maximum number of points to track which is scaled by the density of detected points
 		// and therefor is usually much smaller.
-		int maxPoints_ = 300000;
+		int maxPoints_ = 1000000;
 		// How many of the tracked points to lose intentionally, in percent.
-		float pointLoss_ = 20;
+		float pointLoss_ = 1;
 		// The theoretical maximum size of the drawing stroke which is scaled by the area of the convex hull
 		// of tracked points and therefor is usually much smaller.
 		int maxStroke_ = 6;
 		// Red, green, blue and alpha. All from 0.0f to 1.0f
-		cv::Scalar_<float> effectColor_ = {0.9f, 0.65f, 0.3f, 0.15f};
+		cv::Scalar_<float> effectColor_ = {1.0f, 0.70f, 0.33f, 0.5f};
 		//display on-screen FPS
 		bool showFps_ = true;
 		//Stretch frame buffer to window size
-		bool stretch_ = false;
+		bool stretch_ = true;
 		//The post processing mode
-		PostProcModes postProcMode_ = GLOW;
-		// Intensity of glow or bloom defined by kernel size. The default scales with the image diagonal.
-		int glowKernelSize_ = 0;
-		//The lightness selection threshold
-		int bloomThresh_ = 210;
-		//The intensity of the bloom filter
-		float bloomGain_ = 3;
 	} params_;
-
-	struct Cache {
-		cv::Mat element_ = cv::getStructuringElement(cv::MORPH_RECT, cv::Size(3, 3), cv::Point(1, 1));
-
-		vector<cv::KeyPoint> tmpKeyPoints_;
-
-		vector<cv::Point2f> hull_, prevPoints_, nextPoints_, newPoints_;
-		vector<cv::Point2f> upPrevPoints_, upNextPoints_;
-		std::vector<uchar> status_;
-		std::vector<float> err_;
-		std::random_device rd_;
-		std::mt19937 rng_;
-
-		cv::UMat bgr_;
-		cv::UMat hls_;
-		cv::UMat ls16_;
-		cv::UMat ls_;
-		cv::UMat bblur_;
-		std::vector<cv::UMat> hlsChannels_;
-
-		cv::UMat high_;
-		cv::UMat low_;
-		cv::UMat gblur_;
-		cv::UMat dst16_;
-
-	    cv::UMat tmp_;
-	    cv::UMat post_;
-	    cv::UMat backgroundGrey_;
-	    vector<cv::UMat> channels_;
-	    cv::UMat localFg_;
-
-		float lastMovement_ = 0;
-	} cache_;
 
 	struct Frames {
 		//BGRA
@@ -119,202 +386,79 @@ private:
 		cv::UMat downPrevGrey_, downNextGrey_, downMotionMaskGrey_;
 	} frames_;
 
+	FeaturePoints featurePoints_;
+	SceneChange sceneChange_;
+	SparseOpticalFlow sparseOptflow_;
+	Compositor compositor_;
 	vector<cv::Point2f> detectedPoints_;
-	cv::Ptr<cv::BackgroundSubtractor> bg_subtractor_ = cv::createBackgroundSubtractorMOG2(100, 16.0, false);
-	cv::Ptr<cv::FastFeatureDetector> detector_ = cv::FastFeatureDetector::create(1, false);
-
 	inline static cv::UMat foreground_;
 
 	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<size_t> numWorkers_ = P<size_t>(Global::Keys::WORKERS_STARTED);
 
-    //Uses background subtraction to generate a "motion mask"
-	static void prepare_motion_mask(const cv::UMat& srcGrey, cv::UMat& motionMaskGrey, cv::Ptr<cv::BackgroundSubtractor> bg_subtractor, Cache& cache) {
-	    bg_subtractor->apply(srcGrey, motionMaskGrey);
-	    //Surpress speckles
-	    cv::morphologyEx(motionMaskGrey, motionMaskGrey, cv::MORPH_OPEN, cache.element_, cv::Point(cache.element_.cols >> 1, cache.element_.rows >> 1), 2, cv::BORDER_CONSTANT, cv::morphologyDefaultBorderValue());
-	}
+    class PrepareMasksPlan : public Plan {
+    	struct Temp {
+    		cv::UMat srcGray_;
+    		cv::UMat srcGrayFloat_;
+    		cv::UMat lastMmGray_;
+    		cv::UMat mmGray_;
+    		cv::UMat mmGrayFloat_;
+    		cv::UMat mmBlurGray_;
+    		cv::UMat mmBlurGrayFloat_;
+    	} temp_;
 
-	//Detect points to track
-	static void detect_points(const cv::UMat& srcMotionMaskGrey, vector<cv::Point2f>& points, cv::Ptr<cv::FastFeatureDetector> detector, Cache& cache) {
-	    detector->detect(srcMotionMaskGrey, cache.tmpKeyPoints_);
+		OptflowDemoPlan::Frames& frames_;
+    	cv::Ptr<cv::BackgroundSubtractor> bgSubtractor_;
+    	cv::Mat erodeElement_;
+    	cv::Mat openElement_;
+    	cv::Size sz_;
 
-	    points.clear();
-	    for (const auto &kp : cache.tmpKeyPoints_) {
-	        points.push_back(kp.pt);
-	    }
-	}
+    	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 
-	//Detect extrem changes in scene content and report it
-	static bool no_scene_change(const cv::UMat& srcMotionMaskGrey, const Params& params, Cache& cache) {
-	    float movement = cv::countNonZero(srcMotionMaskGrey) / float(srcMotionMaskGrey.cols * srcMotionMaskGrey.rows);
-	    float relation = movement > 0 && cache.lastMovement_ > 0 ? std::max(movement, cache.lastMovement_) / std::min(movement, cache.lastMovement_) : 0;
-	    float relM = relation * log10(1.0f + (movement * 9.0));
-	    float relLM = relation * log10(1.0f + (cache.lastMovement_ * 9.0));
+    	void prepareMotionMask(const cv::UMat& srcGray, cv::UMat& motionMaskGrey) {
+    		bgSubtractor_->apply(srcGray, temp_.mmGray_);
+    		temp_.mmGray_.convertTo(temp_.mmGrayFloat_, CV_64F, 1.0/255.5);
+    		cv::pow(temp_.mmGrayFloat_, 6, temp_.mmGrayFloat_);
+    		cv::boxFilter(temp_.mmGrayFloat_, temp_.mmBlurGrayFloat_, -1, cv::Size(7, 7), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
+    		cv::threshold(temp_.mmBlurGrayFloat_, temp_.mmBlurGrayFloat_, 0.5, 1.0, cv::THRESH_BINARY);
+    		temp_.mmBlurGrayFloat_.convertTo(temp_.mmGray_, CV_8U, 255.0);
+    		temp_.mmGray_.convertTo(temp_.mmGrayFloat_, CV_64F);
+    		cv::boxFilter(temp_.mmGrayFloat_, temp_.mmGrayFloat_, -1, cv::Size(127,127), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
+    		cv::threshold(temp_.mmGrayFloat_, temp_.mmGrayFloat_, 0, 255, cv::THRESH_BINARY);
+    		temp_.mmGrayFloat_.convertTo(temp_.mmGray_, CV_8U);
+    		cv::morphologyEx(temp_.mmGray_, temp_.mmGray_, cv::MORPH_ERODE, erodeElement_, cv::Point(erodeElement_.cols >> 1, erodeElement_.rows >> 1), 23, cv::BORDER_CONSTANT, cv::morphologyDefaultBorderValue());
+    		cv::morphologyEx(temp_.mmGray_, temp_.mmGray_, cv::MORPH_OPEN, openElement_, cv::Point(openElement_.cols >> 1, openElement_.rows >> 1), 1, cv::BORDER_CONSTANT, cv::morphologyDefaultBorderValue());
+    		if(motionMaskGrey.empty())
+    			motionMaskGrey.create(srcGray.size(), srcGray.type());
+    		else
+    			motionMaskGrey.setTo(cv::Scalar::all(0));
+    	    srcGray.copyTo(motionMaskGrey,temp_.mmGray_);
+    		cv::equalizeHist(motionMaskGrey,motionMaskGrey);
+    	    cv::threshold(motionMaskGrey, motionMaskGrey, 127, 255, cv::THRESH_BINARY);
+    		cv::imshow("final", motionMaskGrey);
+    	    cv::waitKey(1);
+    	}
+    public:
+    	PrepareMasksPlan(OptflowDemoPlan::Frames& frames) : frames_(frames) {
+    	}
 
-	    bool result = ((movement > 0 && cache.lastMovement_ > 0 && relation > 0)
-	            && (relM < params.sceneChangeThresh_ && relLM < params.sceneChangeThresh_ && fabs(relM - relLM) < params.sceneChangeThreshDiff_));
-	    cache.lastMovement_ = (cache.lastMovement_ + movement) / 2.0f;
-	    return result;
-	}
+    	void setup() override {
+    		assign(RW(bgSubtractor_), F(cv::createBackgroundSubtractorMOG2, V(200), V(512.0), V(true)));
+    		assign(RW(erodeElement_), F(cv::getStructuringElement, V(cv::MORPH_ELLIPSE), V(cv::Size(7, 7)), V(cv::Point(4, 4))));
+    		assign(RW(openElement_), F(cv::getStructuringElement, V(cv::MORPH_ELLIPSE), V(cv::Size(7, 7)), V(cv::Point(4, 4))));
+    	}
+    	void infer() override {
+    		construct(RW(sz_), F(&cv::Rect::width, vp_) * CS(params_.fgScale_), F(&cv::Rect::height, vp_) * CS(params_.fgScale_));
+    		plain(cv::resize, R(frames_.background_), RW(frames_.down_), R(sz_), V(0.0), V(0.0), V(cv::INTER_LINEAR));
+    		plain(cv::cvtColor, R(frames_.down_), RW(frames_.downNextGrey_), V(cv::COLOR_RGBA2GRAY), V(0));
+    		plain(&PrepareMasksPlan::prepareMotionMask, RW(*this), R(frames_.downNextGrey_), RW(frames_.downMotionMaskGrey_));
+    	}
+    };
 
-	//Visualize the sparse optical flow
-	static void visualize_sparse_optical_flow(const cv::UMat &prevGrey, const cv::UMat &nextGrey, const vector<cv::Point2f> &detectedPoints, const Params& params, Cache& cache) {
-	    //less then 5 points is a degenerate case (e.g. the corners of a video frame)
-	    if (detectedPoints.size() > 4) {
-	        cv::convexHull(detectedPoints, cache.hull_);
-	        float area = cv::contourArea(cache.hull_);
-	        //make sure the area of the point cloud is positive
-	        if (area > 0) {
-	            float density = (detectedPoints.size() / area);
-	            //stroke size is biased by the area of the point cloud
-	            float strokeSize = params.maxStroke_ * pow(area / (nextGrey.cols * nextGrey.rows), 0.33f);
-	            //max points is biased by the densitiy of the point cloud
-	            size_t currentMaxPoints = ceil(density * params.maxPoints_);
-
-	            //lose a number of random points specified by pointLossPercent
-	            std::shuffle(cache.prevPoints_.begin(), cache.prevPoints_.end(), cache.rng_);
-	            cache.prevPoints_.resize(ceil(cache.prevPoints_.size() * (1.0f - (params.pointLoss_ / 100.0f))));
-
-	            //calculate how many newly detected points to add
-	            size_t copyn = std::min(detectedPoints.size(), (size_t(std::ceil(currentMaxPoints)) - cache.prevPoints_.size()));
-	            if (cache.prevPoints_.size() < currentMaxPoints) {
-	                std::copy(detectedPoints.begin(), detectedPoints.begin() + copyn, std::back_inserter(cache.prevPoints_));
-	            }
-
-	            //calculate the sparse optical flow
-	            cv::calcOpticalFlowPyrLK(prevGrey, nextGrey, cache.prevPoints_, cache.nextPoints_, cache.status_, cache.err_);
-	            cache.newPoints_.clear();
-	            if (cache.prevPoints_.size() > 1 && cache.nextPoints_.size() > 1) {
-	                //scale the points to original size
-	            	cache.upNextPoints_.clear();
-	            	cache.upPrevPoints_.clear();
-	                for (cv::Point2f pt : cache.prevPoints_) {
-	                	cache.upPrevPoints_.push_back(pt /= params.fgScale_);
-	                }
-
-	                for (cv::Point2f pt : cache.nextPoints_) {
-	                	cache.upNextPoints_.push_back(pt /= params.fgScale_);
-	                }
-
-	                using namespace cv::v4d::nvg;
-	                //start drawing
-	                beginPath();
-	                strokeWidth(strokeSize);
-	                strokeColor(convert_pix(params.effectColor_ * 255.0, cv::COLOR_RGB2BGR));
-
-	                for (size_t i = 0; i < cache.prevPoints_.size(); i++) {
-	                    if (cache.status_[i] == 1 //point was found in prev and new set
-	                            && cache.err_[i] < (1.0 / density) //with a higher density be more sensitive to the feature error
-	                            && cache.upNextPoints_[i].y >= 0 && cache.upNextPoints_[i].x >= 0 //check bounds
-	                            && cache.upNextPoints_[i].y < nextGrey.rows / params.fgScale_ && cache.upNextPoints_[i].x < nextGrey.cols / params.fgScale_ //check bounds
-	                            ) {
-	                        float len = hypot(fabs(cache.upPrevPoints_[i].x - cache.upNextPoints_[i].x), fabs(cache.upPrevPoints_[i].y - cache.upNextPoints_[i].y));
-	                        //upper and lower bound of the flow vector length
-	                        if (len > 0 && len < sqrt(area)) {
-	                            //collect new points
-	                        	cache.newPoints_.push_back(cache.nextPoints_[i]);
-	                            //the actual drawing operations
-	                            moveTo(cache.upNextPoints_[i].x, cache.upNextPoints_[i].y);
-	                            lineTo(cache.upPrevPoints_[i].x, cache.upPrevPoints_[i].y);
-	                        }
-	                    }
-	                }
-	                //end drawing
-	                stroke();
-	            }
-	            cache.prevPoints_ = cache.newPoints_;
-	        }
-	    }
-	}
-
-	//Bloom post-processing effect
-	static void bloom(const cv::UMat& src, cv::UMat &dst, Cache& cache, int ksize = 3, int threshValue = 235, float gain = 4) {
-	    //remove alpha channel
-	    cv::cvtColor(src, cache.bgr_, cv::COLOR_BGRA2RGB);
-	    //convert to hls
-	    cv::cvtColor(cache.bgr_, cache.hls_, cv::COLOR_BGR2HLS);
-	    //split channels
-	    cv::split(cache.hls_, cache.hlsChannels_);
-	    //invert lightness
-	    cv::bitwise_not(cache.hlsChannels_[2], cache.hlsChannels_[2]);
-	    //multiply lightness and saturation
-	    cv::multiply(cache.hlsChannels_[1], cache.hlsChannels_[2], cache.ls16_, 1, CV_16U);
-	    //normalize
-	    cv::divide(cache.ls16_, cv::Scalar(255.0), cache.ls_, 1, CV_8U);
-	    //binary threhold according to threshValue
-	    cv::threshold(cache.ls_, cache.bblur_, threshValue, 255, cv::THRESH_BINARY);
-	    //blur
-	    cv::boxFilter(cache.bblur_, cache.bblur_, -1, cv::Size(ksize, ksize), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
-	    //convert to BGRA
-	    cv::cvtColor(cache.bblur_, cache.bblur_, cv::COLOR_GRAY2BGRA);
-	    //add src and the blurred L-S-product according to gain
-	    addWeighted(src, 1.0, cache.bblur_, gain, 0, dst);
-	}
-
-	//Glow post-processing effect
-	static void glow_effect(const cv::UMat &src, cv::UMat &dst, const int ksize, Cache& cache) {
-	    cv::bitwise_not(src, dst);
-
-	    //Resize for some extra performance
-	    cv::resize(dst, cache.low_, cv::Size(), 0.5, 0.5);
-	    //Cheap blur
-	    cv::boxFilter(cache.low_, cache.gblur_, -1, cv::Size(ksize, ksize), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
-	    //Back to original size
-	    cv::resize(cache.gblur_, cache.high_, src.size());
-
-	    //Multiply the src image with a blurred version of itself
-	    cv::multiply(dst, cache.high_, cache.dst16_, 1, CV_16U);
-	    //Normalize and convert back to CV_8U
-	    cv::divide(cache.dst16_, cv::Scalar::all(255.0), dst, 1, CV_8U);
-
-	    cv::bitwise_not(dst, dst);
-	}
-
-	//Compose the different layers into the final image
-	static void composite_layers(cv::UMat& dst, cv::UMat& background, const cv::UMat& foreground, const Params& params, Cache& cache) {
-	    //Dependin on bgMode prepare the background in different ways
-	    switch (params.backgroundMode_) {
-	    case GREY:
-	        cv::cvtColor(background, cache.backgroundGrey_, cv::COLOR_BGRA2GRAY);
-	        cv::cvtColor(cache.backgroundGrey_, background, cv::COLOR_GRAY2BGRA);
-	        break;
-	    case VALUE:
-	        cv::cvtColor(background, cache.tmp_, cv::COLOR_BGRA2BGR);
-	        cv::cvtColor(cache.tmp_, cache.tmp_, cv::COLOR_BGR2HSV);
-	        split(cache.tmp_, cache.channels_);
-	        cv::cvtColor(cache.channels_[2], background, cv::COLOR_GRAY2BGRA);
-	        break;
-	    case COLOR:
-	        break;
-	    case BLACK:
-	        background = cv::Scalar::all(0);
-	        break;
-	    default:
-	        break;
-	    }
-
-	    //Depending on ppMode perform post-processing
-	    switch (params.postProcMode_) {
-	    case GLOW:
-	        glow_effect(foreground, cache.post_, params.glowKernelSize_, cache);
-	        break;
-	    case BLOOM:
-	        bloom(foreground, cache.post_, cache, params.glowKernelSize_, params.bloomThresh_, params.bloomGain_);
-	        break;
-	    case DISABLED:
-	        foreground.copyTo(cache.post_);
-	        break;
-	    default:
-	        break;
-	    }
-
-	    //Add background and post-processed foreground into dst
-	    cv::add(background, cache.post_, dst);
-	}
-
+    cv::Ptr<PrepareMasksPlan> prepareMasks_;
 public:
     OptflowDemoPlan() {
-		cache_.rng_ = std::mt19937(cache_.rd_());
+		prepareMasks_ = _sub<PrepareMasksPlan>(this, frames_);
     }
 
     void gui() override {
@@ -341,7 +485,7 @@ public:
 	        thread_local const char* ppm_items[3] = {"Glow", "Bloom", "None"};
 	        thread_local int* ppm = (int*)&params.postProcMode_;
 	        ListBox("Effect",ppm, ppm_items, 3, 3);
-	        SliderInt("Kernel Size",&params.glowKernelSize_, 1, 63);
+	        SliderInt("Kernel Size",&params.kernelSize_, 1, 63);
 	        SliderFloat("Gain", &params.bloomGain_, 0.1f, 20.0f);
 	        End();
 
@@ -372,53 +516,77 @@ public:
 	}
 
     void setup() override {
-		branch(BranchType::ONCE, always_)
-			->plain([](const cv::Rect& vp, Params& params, cv::UMat& foreground){
-				int diag = hypot(double(vp.width), double(vp.height));
-				params.glowKernelSize_ = std::max(int(diag / 150 % 2 == 0 ? diag / 150 + 1 : diag / 150), 1);
-				double workers = RunState::instance().get<size_t>(RunState::Keys::WORKERS_STARTED);
-				params.effectColor_[3] /= sqrt(workers);
-				foreground.create(vp.size(), CV_8UC4);
-			}, vp_, RWS(params_), RWS(foreground_))
+    	construct(RW(featurePoints_), F(cv::FastFeatureDetector::create, V(10), V(false), V(cv::FastFeatureDetector::TYPE_9_16)));
+    	branch(BranchType::ONCE, always_)
+			->assign(RWS(params_.kernelSize_),
+					F(sqrt, F(&cv::Rect::width, vp_) * F(&cv::Rect::height, vp_))
+					/ V(200.0)
+			)
+			->assign(RWS(params_.effectColor_[3]),RW(params_.effectColor_[3]) / F(pow, numWorkers_ + V(1.0), V(1.0) / numWorkers_))
+			->plain(UMAT_CREATE,
+						RWS(foreground_),
+						F(&cv::Rect::size, vp_),
+						V(CV_8UC4),
+						V(cv::USAGE_DEFAULT)
+			)
+			->plain([](cv::UMat& fg){
+    			std::cerr << "CREATE:" << size_t(fg.u->handle) << std::endl;
+    		}, RWS(foreground_))
+//			->plain(RWS(std::cerr) << F(&cv::UMatData::handle, F(&cv::UMat::u, RWS(foreground_))) << V('\n'))
+		->elseBranch()
+			->plain([](cv::UMat& fg){
+				std::cerr << "USE:" << size_t(fg.u->handle) << std::endl;
+			}, RWS(foreground_))
 		->endBranch();
+    	subSetup(prepareMasks_);
 	}
 
 	void infer() override {
 		set(V4D::Keys::STRETCHING, CS(params_.stretch_));
 		capture();
 
-		fb([](const cv::UMat& framebuffer, const cv::Rect& viewport, Frames& frames, const Params& params) {
-			//resize to foreground scale
-			cv::resize(framebuffer, frames.down_, cv::Size(viewport.width * params.fgScale_, viewport.height * params.fgScale_));
-			//save video background
-			framebuffer.copyTo(frames.background_);
-		}, vp_, RW(frames_), CS(params_));
+		fb(UMAT_COPY_TO_, RW(frames_.background_));
+		subInfer(prepareMasks_);
 
-		plain([](Frames& frames, std::vector<cv::Point2f>& detected, cv::Ptr<cv::BackgroundSubtractor>& bg_subtractor, cv::Ptr<cv::FastFeatureDetector>& detector, Cache& cache){
-			cv::cvtColor(frames.down_, frames.downNextGrey_, cv::COLOR_RGBA2GRAY);
-			//Subtract the background to create a motion mask
-			prepare_motion_mask(frames.downNextGrey_, frames.downMotionMaskGrey_, bg_subtractor, cache);
-			//Detect trackable points in the motion mask
-			detect_points(frames.downMotionMaskGrey_, detected, detector, cache);
-		}, RW(frames_), RW(detectedPoints_), RW(bg_subtractor_), RW(detector_), RW(cache_));
+		plain(&FeaturePoints::detect, RW(featurePoints_),
+				R(frames_.downMotionMaskGrey_),
+				RW(detectedPoints_)
+		);
 
-		branch(no_scene_change, RW(frames_.downMotionMaskGrey_), CS(params_), RW(cache_))
-			->nvg([](Frames& frames, const std::vector<cv::Point2f>& detected, const Params& params, Cache& cache) {
-				nvg::clearScreen();
-				if (!frames.downPrevGrey_.empty()) {
-						visualize_sparse_optical_flow(frames.downPrevGrey_, frames.downNextGrey_, detected, params, cache);
-				}
-			}, RW(frames_), R(detectedPoints_), CS(params_), RW(cache_))
-			->fb([](const cv::UMat& framebuffer, cv::UMat& foreground, const Params& params) {
-				//Lose a bit of foreground brightness based on fgLossPercent
-				cv::subtract(foreground, cv::Scalar::all(255.0f * (params.fgLoss_ / 100.0f)), foreground);
-				//Add foreground an the current framebuffer into foregound
-				cv::add(foreground, framebuffer, foreground);
-			}, RWS(foreground_), CS(params_))
+		fb<1>(UMAT_COPY_TO_, RWS(foreground_));
+		branch(!F(&SceneChange::detect, RW(sceneChange_),
+				R(frames_.downMotionMaskGrey_),
+				CS(params_.sceneChangeThresh_),
+				CS(params_.sceneChangeThreshDiff_)
+			)
+		)
+			->branch(!F(&cv::UMat::empty, R(frames_.downPrevGrey_)))
+				->nvg(&SparseOpticalFlow::visualize, RW(sparseOptflow_),
+						R(frames_.downPrevGrey_),
+						R(frames_.downNextGrey_),
+						R(detectedPoints_),
+						CS(params_.maxStroke_),
+						CS(params_.maxPoints_),
+						CS(params_.pointLoss_),
+						CS(params_.fgScale_),
+						CS(params_.effectColor_)
+				)
+				->fb(UMAT_COPY_TO_, RWS(foreground_))
+			->endBranch()
 		->endBranch();
 
-		fb(composite_layers, RW(frames_.background_), CS(foreground_), CS(params_), RW(cache_));
-		assign(RW(frames_.downPrevGrey_), &cv::UMat::clone, R(&frames_.downNextGrey_));
+		fb<3>(&Compositor::perform, RW(compositor_),
+							R(frames_.background_),
+							RWS(foreground_),
+							CS(params_.backgroundMode_),
+							CS(params_.postProcMode_),
+							CS(params_.kernelSize_),
+							CS(params_.bloomThresh_),
+							CS(params_.bloomGain_),
+							CS(params_.fgLoss_),
+							numWorkers_
+		);
+		plain(UMAT_COPY_TO_, R(frames_.downNextGrey_), RW(frames_.downPrevGrey_));
 	}
 };
 
@@ -430,7 +598,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-    cv::Rect viewport(0, 0, 1280, 720);
+    cv::Rect viewport(0, 0, 1920, 1080);
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 	auto src = Source::make(runtime, argv[1]);
 	runtime->setSource(src);

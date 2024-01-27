@@ -188,11 +188,6 @@ public:
     	facemark_->loadModel("modules/v4d/assets/models/lbfmodel.yaml");
 	}
 
-	static cv::Ptr<FaceFeatureExtractor> make(const cv::Size& inputSize, const float& inputScale) {
-		return cv::Ptr<FaceFeatureExtractor>(new FaceFeatureExtractor(inputSize, inputScale));
-	}
-
-
 	bool extract(const cv::UMat& inputFrame, FaceFeatures& outputFeatures) {
 		shapes_.clear();
 		faceRects_.clear();
@@ -282,7 +277,7 @@ private:
 	cv::Size size_;
 	const cv::Size downSize_ = { 640, 360 };
 
-	Params& params_;
+	static Params params_;
 	Frames frames_;
 	cv::Ptr<FaceFeatureExtractor> extractor_;
 
@@ -296,18 +291,6 @@ private:
 		cvtColor(framebuffer, frames.orig_, cv::COLOR_BGRA2BGR);
 		cv::resize(frames.orig_, frames.down_, downSize);
 		frames.orig_.copyTo(frames.stitched_);
-	}
-
-	static bool is_enabled(Params& params, const Mouse::List& events) {
-		if(!events.empty()) {
-			params.enabled_ = !params.enabled_;
-		}
-
-		return params.enabled_;
-	}
-
-	static bool is_my_turn(const size_t& cnt, const size_t& numWorkers, const size_t& workerIndex){
-		return cnt % numWorkers == workerIndex;
 	}
 
 	static void compose_result(const cv::Rect& vp, const cv::UMat& src, Frames& frames, const Params& params) {
@@ -324,15 +307,10 @@ private:
 		}
 	}
 
-	static void set_state(Params& params, const Params::State& state) {
-		params.state_ = state;
-	}
-
-	std::any any;
 	cv::Ptr<FaceFeatureMasksPlan> prepareFeatureMasksPlan_;
 	cv::Ptr<BeautyFilterPlan> beautyFilterPlan_;
 public:
-	BeautyDemoPlan(Params& params) : params_(params) {
+	BeautyDemoPlan() {
 		prepareFeatureMasksPlan_ = _sub<FaceFeatureMasksPlan>(this, features_, frames_);
 		beautyFilterPlan_ = _sub<BeautyFilterPlan>(this, params_, frames_);
 	}
@@ -394,9 +372,12 @@ public:
 		capture();
 		fb(prepare_frames, R(downSize_), RW(frames_));
 
-		branch((RWS(params_.enabled_) = (IF(F(&Mouse::List::empty, releaseEvents_),CS(params_.enabled_),!CS(params_.enabled_)))))
+		branch(RWS(params_.enabled_) = IF(
+											F(&Mouse::List::empty, releaseEvents_),
+											CS(params_.enabled_),
+											!CS(params_.enabled_)
+										))
 			->branch(++RWS(params_.frame_cnt) % numWorkers_ == workerIndex_)
-				->plain(RW(std::cerr) << V("Extracting worker: ") << workerIndex_ << V('\n'))
 				->branch(!(F(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RW(features_))));
 					assign(RWS(params_.state_), V(Params::NOT_DETECTED))
 				->endBranch()
@@ -484,6 +465,8 @@ public:
 	}
 };
 
+BeautyDemoPlan::Params BeautyDemoPlan::params_;
+
 int main(int argc, char **argv) {
 	if (argc != 2) {
         std::cerr << "Usage: beauty-demo <input-video-file>" << std::endl;
@@ -491,11 +474,10 @@ int main(int argc, char **argv) {
     }
 
 	cv::Rect viewport(0, 0, 1280, 720);
-	BeautyDemoPlan::Params params;
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::DEFAULT);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
-    Plan::run<BeautyDemoPlan>(2, params);
+    Plan::run<BeautyDemoPlan>(0);
 
     return 0;
 }

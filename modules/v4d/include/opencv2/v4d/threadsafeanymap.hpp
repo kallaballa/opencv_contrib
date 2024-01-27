@@ -111,7 +111,7 @@ public:
     		CV_Error(cv::Error::StsBadArg, string("Type mistmatch for key: ") + std::to_string(int(key)) + ". Expected: " + detail::demangle(properties_[key].type().name()) + ", Got: " + detail::type_name<V>() + ".");
     	V oldVal = *p;
     	*p = value;
-    	if(memcmp(&oldVal, p, sizeof(V)) != 0)
+    	if(fire && memcmp(&oldVal, p, sizeof(V)) != 0)
     		properties_[key].callback_(properties_[key]);
     }
 
@@ -159,6 +159,13 @@ public:
         std::unique_lock<std::shared_mutex> key_lock(*mutexes_.template get<cv::Ptr<std::shared_mutex>>(key));
         parent_t::set(key, value, fire);
     }
+//
+//    template<typename ... Elements>
+//    void set(std::tuple<Elements&>& ... kv, bool fire = true) {
+//        std::unique_lock<std::shared_mutex> map_lock(*mapMutexPtr_);
+//        std::unique_lock<std::shared_mutex> key_lock(*mutexes_.template get<cv::Ptr<std::shared_mutex>>(key));
+//        parent_t::set(key, value, fire);
+//    }
 
     template<typename V>
     const V& get(K key) const {
@@ -173,7 +180,7 @@ public:
         return parent_t::template apply<V>(key, func);
     }
 
-    // A method to get a pointer to the value for a given key
+    // A function to get a pointer to the value for a given key
     // Note: This function is not thread-safe
     template<typename V>
     V* ptr(K key) const {

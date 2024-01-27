@@ -47,6 +47,7 @@ public:
 	}
 };
 
+using namespace cv::v4d::event;
 class MontageDemoPlan : public Plan {
 	using K = V4D::Keys;
 	const bool highresMode_;
@@ -57,8 +58,11 @@ class MontageDemoPlan : public Plan {
 	std::vector<cv::Ptr<Plan>> plans_;
 	std::vector<cv::Ptr<Plan>> highResPlans_;
 
-	Property<cv::Size> winSz_ = GET<cv::Size>(K::WINDOW_SIZE);
-	Property<cv::Rect> initVp_ = GET<cv::Rect>(K::INIT_VIEWPORT);
+	Property<cv::Size> winSz_ = P<cv::Size>(K::WINDOW_SIZE);
+	Property<cv::Rect> initVp_ = P<cv::Rect>(K::INIT_VIEWPORT);
+
+	Event<Mouse> releaseLeft = E<Mouse>(Mouse::RELEASE, Mouse::LEFT);
+	Event<Mouse> releaseRight = E<Mouse>(Mouse::RELEASE, Mouse::RIGHT);
 
 	struct Frames {
 		std::vector<cv::UMat> results_;
@@ -66,6 +70,7 @@ class MontageDemoPlan : public Plan {
 	} frames_;
 
 	struct State {
+		int32_t lastZoomed_ = -1;
 		int32_t zoomed_ = -1;
 	};
 
@@ -73,8 +78,6 @@ class MontageDemoPlan : public Plan {
 	string id_;
 public:
 	MontageDemoPlan(const cv::Rect& vp, const bool& highresMode) : highresMode_(highresMode) {
-		_shared(state_);
-
 		tileSz_ = cv::Size(vp.width / tiling_.width, vp.height / tiling_.height);
 		if(highresMode_)
 			tileViewport_ = vp;
@@ -82,28 +85,17 @@ public:
 			tileViewport_ = cv::Rect(0, 0, tileSz_.width, tileSz_.height);
 
 		plans_ = {
-//				Plan::makeSubPlan<CubeDemoPlan>(*this),
-//				Plan::makeSubPlan<ManyCubesDemoPlan>(*this),
-//				Plan::makeSubPlan<VideoDemoPlan>(*this),
-//				Plan::makeSubPlan<NanoVGDemoPlan>(*this),
-//				Plan::makeSubPlan<ShaderDemoPlan>(*this),
-//				Plan::makeSubPlan<FontDemoPlan>(*this),
-//				Plan::makeSubPlan<PedestrianDemoPlan>(*this),
-//				Plan::makeSubPlan<BeautyDemoPlan>(*this),
-//				Plan::makeSubPlan<OptflowDemoPlan>(*this)
-			};
-
-
-		highResPlans_= {
-//				Plan::makeSubPlan<CubeDemoPlan>(*this),
-//				Plan::makeSubPlan<ManyCubesDemoPlan>(*this),
-//				Plan::makeSubPlan<VideoDemoPlan>(*this),
-//				Plan::makeSubPlan<NanoVGDemoPlan>(*this),
-//				Plan::makeSubPlan<ShaderDemoPlan>(*this),
-//				Plan::makeSubPlan<FontDemoPlan>(*this),
-//				Plan::makeSubPlan<PedestrianDemoPlan>(*this),
-//				Plan::makeSubPlan<BeautyDemoPlan>(*this),
-//				Plan::makeSubPlan<OptflowDemoPlan>(*this)
+				_sub<CubeDemoPlan>(this),
+				_sub<ManyCubesDemoPlan>(this),
+				_sub<VideoDemoPlan>(this),
+				_sub<NanoVGDemoPlan>(this),
+				_sub<ShaderDemoPlan>(this, 30),
+				_sub<FontDemoPlan>(this),
+				_sub<BlankPlan>(this),
+//				_sub<PedestrianDemoPlan>(this),
+				_sub<BeautyDemoPlan>(this),
+				_sub<BlankPlan>(this),
+//				_sub<OptflowDemoPlan>(this)
 			};
 
 		CV_Assert(tiling_.width * tiling_.height == plans_.size());
@@ -121,12 +113,12 @@ public:
 	}
 
 	void setup() override {
-		set(K::VIEWPORT, R(tileViewport_));
+		set(K::VIEWPORT, initVp_);
 		for(auto plan : plans_) {
 			subSetup(plan);
 		}
 
-		set(K::VIEWPORT, initVp_);
+
 		for(auto hrPlan : highResPlans_) {
 			subSetup(hrPlan);
 		}
@@ -138,64 +130,49 @@ public:
 		clear()
 		->capture();
 
-		set(K::DISABLE_VIDEO_IO, VAL(true));
+		constexpr auto copyToMemFn = static_cast<void (cv::UMat::*)(cv::OutputArray) const>(&cv::UMat::copyTo);
+		fb(copyToMemFn, RW(frames_.captured));
 
-		fb([](const cv::UMat& framebuffer, cv::UMat& captured){
-			framebuffer.copyTo(captured);
-		}, RW(frames_.captured));
-
-		branch(BranchType::PARALLEL, [](const State& state){
-			return state.zoomed_ == -1;
-		}, R_SC(state_));
+		set(K::DISABLE_VIDEO_IO, V(true));
+		set(K::DISABLE_INPUT_EVENTS, V(true));
+		branch(CS(state_.zoomed_) == V(-1));
 		{
 			for(size_t i = 0; i < plans_.size(); ++i) {
 				auto plan = plans_[i];
-				set(K::VIEWPORT,VAL(tileViewport_))
-				->fb([](cv::UMat& framebuffer, const cv::Rect tileViewPort, const cv::UMat& captured){
-					cv::resize(captured, framebuffer, tileViewPort.size());
-				}, R(tileViewport_), R(frames_.captured))
-				->subInfer(plan)
-				->fb([](const cv::UMat& framebuffer, const size_t& idx, Frames& frames) {
-					framebuffer.copyTo(frames.results_[idx]);
-				}, VAL(i), RW(frames_));
+				fb<1>(cv::resize, R(frames_.captured), F(&cv::Rect::size, initVp_), V(0), V(0), V(cv::INTER_LINEAR));
+				subInfer(plan);
+				fb(copyToMemFn, RW(frames_.results_)[V(i)]);
 			}
 		}
 		elseBranch();
 		{
-			for(size_t i = 0; i < highResPlans_.size(); ++i) {
-				auto hrPlan = highResPlans_[i];
-				set(K::VIEWPORT, initVp_)
-				->branch([](const size_t idx, const State& state){
-					return idx == state.zoomed_;
-				}, VAL(i), R_SC(state_))
-					->fb([](cv::UMat& framebuffer, const cv::UMat& captured){
-						captured.copyTo(framebuffer);
-					}, R(frames_.captured))
-					->subInfer(hrPlan)
-					->fb([](const cv::UMat& framebuffer, const size_t& idx, Frames& frames) {
-						framebuffer.copyTo(frames.results_[idx]);
-					}, VAL(i), RW(frames_))
+			for(size_t i = 0; i < plans_.size(); ++i) {
+				auto plan = plans_[i];
+				branch(CS(state_.zoomed_) == V(i))
+					->fb<1>(copyToMemFn, R(frames_.captured))
+					->subInfer(plan)
+					->fb(copyToMemFn, RW(frames_.results_)[V(i)])
 				->endBranch();
 			}
 		}
 		endBranch();
-
+		set(K::DISABLE_VIDEO_IO, V(false));
+		set(K::DISABLE_INPUT_EVENTS, V(false));
 
 		branch(BranchType::SINGLE, always_)
-			->plain([](const cv::Rect& vp, const cv::Size& windowSz, const std::vector<cv::Rect>& targetViewports, State& state) {
+			->plain([](const cv::Rect& initVp, const cv::Size& windowSz, const Mouse::List& reLeft, const Mouse::List& reRight, const std::vector<cv::Rect>& targetViewports, State& state) {
 				{
 					using namespace cv::v4d::event;
-					const double scaleX = double(vp.width) / windowSz.width;
-					const double scaleY = double(vp.height) / windowSz.height;
+					const double scaleX = double(initVp.width) / windowSz.width;
+					const double scaleY = double(initVp.height) / windowSz.height;
 					const double scale = std::min(scaleX, scaleY);
 					if(state_.zoomed_ > -1) {
-						if(consume(Mouse::Type::RELEASE, Mouse::Button::RIGHT)) {
+						if(!reRight.empty()) {
 							state_.zoomed_ = -1;
 						}
 					} else {
-						auto events = fetch(Mouse::Type::RELEASE, Mouse::Button::LEFT);
-						if(!events.empty()) {
-							cv::Point loc = events[0]->position() * scale;
+						if(!reLeft.empty()) {
+							cv::Point loc = reLeft[0]->position() * scale;
 							for(size_t i = 0; i < targetViewports.size(); ++i) {
 								if(targetViewports[i].contains(loc)) {
 									state.zoomed_ = i;
@@ -205,10 +182,9 @@ public:
 						}
 					}
 				}
-			}, initVp_, winSz_, R(targetViewports_), RW_S(state_))
+			}, initVp_, winSz_, releaseLeft, releaseRight, R(targetViewports_), RWS(state_))
 		->endBranch();
 
-		set(K::VIEWPORT, initVp_);
 		fb([](cv::UMat& framebuffer, const cv::Size& tileSz, const std::vector<cv::Rect>& targetViewports, const State& state, const Frames& frames) {
 			if(state.zoomed_ > -1) {
 				cv::resize(frames.results_[state.zoomed_], framebuffer, framebuffer.size());
@@ -219,21 +195,19 @@ public:
 					}
 				}
 			}
-		}, R(tileSz_), R(targetViewports_), R_SC(state_), R(frames_));
+		}, R(tileSz_), R(targetViewports_), CS(state_), R(frames_));
 
-		set(K::DISABLE_VIDEO_IO, VAL(false));
-//		window->write();
 	}
 
 
 	void teardown() override {
-		set(K::VIEWPORT, R(tileViewport_));
+		set(K::VIEWPORT, initVp_);
 		for(auto plan : plans_) {
 			subTeardown(plan);
 		}
-		set(K::VIEWPORT, initVp_);
+
 		for(auto plan : highResPlans_) {
-			subSetup(plan);
+			subTeardown(plan);
 		}
 	}
 };
@@ -246,7 +220,7 @@ int main(int argc, char** argv) {
         exit(1);
     }
 	cv::Rect viewport(0, 0, 1280, 720);
-    cv::Ptr<V4D> runtime = V4D::init(viewport, "Montage Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::MONITOR_RUNTIME_PROPERTIES);
+    cv::Ptr<V4D> runtime = V4D::init(viewport, "Montage Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::DEFAULT);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
     Plan::run<MontageDemoPlan>(atoi(argv[2]), viewport, false);

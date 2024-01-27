@@ -128,10 +128,6 @@ private:
 	    return keep;
 	}
 public:
-	PedestrianDemoPlan() {
-		_shared(tracked_);
-	}
-
     void setup() override {
     	plain([](const cv::Rect& vp, Detection& detection, Params& params){
     		detection.params_.desc_pca = cv::TrackerKCF::GRAY;
@@ -190,7 +186,7 @@ public:
 						detection.trackerInit_ = true;
 					}
 				}
-			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), R_SC(tracked_))
+			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), CS(tracked_))
 		->elseBranch()
 			->plain([](const cv::UMat& videoFrameDownGrey, Detection& detection, Params& params, const cv::Rect& tracked) {
 				params.newTracked_ = tracked;
@@ -199,7 +195,7 @@ public:
 				} else {
 					detection.redetect_ = false;
 				}
-			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), R_SC(tracked_))
+			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), CS(tracked_))
 		->endBranch();
 
 		plain([](const Params& params, cv::Rect& tracked) {
@@ -207,7 +203,7 @@ public:
 			tracked.y = (params.newTracked_.y + tracked.y) / 2.0;
 			tracked.width = (params.newTracked_.width + tracked.width) / 2.0;
 			tracked.height = (params.newTracked_.height+ tracked.height) / 2.0;
-		}, R(params_), RW_S(tracked_));
+		}, R(params_), RWS(tracked_));
 
 		nvg([](const cv::Rect& vp, const Params& params, const cv::Rect& tracked) {
 			//Draw an ellipse around the tracked pedestrian
@@ -222,7 +218,7 @@ public:
 			strokeColor(cv::v4d::convert_pix(cv::Scalar(0, 127, 255, 200), cv::COLOR_HLS2BGR));
 			ellipse(cx, cy, (width), (height));
 			stroke();
-		}, vp_, R(params_), R_SC(tracked_));
+		}, vp_, R(params_), CS(tracked_));
 
 		fb([](cv::UMat& framebuffer, const cv::UMat& background) {
 			//Put it all together

@@ -37,6 +37,13 @@ using std::endl;
 
 namespace cv {
 namespace v4d {
+
+#define _OLM_(r,c,f, ...) static_cast<r (c::*)(__VA_ARGS__)>(f)
+#define _OLMC_(r,c,f, ...) static_cast<r (c::*)(__VA_ARGS__) const>(f)
+
+#define _OL_(r,f, ...) static_cast<r (*)(__VA_ARGS__)>(f)
+#define _OLC_(r,f, ...) static_cast<r (*)(__VA_ARGS__) const>(f)
+
 namespace detail {
 
 
@@ -230,6 +237,15 @@ struct CallableTraits<Return (*)(Args...)>
     using args_t = std::tuple<Args...>;
 };
 
+template <typename Return, typename... Args>
+struct CallableTraits<Return(Args...)>
+{
+    using member_t = std::false_type;
+    using return_type_t =  Return;
+    using object_t = std::false_type;
+    using args_t = std::tuple<Args...>;
+};
+
 template <size_t offset, size_t len, class tuple, size_t ... idx>
 auto sub_tuple(tuple&& t, std::index_sequence<idx...>) {
     static_assert(offset + len <= std::tuple_size<typename std::remove_reference<tuple>::type>::value, "sub tuple is out of bounds!");
@@ -293,7 +309,6 @@ public:
     }
 };
 
-CV_EXPORTS size_t cnz(const cv::UMat& m);
 
 template<bool read, typename Tfn, typename ... Args>
 struct edgefun_t {
@@ -305,10 +320,13 @@ struct edgefun_t {
 				>::type;
 };
 
+
 }
 using std::string;
 class V4D;
 class Plan;
+
+CV_EXPORTS size_t cnz(const cv::UMat& m);
 
 inline uint64_t get_epoch_nanos() {
 	return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
@@ -441,9 +459,7 @@ public:
 	static void copy(const cv::UMat& from, cv::UMat& to) {
 		if(from.empty())
 			return;
-		if(to.empty())
-			to.create(from.size(), from.type());
-		from.copyTo(to.getMat(cv::ACCESS_WRITE));
+		to = from.clone();
 	}
 
 	template<typename T>
@@ -514,7 +530,8 @@ public:
 			DISPLAY_READY,
 			LOCK_CONTENTION_CNT,
 			LOCK_CONTENTION_RATE,
-			PLAN_CNT
+			PLAN_CNT,
+			WORKER_CNT
 		};
 	};
 private:
@@ -575,6 +592,7 @@ private:
 		create<false, size_t>(Keys::LOCK_CONTENTION_CNT, 0);
 		create<false, double>(Keys::LOCK_CONTENTION_RATE, 0.0);
 		create<false, size_t>(Keys::PLAN_CNT, 0);
+		create<false, size_t>(Keys::WORKER_CNT, 0);
 	}
 public:
 	template <typename V> const V& get(Keys::Enum k) {
@@ -767,8 +785,8 @@ Tdst convert_pix(const Tsrc& src, double alpha = 1, double beta = 0) {
 	using dst_internal_t = Vec<dstv_t, dstCn>;
 	static_assert((srcCn == 3 || srcCn == 4) && (dstCn == 3 || dstCn == 4), "Only 3 or 4 (src/dst) channels supported");
 	constexpr int srcType = CV_MAKETYPE(matrix_depth<typename src_internal_t::value_type>(), src_internal_t::channels);
-	constexpr int intermediateType = CV_MAKETYPE(matrix_depth<typename src_internal_t::value_type>(), dst_internal_t::channels);
-	constexpr int dstType = CV_MAKETYPE(matrix_depth<typename dst_internal_t::value_type>(), dst_internal_t::channels);
+	constexpr int intermediateType = CV_MAKETYPE(matrix_depth<typename src_internal_t::value_type>(), dstCn);
+	constexpr int dstType = CV_MAKETYPE(matrix_depth<typename dst_internal_t::value_type>(), dstCn);
 
 	std::array<src_internal_t, 1> srcArr;
 	if constexpr(srcCn == 3) {
@@ -781,24 +799,48 @@ Tdst convert_pix(const Tsrc& src, double alpha = 1, double beta = 0) {
 
 	if constexpr(dstCn == srcCn) {
 		intermediateMat = srcArr[0];
-	} else if (dstCn == 3) {
-		intermediateMat =  intermediate_t(srcArr[0][0], srcArr[0][1], srcArr[0][2]);
-	} else if (dstCn == 4) {
-		intermediateMat = intermediate_t(srcArr[0][0], srcArr[0][1], srcArr[0][2], srcArr[0][3]);
+	} else if constexpr(dstCn == 3) {
+		intermediateMat = intermediate_t(srcArr[0][0], srcArr[0][1], srcArr[0][2]);
+	} else if constexpr(dstCn == 4) {
+		intermediateMat =  intermediate_t(srcArr[0][0], srcArr[0][1], srcArr[0][2], srcArr[0][3]);
 	}
 
 	if constexpr(Tcode >= 0) {
 		cvtColor(srcArr, intermediateMat, Tcode);
+		if(intermediateMat.depth() == CV_32F || intermediateMat.depth() == CV_64F) {
+			cv::normalize(intermediateMat, intermediateMat, 0.0, 1.0, cv::NORM_MINMAX);
+		}
 	}
 
 
 	std::array<dst_internal_t, 1> dstArr;
 	if constexpr(!std::is_same<srcv_t, dstv_t>::value) {
 		//will just copy if types match
-		intermediateMat.convertTo(dstArr, dstType);
+		if constexpr(dstCn == srcCn) {
+			intermediateMat.convertTo(dstArr, dstType);
+		} else if constexpr(dstCn == 3){
+			cvtColor(intermediateMat, intermediateMat, cv::COLOR_BGRA2BGR);
+			intermediateMat.convertTo(dstArr, dstType);
+		} else if constexpr(dstCn == 4){
+			cvtColor(intermediateMat, intermediateMat, cv::COLOR_BGR2BGRA);
+			intermediateMat.convertTo(dstArr, dstType);
+		}
 	} else {
-		//both value type and channes match
-		dstArr[0] = intermediateMat.at<dst_internal_t>(0.0);
+		if constexpr(dstCn == srcCn) {
+			dstArr[0] = intermediateMat.at<src_internal_t>(0.0);
+		} else if constexpr(dstCn == 3) {
+			auto im = intermediateMat.at<src_internal_t>(0.0);
+			dstArr[0] = dst_internal_t(im[0], im[1], im[2]);
+		} else if constexpr(dstCn == 4) {
+			auto im = intermediateMat.at<src_internal_t>(0.0);
+			if(intermediateMat.depth() == CV_32F || intermediateMat.depth() == CV_64F) {
+				double alpha = 1.0;
+				dstArr[0] = dst_internal_t(im[0], im[1], im[2], alpha);
+			} else {
+				dstv_t alpha = std::numeric_limits<dstv_t>::max();
+				dstArr[0] = dst_internal_t(im[0], im[1], im[2], alpha);
+			}
+		}
 	}
 
 	Tdst dst;
@@ -811,7 +853,8 @@ Tdst convert_pix(const Tsrc& src, double alpha = 1, double beta = 0) {
 			temp = cv::Scalar(dstArr[0][0], dstArr[0][1], dstArr[0][2], dstArr[0][3]);
 		}
 
-		((temp *= alpha) += Scalar::all(beta));
+		temp *= Scalar::all(alpha);
+		temp += Scalar::all(beta);
 
 		if constexpr (dstCn == 3) {
 			dst = Tdst(doRound<Tround>(temp[0]), doRound<Tround>(temp[1]), doRound<Tround>(temp[2]));
@@ -821,7 +864,7 @@ Tdst convert_pix(const Tsrc& src, double alpha = 1, double beta = 0) {
 	} else {
 		if constexpr (dstCn == 3) {
 			dst =  Tdst(doRound<Tround>(dstArr[0][0]), doRound<Tround>(dstArr[0][1]), doRound<Tround>(dstArr[0][2]));
-		} else if (dstCn == 4) {
+		} else if constexpr (dstCn == 4) {
 			dst =  Tdst(doRound<Tround>(dstArr[0][0]), doRound<Tround>(dstArr[0][1]), doRound<Tround>(dstArr[0][2]), doRound<Tround>(dstArr[0][3]));
 		}
 	}
@@ -829,6 +872,9 @@ Tdst convert_pix(const Tsrc& src, double alpha = 1, double beta = 0) {
 	return dst;
 }
 
+inline double seconds() {
+	return cv::getTickCount() / cv::getTickFrequency();
+}
 /*!
  * Convenience function to check for OpenGL errors. Should only be used via the macro #GL_CHECK.
  * @param file The file path of the error.

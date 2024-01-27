@@ -24,7 +24,6 @@ using std::endl;
 
 namespace cv {
 namespace v4d {
-namespace detail {
 
 size_t cnz(const cv::UMat& m) {
     cv::UMat grey;
@@ -38,7 +37,6 @@ size_t cnz(const cv::UMat& m) {
         assert(false);
     }
     return cv::countNonZero(grey);
-}
 }
 
 CV_EXPORTS Global* Global::instance_ = nullptr;

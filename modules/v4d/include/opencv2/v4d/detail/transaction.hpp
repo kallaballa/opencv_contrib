@@ -41,7 +41,8 @@ enum Operators {
 	BOR_,
 	SHL_,
 	SHR_,
-	IF_
+	IF_,
+	IDX_,
 };
 
 template<Operators Top, typename ... Edges>
@@ -198,6 +199,11 @@ static auto make_operator_func(Tfirst, Args ...) {
 			auto& fa = std::get<1>(tup);
 			return f ? tr : fa;
 		};
+	} else if constexpr(Top == Operators::IDX_) {
+		static_assert(binary, "Invalid number of arguments to IDX");
+		return [](typename Tfirst::ref_t f, typename Args::ref_t ... values) -> decltype(f[std::get<0>(std::forward_as_tuple(values...))]) {
+			return f[std::get<0>(std::forward_as_tuple(values...))];
+		};
 	} else {
 		static_assert(true, "Internal Error. Unkown operator value");
 		return [](){};
@@ -260,10 +266,13 @@ public:
  	using base_maybe_const_t = typename std::remove_reference<typename std::remove_pointer<typename std::remove_extent<value_type_t>::type>::type>::type;
 	using base_t = typename std::remove_const<base_maybe_const_t>::type;
 	using func_ret_t = typename return_t<base_t>::type;
-	using element_type_t = typename element_t<base_t>::type;
+	using element_type_t = typename std::disjunction<
+								values_equal<std::is_same<typename element_t<base_t>::type, std::false_type>::value, false, typename element_t<base_t>::type>,
+								default_type<T>
+						>::type;
 
 	using ispointer_t = values_equal<std::is_pointer<T>::value || std::is_array<T>::value, true, std::true_type>;
-	using iselem_pointer_t = values_equal<std::is_pointer<element_type_t>::value || std::is_array<element_type_t>::value, true, std::true_type>;
+
 	using issmart_t = typename std::conjunction<
 			has_deref_t<value_type_t>,
 			has_arrow_t<value_type_t>,
@@ -272,6 +281,7 @@ public:
 			values_equal<func_t::value, false, std::true_type>
 			>::type;
 
+	using iselem_pointer_t = values_equal<std::is_pointer<element_type_t>::value || std::is_array<element_type_t>::value, true, std::true_type>;
 private:
  	using iswriteable_func_t = typename std::conjunction<
 			values_equal<std::is_reference<func_ret_t>::value, true, std::true_type>,
@@ -287,12 +297,11 @@ private:
 	using internal_base_t = typename std::disjunction<
 			values_equal<func_t::value, true, func_ret_t>,
 			values_equal<issmart_t::value, true, base_maybe_const_t>,
+ 			values_equal<ispointer_t::value, true, base_t>,
 			default_type<value_type_t>
 			>::type;
 
  	using internal_base_ptr_t = typename std::disjunction<
- 			values_equal<ispointer_t::value, true, base_t>,
- 			values_equal<issmart_t::value, true, internal_base_t*>,
 			default_type<internal_base_t*>
  			>::type;
 
@@ -339,7 +348,7 @@ public:
 		return e;
 	}
 
-	cv::Ptr<Plan> plan() const {
+	virtual cv::Ptr<Plan> plan() const {
 		return plan_;
 	}
 
@@ -470,16 +479,15 @@ public:
     	return operator=(std::make_tuple(*this,rhs));
     }
 
-//    template<typename Tprop>
-//    auto operator=(const Plan::Property<Tprop>& rhs){
-//    	return operator=(std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
-//    }
-//
-//    template<typename Tevent>
-//    auto operator=(const Plan::Event<Tevent>& rhs){
-//    	return operator=(std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
-//    }
+    template<typename ... Edges>
+    auto operator[](const std::tuple<Edges...>& tuple){
+    	return Operation::op<IDX_>(tuple);
+    }
 
+    template<typename Tedge>
+    auto operator[](const Tedge& rhs){
+    	return operator[](std::make_tuple(*this,rhs));
+    }
 };
 }
 struct BranchType {

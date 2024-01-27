@@ -7,10 +7,6 @@
 
 using namespace cv::v4d;
 
-static double seconds() {
-	return (cv::getTickCount() / cv::getTickFrequency());
-}
-
 //easing function for the bungee zoom
 static float easeInOutQuint(float x) {
 	return x < 0.5f ? 16.0f * x * x * x * x * x : 1.0f - std::pow(-2.0f * x + 2.0f, 5.0f) / 2.0f;
@@ -332,7 +328,7 @@ public:
     }
 
     void infer() override {
-    	assign(RW(scale_), aspect_preserving_scale, winSz_, fbSz_);
+    	assign(RW(scale_), F(aspect_preserving_scale, winSz_, fbSz_));
 
     	capture();
 

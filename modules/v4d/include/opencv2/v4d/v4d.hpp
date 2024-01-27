@@ -6,7 +6,7 @@
 #ifndef SRC_OPENCV_V4D_V4D_HPP_
 #define SRC_OPENCV_V4D_V4D_HPP_
 
-
+#include "flags.hpp"
 #include "source.hpp"
 #include "sink.hpp"
 #include "util.hpp"
@@ -87,36 +87,6 @@ namespace event {
 	}
 
 }
-struct AllocateFlags {
-	enum Enum {
-		NONE = 0,
-		NANOVG = 1,
-		IMGUI = 2,
-		BGFX = 4,
-		DEFAULT = NONE
-	};
-};
-
-struct ConfigFlags {
-	enum Enum {
-		DEFAULT = 0,
-		OFFSCREEN = 1,
-		DISPLAY_MODE = 2,
-	};
-};
-
-struct DebugFlags {
-	enum Enum {
-		DEFAULT = 0,
-		ONSCREEN_CONTEXTS = 1,
-		PRINT_CONTROL_FLOW = 2,
-		DEBUG_GL_CONTEXT = 4,
-		PRINT_LOCK_CONTENTION = 8,
-		MONITOR_RUNTIME_PROPERTIES = 16,
-		LOWER_WORKER_PRIORITY = 32,
-		DONT_PAUSE_LOG = 64,
-	};
-};
 
 using namespace cv::v4d::detail;
 
@@ -191,19 +161,19 @@ public:
 			NAMESPACE,
 			FULLSCREEN,
 			DISABLE_VIDEO_IO,
-			WORKER_COUNT
+			DISABLE_INPUT_EVENTS
     	};
     };
 private:
     CV_EXPORTS static thread_local std::mutex instance_mtx_;
     CV_EXPORTS static thread_local cv::Ptr<V4D> instance_;
-    CV_EXPORTS static ThreadSafeAnyMap<Keys::Enum> properties_;
+    CV_EXPORTS ThreadSafeAnyMap<Keys::Enum> properties_;
 
     int32_t workerIdx_ = -1;
 
-    int allocateFlags_;
-    int configFlags_;
-    int debugFlags_;
+    AllocateFlags::Enum allocateFlags_;
+    ConfigFlags::Enum configFlags_;
+    DebugFlags::Enum  debugFlags_;
 
     int samples_;
     cv::Ptr<FrameBufferContext> mainFbContext_ = nullptr;
@@ -263,8 +233,8 @@ public:
      * @param samples MSAA samples.
      * @param debug Create a debug OpenGL context.
      */
-    CV_EXPORTS static cv::Ptr<V4D> init(const cv::Rect& viewport, const string& title, int allocateFlags = AllocateFlags::DEFAULT, int configFlags = ConfigFlags::DEFAULT, int debugFlags = DebugFlags::DEFAULT, int samples = 0);
-    CV_EXPORTS static cv::Ptr<V4D> init(const cv::Rect& viewport, const cv::Size& fbsize, const string& title, int allocateFlags = AllocateFlags::DEFAULT, int configFlags = ConfigFlags::DEFAULT, int debugFlags = DebugFlags::DEFAULT, int samples = 0);
+    CV_EXPORTS static cv::Ptr<V4D> init(const cv::Rect& viewport, const string& title, AllocateFlags::Enum allocateFlags = AllocateFlags::DEFAULT, ConfigFlags::Enum configFlags = ConfigFlags::DEFAULT, DebugFlags::Enum debugFlags = DebugFlags::DEFAULT, int samples = 0);
+    CV_EXPORTS static cv::Ptr<V4D> init(const cv::Rect& viewport, const cv::Size& fbsize, const string& title, AllocateFlags::Enum allocateFlags = AllocateFlags::DEFAULT, ConfigFlags::Enum configFlags = ConfigFlags::DEFAULT, DebugFlags::Enum debugFlags = DebugFlags::DEFAULT, int samples = 0);
     CV_EXPORTS static cv::Ptr<V4D> init(const V4D& v4d, const string& title);
     /*!
      * Default destructor
@@ -337,9 +307,9 @@ public:
     CV_EXPORTS bool getShowTracking();
     CV_EXPORTS void setShowTracking(bool st);
     CV_EXPORTS void printSystemInfo();
-    CV_EXPORTS int allocateFlags();
-    CV_EXPORTS int configFlags();
-    CV_EXPORTS int debugFlags();
+    CV_EXPORTS AllocateFlags::Enum allocateFlags();
+    CV_EXPORTS ConfigFlags::Enum configFlags();
+    CV_EXPORTS DebugFlags::Enum debugFlags();
 
     static void run(cv::Ptr<V4D> runtime, std::function<void()> runGraph) {
 		//the first sequence number is 1!
@@ -430,7 +400,7 @@ public:
 private:
     V4D(const V4D& v4d, const string& title);
     V4D(const cv::Rect& size, cv::Size fbsize,
-            const string& title, int allocFlags, int confFlags, int debFlags, int samples);
+            const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples);
 
     void swapContextBuffers();
     bool display();
@@ -535,7 +505,7 @@ class Plan {
 					return std::mem_fn(fn)(values...);
 				});
 			} else {
-				return std::function<void(Args...)>(fn);
+				return std::function(fn);
 			}
     	} else {
 			if constexpr(CallableTraits<Tfn>::member_t::value) {
@@ -543,7 +513,7 @@ class Plan {
 					return std::mem_fn(fn)(values...);
 				});
 			} else {
-				return std::function<typename CallableTraits<Tfn>::return_type_t(Args...)>(fn);
+				return std::function(fn);
 			}
    	   }
    }
@@ -772,13 +742,14 @@ class Plan {
 					const bool disableIO = runtime_->get<bool>(V4D::Keys::DISABLE_VIDEO_IO);
 					if(currentState.isEnabled_) {
 						auto lock = global.tryGetNodeLock(currentState.branchID_);
+						auto plan = self<Plan>();
 						if(lock)
 						{
 							std::lock_guard<std::mutex> guard(*lock.get());
 							auto ctx = n->tx_->getContextCallback()();
 							auto viewport = runtime_->get<cv::Rect>(V4D::Keys::VIEWPORT);
-							int res = ctx->execute(viewport, [countLockContention, n,currentState]() {
-								TimeTracker::getInstance()->execute(n->name_, [countLockContention, n,currentState](){
+							int res = ctx->execute(viewport, [plan, countLockContention, n,currentState]() {
+								TimeTracker::getInstance()->execute(n->name_, [plan, countLockContention, n,currentState](){
 //									cerr << "locked: " << currentState.branchID_ << "->" << n->name_ << endl;
 									n->tx_->perform();
 								});
@@ -793,8 +764,8 @@ class Plan {
 						} else {
 							auto ctx = n->tx_->getContextCallback()();
 							auto viewport = runtime_->get<cv::Rect>(V4D::Keys::VIEWPORT);
-							int res = ctx->execute(viewport, [countLockContention, n,currentState]() {
-								TimeTracker::getInstance()->execute(n->name_, [countLockContention, n,currentState](){
+							int res = ctx->execute(viewport, [plan, countLockContention, n,currentState]() {
+								TimeTracker::getInstance()->execute(n->name_, [plan, countLockContention, n,currentState](){
 //									cerr << "unlocked: " << currentState.branchID_ << "->" << n->name_ << endl;
 									n->tx_->perform();
 								});
@@ -861,19 +832,20 @@ class Plan {
 
 	template<typename Tinstance>
     cv::Ptr<Tinstance> self() {
+		if(!self_)
+			self_ = this;
 		return self_.dynamicCast<Tinstance>();
 	}
 
     template<typename Tplan, typename Tparent, typename ... Args>
 	static cv::Ptr<Tplan> makeSubPlan(Tparent* parent, Args&& ... args) {
-    	cv::Ptr<Tplan> plan = std::make_shared<Tplan>(std::forward<Args>(args)...);
-    	plan->self_ = plan;
+    	Tplan* plan = new Tplan(std::forward<Args>(args)...);
     	plan->setParentID(parent->space());
     	plan->setParentOffset(reinterpret_cast<size_t>(parent));
     	plan->template setParentActualTypeSize<Tparent>();
     	plan->template setActualTypeSize<Tplan>();
-		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
-		return plan;
+    	plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
+		return plan->template self<Tplan>();
     }
 
     template<typename Tfn, typename ... Args>
@@ -920,6 +892,7 @@ public:
 //    	using type = std::function<return_type_t(typename Args::ref_t ...)>;
 //    };
 
+
     template<typename T>
 	struct Property : detail::Edge<const T, false, true, true> {
 		using parent_t = detail::Edge<const T, false, true, true>;
@@ -930,8 +903,21 @@ public:
 
 	template<typename TeventClass, typename Tfn = std::function<std::vector<std::shared_ptr<TeventClass>>()>, typename Tparent = Edge<Tfn, false, true, false>>
 	struct Event : Tparent {
-		Event(cv::Ptr<Plan> plan, const typename TeventClass::Type k) : Tparent(Tparent::make(plan, wrap_callable<>([k]() {
-			return cv::v4d::event::fetch(k);
+		Event(cv::Ptr<Plan> plan, const typename TeventClass::Type t) : Tparent(Tparent::make(plan, wrap_callable<>([t]() {
+			if(!V4D::instance()->get<bool>(V4D::Keys::DISABLE_INPUT_EVENTS))
+				return cv::v4d::event::fetch(t);
+			else
+				return typename TeventClass::List();
+		}))) {
+			static_assert(Tparent::func_t::value, "Internal error: Function not recognized!");
+		}
+
+		template<typename Ttrigger>
+		Event(cv::Ptr<Plan> plan, const typename TeventClass::Type t, const Ttrigger tr) : Tparent(Tparent::make(plan, wrap_callable<>([t, tr]() {
+			if(!V4D::instance()->get<bool>(V4D::Keys::DISABLE_INPUT_EVENTS))
+				return cv::v4d::event::fetch(t, tr);
+			else
+				return typename TeventClass::List();
 		}))) {
 			static_assert(Tparent::func_t::value, "Internal error: Function not recognized!");
 		}
@@ -958,7 +944,7 @@ public:
 	}
 
 	virtual std::string name() {
-		return detail::demangle(typeid(*this).name()) + std::to_string(id_);
+		return detail::demangle(typeid(*this).name());
 	}
 
 	virtual void setParentID(const string& parent) {
@@ -973,7 +959,7 @@ public:
     typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value, cv::Ptr<Plan>>::type
     gl(Tfn fn, Args ... args) {
     	auto wrap = wrap_callable<typename Args::ref_t...>(fn);
-        const string id = make_id(this->space(), "gl-1", fn, args...);
+        const string id = make_id(this->space(), "gl", fn, args...);
         emit_access(id, R(*this));
         (emit_access(id, args ),...);
 		add_transaction(runtime_->glCtx(-1), id, wrap, args...);
@@ -981,18 +967,24 @@ public:
     }
 
     std::map<size_t, size_t> indexPointerMap_;
-    template <typename Tedge, typename Tfn, typename ... Args>
+    template <int32_t pos = 0, typename Tedge, typename Tfn, typename ... Args>
     typename std::enable_if<std::is_base_of<EdgeBase, Tedge>::value, cv::Ptr<Plan>>::type
 	gl(Tedge indexEdge, Tfn fn, Args ... args) {
-        auto wrap = wrap_callable<typename Tedge::ref_t, typename Args::ref_t...>(fn);
-        const string id = make_id(this->space(), "gl-" + int_to_hex(indexEdge.ptr()), fn, args...);
-        emit_access(id, R(*this));
-        emit_access(id, indexEdge);
-        (emit_access(id, args ),...);
-        std::function<void((const int32_t&,typename Args::ref_t...))> functor(wrap);
-		add_transaction([this, indexEdge](){
+        auto ctxCallback = [this, indexEdge]() {
 			Tedge copy = indexEdge;
-			return runtime_->glCtx(copy.ref());},id, functor, indexEdge, args...);
+			return runtime_->glCtx(copy.ref());};
+		auto argsTuple = std::make_tuple(args...);
+		if constexpr(pos > 0) {
+			auto beforePos = sub_tuple<0,pos>(argsTuple);
+			auto afterPos = sub_tuple<pos, sizeof...(args) - pos>(argsTuple);
+			auto allTuple = std::tuple_cat(beforePos, indexEdge, afterPos);
+			return call(ctxCallback, "gl-i", fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
+		} else if constexpr(pos < 0) {
+			return call(ctxCallback, "gl-i", fn, std::forward<decltype(argsTuple)>(argsTuple), std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
+		} else {
+			auto allTuple = std::tuple_cat(index, argsTuple);
+			return call(ctxCallback, "gl-i", fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
+		}
 		return self<Plan>();
     }
 
@@ -1062,6 +1054,17 @@ public:
 			return runtime_->workerIndex() == workerIdx && wrapInner(args...);
 		};
 		add_transaction(BranchType::PARALLEL, runtime_->plainCtx(), id, wrap, args...);
+		return self<Plan>();
+    }
+
+    template <typename Tedge>
+    typename std::enable_if<std::is_base_of_v<EdgeBase, Tedge>, cv::Ptr<Plan>>::type
+    branch(BranchType::Enum type, Tedge edge) {
+        auto wrap = wrap_callable<typename Tedge::ref_t>([](const bool& b){ return b; });
+        const string id = make_id(this->space(), "branch", wrap);
+        branchStack_.push_front({id, type});
+        emit_access(id, R(*this));
+		add_transaction(type, runtime_->plainCtx(), id, wrap, edge);
 		return self<Plan>();
     }
 
@@ -1187,30 +1190,32 @@ public:
 		return self<Plan>();
     }
 
-    template <typename Tfn, typename Tuple, size_t ... idx>
-    cv::Ptr<Plan> call(Tfn fn, Tuple&& args, std::index_sequence<idx...>) {
-		const string id = make_id(this->space(), "fb", fn, std::get<idx>(args)...);
+    template <typename Tctx, typename Tfn, typename Tuple, size_t ... idx>
+    cv::Ptr<Plan> call(Tctx ctx, const string& name, Tfn fn, Tuple&& args, std::index_sequence<idx...>) {
+		const string id = make_id(this->space(), name, fn, std::get<idx>(args)...);
 		emit_access(id, R(*this));
 		(emit_access(id, std::get<idx>(args) ),...);
 		auto wrap = wrap_callable<typename std::remove_reference<decltype(std::get<idx>(args))>::type::ref_t...>(fn);
-		add_transaction(runtime_->fbCtx(),id, wrap, std::get<idx>(args)...);
+		add_transaction(ctx,id, wrap, std::get<idx>(args)...);
 		return self<Plan>();
     }
 
     template <size_t pos = 0, typename Tfn, typename ... Args>
     cv::Ptr<Plan> fb(Tfn fn, Args ... args) {
-		using Tfb = typename std::tuple_element<pos, typename function_traits<Tfn>::argument_types>::type;
+		using isMemFn = typename CallableTraits<Tfn>::member_t;
+		constexpr size_t idx = pos > 0 && isMemFn::value ? pos - 1 : pos;
+		using Tfb = typename std::tuple_element<idx, typename function_traits<Tfn>::argument_types>::type;
 		auto argsTuple = std::make_tuple(args...);
 		if constexpr(pos > 0) {
 			auto beforeFb = sub_tuple<0,pos>(argsTuple);
 			auto afterFb = sub_tuple<pos, sizeof...(args) - pos>(argsTuple);
 			auto fbEdge = std::make_tuple(makeInternalEdge<std::is_const<Tfb>::value>(runtime_->fbCtx()->fb()));
 			auto allTuple = std::tuple_cat(beforeFb, fbEdge, afterFb);
-			return call(fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
+			return call(runtime_->fbCtx(), "fb", fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
 		} else {
 			auto fbEdge = std::make_tuple(makeInternalEdge<std::is_const<Tfb>::value>(runtime_->fbCtx()->fb()));
 			auto allTuple = std::tuple_cat(fbEdge, argsTuple);
-			return call(fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
+			return call(runtime_->fbCtx(), "fb", fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
 		}
     }
 
@@ -1340,7 +1345,7 @@ public:
     cv::Ptr<Plan> subInfer(cv::Ptr<TsubPlan> subPlan) {
     	//FIXME check inheritance pattern
     	subPlan->infer();
-
+    	subPlan->makeGraph();
     	std::copy(subPlan->accesses_.begin(), subPlan->accesses_.end(), std::inserter(accesses_, accesses_.end()));
     	std::copy(subPlan->transactions_.begin(), subPlan->transactions_.end(), std::inserter(transactions_, transactions_.end()));
     	subPlan->clearGraph();
@@ -1351,7 +1356,7 @@ public:
     cv::Ptr<Plan> subSetup(cv::Ptr<TsubPlan> subPlan) {
     	//FIXME check inheritance pattern
     	subPlan->setup();
-
+    	subPlan->makeGraph();
     	std::copy(subPlan->accesses_.begin(), subPlan->accesses_.end(), std::inserter(accesses_, accesses_.end()));
     	std::copy(subPlan->transactions_.begin(), subPlan->transactions_.end(), std::inserter(transactions_, transactions_.end()));
     	subPlan->clearGraph();
@@ -1362,7 +1367,7 @@ public:
     cv::Ptr<Plan> subTeardown(cv::Ptr<TsubPlan> subPlan) {
     	//FIXME check inheritance pattern
     	subPlan->teardown();
-
+      	subPlan->makeGraph();
     	std::copy(subPlan->accesses_.begin(), subPlan->accesses_.end(), std::inserter(accesses_, accesses_.end()));
     	std::copy(subPlan->transactions_.begin(), subPlan->transactions_.end(), std::inserter(transactions_, transactions_.end()));
     	subPlan->clearGraph();
@@ -1444,11 +1449,11 @@ public:
 	}
 
 
-	template <typename Ttuple, size_t ... idx>
-	cv::Ptr<Plan> set(Ttuple&& values, std::index_sequence<idx...>) {
+	template <typename Tedge, size_t ... idx>
+	cv::Ptr<Plan> set(std::tuple<V4D::Keys::Enum,Tedge>&& values, std::index_sequence<idx...>) {
 		const string id = make_id(this->space(), "set-fn", std::get<idx>(values)...);
 		std::function wrap = make_setter_function(values);
-		auto args = sub_tuple<1, std::tuple_size<Ttuple>::value - 1>(values);
+		auto args = sub_tuple<1, std::tuple_size<std::tuple<V4D::Keys::Enum,Tedge>>::value - 1>(values);
 		return set(id, wrap, std::forward<decltype(args)>(args), std::make_index_sequence<std::tuple_size<decltype(args)>::value>());
 	}
 
@@ -1459,14 +1464,13 @@ public:
 	}
 
 	template<typename Tedge>
-	cv::Ptr<Plan> set(V4D::Keys::Enum&& key, Tedge&& e) {
-		return set(std::forward_as_tuple(key, e));
+	cv::Ptr<Plan> set(const V4D::Keys::Enum& key, const Tedge& e) {
+		return set(std::make_tuple(key, e), std::make_index_sequence<1>());
 	}
 
 	template<typename ... Args>
-	typename std::enable_if<(is_specialization_of<std::tuple, Args>::value && ...),cv::Ptr<Plan>>::type
-	set(Args&& ... tuples) {
-		(set(std::forward<Args>(tuples)),...);
+	cv::Ptr<Plan> set(std::tuple<V4D::Keys::Enum,Args>&& ... tuples) {
+		(set(std::forward<std::tuple<V4D::Keys::Enum,Args>>(tuples)),...);
 		return self<Plan>();
 	}
 
@@ -1534,14 +1538,14 @@ public:
 		auto op = wrap_callable<typename Args::ref_t ...>(fn);
 		using ret_t = typename CallableTraits<decltype(op)>::return_type_t;
 		constexpr bool hasReturn = !std::is_same<ret_t, void>::value;
-		static_assert(hasReturn || !TmakeEdge, "Operators may not have a return type of void.");
+//		static_assert(hasReturn || !TmakeEdge, "Operators may not have a return type of void.");
 		using ret_no_ref_t = typename std::remove_reference<ret_t>::type;
 		static_assert(!std::is_same<ret_no_ref_t, std::false_type>::value, "Invalid callable passed to Plan::op");
 		constexpr bool returnsRef = std::is_lvalue_reference<ret_t>::value;
 		constexpr bool returnsPtr = std::is_pointer<ret_no_ref_t>::value;
 
 		using val_t = typename std::disjunction<
-						values_equal<hasReturn, true, typename std::remove_const<typename std::remove_pointer<ret_no_ref_t>::type>::type>,
+						values_equal<hasReturn, true, typename std::remove_pointer<ret_no_ref_t>::type>,
 						default_type<int>
 					>::type;
 
@@ -1552,7 +1556,8 @@ public:
 				if constexpr(returnsPtr) {
 					v = cv::Ptr<val_t>(cv::Ptr<val_t>(),op(values...));
 				} else if constexpr(returnsRef) {
-					v = cv::Ptr<val_t>(cv::Ptr<val_t>(),&op(values...));
+					auto& ref = op(values...);
+					v = cv::Ptr<val_t>(cv::Ptr<val_t>(),std::addressof(ref));
 				} else {
 					v = cv::Ptr<val_t>(cv::Ptr<val_t>(),new val_t(op(values...)));
 				}
@@ -1771,6 +1776,12 @@ public:
 	}
 
 
+//	template<typename Tret, auto fn, typename ... Args, typename Tsrc = Tret(cv::UMat::*)(typename Args::element_type_t...)>
+//	constexpr auto F(Args ... args) {
+//		return static_cast<Tsrc>(fn);
+//	}
+
+//	constexpr auto copyToMemFn = static_cast<void(*)(const cv::UMat&, cv::UMat&)>(&SharedVariables::copy);
 	template<typename ... Args>
 	auto _(Args&& ... args) {
 		return std::make_tuple(std::forward<const Args>(args)...);
@@ -1862,17 +1873,21 @@ public:
 	}
 
 	template<typename Tclass>
-	Event<Tclass> E(typename Tclass::Type key) {
-		return Event<Tclass>(self<Plan>(), key);
+	Event<Tclass> E(typename Tclass::Type t) {
+		return Event<Tclass>(self<Plan>(), t);
+	}
+
+	template<typename Tclass, typename Ttrigger>
+	Event<Tclass> E(typename Tclass::Type t, Ttrigger tr) {
+		return Event<Tclass>(self<Plan>(), t, tr);
 	}
 
 	template<typename Tplan, typename ... Args>
 	static cv::Ptr<Tplan> make(Args&& ... args) {
-    	cv::Ptr<Tplan> plan = new Tplan(std::forward<Args>(args)...);
-    	plan->self_ = plan;
+    	Tplan* plan = new Tplan(std::forward<Args>(args)...);
     	plan->template setActualTypeSize<Tplan>();
 		plan->runtime_->set(V4D::Keys::NAMESPACE, plan->space());
-		return plan;
+		return plan->template self<Tplan>();
     }
 
     template<typename Tplan, typename ... Args>
@@ -1906,7 +1921,6 @@ public:
 				const string title = plan->runtime_->title();
 				auto src = plan->runtime_->getSource();
 				auto sink = plan->runtime_->getSink();
-				std::cerr << "workers: " << workers << std::endl;
 				global.set<size_t>(Global::Keys::WORKERS_STARTED, workers);
 //				std::cerr << "workers: " << global.get<size_t>(Global::Keys::WORKERS_STARTED) << std::endl;
 				static std::mutex worker_init_mtx_;
@@ -1948,17 +1962,19 @@ public:
 		}
 
 		CV_Assert(plan);
-		CLExecScope_t scope(plan->runtime_->fbCtx()->getCLExecContext());
 
 		if(global.isMain()) {
 			plan->runtime_->printSystemInfo();
 		} else {
+			static std::binary_semaphore setup_sema(1);
 			try {
 				CV_LOG_DEBUG(&v4d_tag, "Setup on worker: " << plan->runtime_->workerIndex());
+				setup_sema.acquire();
 				plan->setup();
 				plan->makeGraph();
 				plan->runGraph();
 				plan->clearGraph();
+				setup_sema.release();
 			} catch(std::exception& ex) {
 				CV_Error_(cv::Error::StsError, ("Setup failed: %s", ex.what()));
 			}
@@ -2032,6 +2048,11 @@ public:
 
 
 
+template<typename ... Edges>
+auto operator+(const std::tuple<Edges...>& tuple){
+	return Operation::op<ADD_>(tuple);
+}
+
 template<typename TedgeL, typename ... Edges>
 auto operator+(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
 	return Operation::op<ADD_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
@@ -2050,6 +2071,32 @@ auto operator+(const TedgeL& lhs, const Plan::Property<T>& rhs){
 template<typename TedgeL, typename T>
 auto operator+(const TedgeL& lhs, const Plan::Event<T>& rhs){
 	return operator+(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+
+template<typename TedgeL, typename ... Edges>
+auto operator*(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
+	return Operation::op<MUL_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+}
+
+template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator*(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator*(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator*(const TedgeL& lhs, const Plan::Property<T>& rhs){
+	return operator*(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+}
+
+template<typename TedgeL, typename T>
+auto operator*(const TedgeL& lhs, const Plan::Event<T>& rhs){
+	return operator*(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
+}
+
+template<typename ... Edges>
+auto operator-(const std::tuple<Edges...>& tuple){
+	return Operation::op<SUB_>(tuple);
 }
 
 template<typename TedgeL, typename ... Edges>
@@ -2071,26 +2118,21 @@ template<typename TedgeL, typename T>
 auto operator-(const TedgeL& lhs, const Plan::Event<T>& rhs){
 	return operator-(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
 }
-
-template<typename TedgeL, typename ... Edges>
-auto operator*(const TedgeL& lhs, const std::tuple<Edges...>& tuple){
-	return Operation::op<MUL_>(std::tuple_cat(std::make_tuple(std::forward<const TedgeL>(lhs)), tuple));
+template<typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
+auto operator-(const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
+	return operator*(rhs, std::make_tuple(std::forward<decltype(rhs.plan()->V(-1))>(rhs.plan()->V(-1))));
 }
 
-template<typename TedgeL, typename Telement, bool Tcopy, bool Tread, bool Tshared, typename Tbase, bool TbyValue>
-auto operator*(const TedgeL& lhs, const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>& rhs){
-	return operator*(lhs, std::make_tuple(std::forward<const Edge<Telement, Tcopy, Tread, Tshared, Tbase, TbyValue>>(rhs)));
+template<typename T>
+auto operator-(const Plan::Property<T>& rhs){
+	return operator*(rhs, std::make_tuple(std::forward<decltype(rhs.plan()->V(-1))>(rhs.plan()->V(-1))));
 }
 
-template<typename TedgeL, typename T>
-auto operator*(const TedgeL& lhs, const Plan::Property<T>& rhs){
-	return operator*(lhs, std::make_tuple(std::forward<const Plan::Property<T>>(rhs)));
+template<typename T>
+auto operator-(const Plan::Event<T>& rhs){
+	return operator*(rhs, std::make_tuple(std::forward<decltype(rhs.plan()->V(-1))>(rhs.plan()->V(-1))));
 }
 
-template<typename TedgeL, typename T>
-auto operator*(const TedgeL& lhs, const Plan::Event<T>& rhs){
-	return operator*(lhs, std::make_tuple(std::forward<const Plan::Event<T>>(rhs)));
-}
 
 template<typename TedgeL, typename ... Edges>
 auto operator/(const TedgeL& lhs, const std::tuple<Edges...>& tuple){

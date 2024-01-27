@@ -9,7 +9,7 @@ using namespace cv::v4d;
 
 
 class DisplayImageBgfx : public Plan {
-	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
 	void setup() override {
 		bgfx([](const cv::Rect& vp) {

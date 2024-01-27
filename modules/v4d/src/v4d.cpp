@@ -18,15 +18,14 @@ namespace v4d {
 
 CV_EXPORTS thread_local std::mutex V4D::instance_mtx_;
 CV_EXPORTS thread_local cv::Ptr<V4D> V4D::instance_;
-CV_EXPORTS ThreadSafeAnyMap<V4D::Keys::Enum> V4D::properties_;
 
-cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const string& title, int allocFlags, int confFlags, int debFlags, int samples) {
+cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) {
 	std::lock_guard guard(instance_mtx_);
 	instance_ = new V4D(viewport, cv::Size(), title, allocFlags, confFlags, debFlags, samples);
 	return instance_;
 }
 
-cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const cv::Size& fbsize, const string& title, int allocFlags, int confFlags, int debFlags, int samples) {
+cv::Ptr<V4D> V4D::init(const cv::Rect& viewport, const cv::Size& fbsize, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) {
 	std::lock_guard guard(instance_mtx_);
 	instance_ = new V4D(viewport, fbsize, title, allocFlags, confFlags, debFlags, samples);
 	return instance_;
@@ -38,7 +37,7 @@ cv::Ptr<V4D> V4D::init(const V4D& other, const string& title) {
 	return instance_;
 }
 
-V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, int allocFlags, int confFlags, int debFlags, int samples) :
+V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, AllocateFlags::Enum allocFlags, ConfigFlags::Enum confFlags, DebugFlags::Enum debFlags, int samples) :
         allocateFlags_(allocFlags), configFlags_(confFlags), debugFlags_(debFlags), samples_(samples) {
 	if(fbsize.empty())
     	fbsize = viewport.size();
@@ -51,7 +50,7 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, int all
     create<false,string>(Keys::NAMESPACE, "default");
     create<false, bool>(Keys::FULLSCREEN, false, [this](const bool& b){ fbCtx()->setFullscreen(b); });
     create<false>(Keys::DISABLE_VIDEO_IO, false);
-    create<false, size_t>(Keys::WORKER_COUNT, 0);
+    create<false>(Keys::DISABLE_INPUT_EVENTS, false);
 
     int fbFlags = FBConfigFlags::VSYNC
     		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
@@ -68,7 +67,18 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, int all
 
 V4D::V4D(const V4D& other, const string& title) :
 		allocateFlags_(other.allocateFlags_), configFlags_(other.configFlags_), debugFlags_(other.debugFlags_), samples_(other.samples_) {
-	workerIdx_ = apply<size_t>(V4D::Keys::WORKER_COUNT, [](size_t& v){ return v++; });
+	create<true>(Keys::INIT_VIEWPORT, other.get<cv::Rect>(Keys::INIT_VIEWPORT));
+    create<false>(Keys::VIEWPORT, other.get<cv::Rect>(Keys::VIEWPORT));
+    create<false, cv::Size>(Keys::WINDOW_SIZE, other.get<cv::Size>(Keys::WINDOW_SIZE), [this](const cv::Size& sz){ fbCtx()->setWindowSize(sz); });
+	create<true>(Keys::FRAMEBUFFER_SIZE, other.get<cv::Size>(Keys::FRAMEBUFFER_SIZE));
+    create<false>(Keys::STRETCHING, true);
+    create<false>(Keys::CLEAR_COLOR, cv::Scalar(0, 0, 0, 255));
+    create<false,string>(Keys::NAMESPACE, "default");
+    create<false, bool>(Keys::FULLSCREEN, false, [this](const bool& b){ fbCtx()->setFullscreen(b); });
+    create<false>(Keys::DISABLE_VIDEO_IO, false);
+    create<false>(Keys::DISABLE_INPUT_EVENTS, false);
+
+	workerIdx_ = Global::instance().apply<size_t>(Global::Keys::WORKER_CNT, [](size_t& v){ return v++; });
     RunState::instance().set<size_t>(RunState::Keys::WORKER_INDEX, workerIdx_);
 	int fbFlags = (configFlags() &  ConfigFlags::DISPLAY_MODE ? FBConfigFlags::DISPLAY_MODE : 0)
     		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
@@ -413,15 +423,15 @@ void V4D::printSystemInfo() {
 #endif
 }
 
-int V4D::allocateFlags() {
+AllocateFlags::Enum V4D::allocateFlags() {
 	return allocateFlags_;
 }
 
-int V4D::configFlags() {
+ConfigFlags::Enum V4D::configFlags() {
 	return configFlags_;
 }
 
-int V4D::debugFlags() {
+DebugFlags::Enum V4D::debugFlags() {
 	return debugFlags_;
 }
 

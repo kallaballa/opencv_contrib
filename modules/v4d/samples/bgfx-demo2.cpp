@@ -134,7 +134,7 @@ class BgfxDemoPlan : public Plan {
 
 	inline static int64_t time_offset_;
 
-	Property<cv::Rect> vp_ = GET<cv::Rect>(V4D::Keys::VIEWPORT);
+	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 public:
 	BgfxDemoPlan(){
 

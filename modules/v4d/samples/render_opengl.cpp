@@ -17,7 +17,7 @@ public:
 
 int main() {
 	cv::Rect viewport(0, 0, 960, 960);
-    Ptr<V4D> runtime = V4D::init(viewport, "GL Blue Screen", AllocateFlags::IMGUI,  ConfigFlags::DEFAULT, DebugFlags::LOWER_WORKER_PRIORITY);
+    Ptr<V4D> runtime = V4D::init(viewport, "GL Blue Screen", AllocateFlags::IMGUI,  ConfigFlags::DEFAULT, DebugFlags::DEFAULT);
     Plan::run<RenderOpenGLPlan>(0);
 }
 

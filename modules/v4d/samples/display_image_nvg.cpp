@@ -31,7 +31,7 @@ public:
 			imageSize(handle, &img.w_, &img.h_);
 			//Create a simple image_ pattern with the image dimensions
 			img.paint_ = imagePattern(0, 0, img.w_, img.h_, 0.0f/180.0f*NVG_PI, handle, 1.0);
-		}, A(image_));
+		}, RW(image_));
 	}
 
 	void infer() override{
@@ -48,7 +48,7 @@ public:
 			//Fill the rounded rectangle with our picture
 			fillPaint(img.paint_);
 			fill();
-		}, P<cv::Rect>(K::VIEWPORT), A(image_));
+		}, P<cv::Rect>(K::VIEWPORT), RW(image_));
 	}
 };
 
