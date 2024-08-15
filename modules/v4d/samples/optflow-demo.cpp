@@ -1,4 +1,3 @@
-// It is subject to the license terms in the LICENSE file found in the top-level directory
 // of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
@@ -48,7 +47,7 @@ public:
 	    //Back to original size
 	    cv::resize(temp_.blur_, temp_.high_, srcFloat.size());
 
-	    //Multiply the src image with a blurred version of itself
+	    //Multiply the src 2age with a blurred version of itself
 	    cv::multiply(temp_.dst_, temp_.high_, temp_.dst_, 1.0/255.0, CV_8U);
 	    //Normalize and convert back to CV_8U
 
@@ -345,7 +344,7 @@ private:
 		// Generate the foreground at this scale.
 		float fgScale_ = 0.5f;
 		// On every frame the foreground loses on brightness. Specifies the loss in percent.
-		float fgLoss_ = 8.0f;
+		float fgLoss_ = 20.0f;
 		PostProcessor::Modes postProcMode_ = PostProcessor::DISABLED;
 		// Intensity of glow or bloom defined by kernel size. The default scales with the image diagonal.
 		int kernelSize_ = 0;
@@ -361,9 +360,9 @@ private:
 		float sceneChangeThreshDiff_ = 0.1f;
 		// The theoretical maximum number of points to track which is scaled by the density of detected points
 		// and therefor is usually much smaller.
-		int maxPoints_ = 1000000;
+		int maxPoints_ = 300000;
 		// How many of the tracked points to lose intentionally, in percent.
-		float pointLoss_ = 1;
+		float pointLoss_ = 10;
 		// The theoretical maximum size of the drawing stroke which is scaled by the area of the convex hull
 		// of tracked points and therefor is usually much smaller.
 		int maxStroke_ = 6;
@@ -402,6 +401,7 @@ private:
     		cv::UMat srcGrayFloat_;
     		cv::UMat lastMmGray_;
     		cv::UMat mmGray_;
+    		cv::UMat mmEqGray_;
     		cv::UMat mmGrayFloat_;
     		cv::UMat mmBlurGray_;
     		cv::UMat mmBlurGrayFloat_;
@@ -409,43 +409,39 @@ private:
 
 		OptflowDemoPlan::Frames& frames_;
     	cv::Ptr<cv::BackgroundSubtractor> bgSubtractor_;
-    	cv::Mat erodeElement_;
-    	cv::Mat openElement_;
+    	cv::Mat bigElement_;
+    	cv::Mat smallElement_;
     	cv::Size sz_;
 
     	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 
     	void prepareMotionMask(const cv::UMat& srcGray, cv::UMat& motionMaskGrey) {
     		bgSubtractor_->apply(srcGray, temp_.mmGray_);
-    		temp_.mmGray_.convertTo(temp_.mmGrayFloat_, CV_64F, 1.0/255.5);
-    		cv::pow(temp_.mmGrayFloat_, 6, temp_.mmGrayFloat_);
-    		cv::boxFilter(temp_.mmGrayFloat_, temp_.mmBlurGrayFloat_, -1, cv::Size(7, 7), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
-    		cv::threshold(temp_.mmBlurGrayFloat_, temp_.mmBlurGrayFloat_, 0.5, 1.0, cv::THRESH_BINARY);
+    		temp_.mmGray_.convertTo(temp_.mmGrayFloat_, CV_64F, 1.0/255.1);
+    		cv::pow(temp_.mmGrayFloat_, 8, temp_.mmGrayFloat_);
+    		cv::boxFilter(temp_.mmGrayFloat_, temp_.mmBlurGrayFloat_, -1, cv::Size(31, 31), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
     		temp_.mmBlurGrayFloat_.convertTo(temp_.mmGray_, CV_8U, 255.0);
-    		temp_.mmGray_.convertTo(temp_.mmGrayFloat_, CV_64F);
-    		cv::boxFilter(temp_.mmGrayFloat_, temp_.mmGrayFloat_, -1, cv::Size(127,127), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
-    		cv::threshold(temp_.mmGrayFloat_, temp_.mmGrayFloat_, 0, 255, cv::THRESH_BINARY);
-    		temp_.mmGrayFloat_.convertTo(temp_.mmGray_, CV_8U);
-    		cv::morphologyEx(temp_.mmGray_, temp_.mmGray_, cv::MORPH_ERODE, erodeElement_, cv::Point(erodeElement_.cols >> 1, erodeElement_.rows >> 1), 23, cv::BORDER_CONSTANT, cv::morphologyDefaultBorderValue());
-    		cv::morphologyEx(temp_.mmGray_, temp_.mmGray_, cv::MORPH_OPEN, openElement_, cv::Point(openElement_.cols >> 1, openElement_.rows >> 1), 1, cv::BORDER_CONSTANT, cv::morphologyDefaultBorderValue());
+    		cv::morphologyEx(temp_.mmGray_, temp_.mmGray_,cv::MORPH_OPEN, bigElement_, cv::Point(bigElement_.cols >> 1, bigElement_.rows >> 1),2, cv::BORDER_CONSTANT, cv::morphologyDefaultBorderValue());
+//    		cv::boxFilter(temp_.mmGray_, temp_.mmGray_, -1, cv::Size(11, 11), cv::Point(-1,-1), true, cv::BORDER_REPLICATE);
+    		cv::normalize(temp_.mmGray_, temp_.mmGray_,120, 234, cv::NORM_MINMAX);
+    		cv::threshold(temp_.mmGray_, temp_.mmGray_,128, 255, cv::THRESH_TOZERO);
+    		cv::morphologyEx(temp_.mmGray_, temp_.mmGray_, cv::MORPH_OPEN, smallElement_, cv::Point(smallElement_.cols >> 1, smallElement_.rows >> 1), 7, cv::BORDER_CONSTANT, cv::morphologyDefaultBorderValue());
     		if(motionMaskGrey.empty())
     			motionMaskGrey.create(srcGray.size(), srcGray.type());
     		else
     			motionMaskGrey.setTo(cv::Scalar::all(0));
-    	    srcGray.copyTo(motionMaskGrey,temp_.mmGray_);
-    		cv::equalizeHist(motionMaskGrey,motionMaskGrey);
-    	    cv::threshold(motionMaskGrey, motionMaskGrey, 127, 255, cv::THRESH_BINARY);
-    		cv::imshow("final", motionMaskGrey);
-    	    cv::waitKey(1);
+    		cv::equalizeHist(srcGray, temp_.mmEqGray_);
+    		temp_.mmEqGray_.copyTo(motionMaskGrey,temp_.mmGray_);
+    		cv::threshold(motionMaskGrey, motionMaskGrey, 127, 255, cv::THRESH_BINARY);
     	}
     public:
     	PrepareMasksPlan(OptflowDemoPlan::Frames& frames) : frames_(frames) {
     	}
 
     	void setup() override {
-    		assign(RW(bgSubtractor_), F(cv::createBackgroundSubtractorMOG2, V(200), V(512.0), V(true)));
-    		assign(RW(erodeElement_), F(cv::getStructuringElement, V(cv::MORPH_ELLIPSE), V(cv::Size(7, 7)), V(cv::Point(4, 4))));
-    		assign(RW(openElement_), F(cv::getStructuringElement, V(cv::MORPH_ELLIPSE), V(cv::Size(7, 7)), V(cv::Point(4, 4))));
+    		assign(RW(bgSubtractor_), F(cv::createBackgroundSubtractorMOG2, V(100), V(16), V(true)));
+    		assign(RW(bigElement_), F(cv::getStructuringElement, V(cv::MORPH_ELLIPSE), V(cv::Size(7, 7)), V(cv::Point(4, 4))));
+    		assign(RW(smallElement_), F(cv::getStructuringElement, V(cv::MORPH_ELLIPSE), V(cv::Size(7, 7)), V(cv::Point(4, 4))));
     	}
     	void infer() override {
     		construct(RW(sz_), F(&cv::Rect::width, vp_) * CS(params_.fgScale_), F(&cv::Rect::height, vp_) * CS(params_.fgScale_));
@@ -474,7 +470,7 @@ public:
 	        thread_local int* bgm = (int*)&params.backgroundMode_;
 	        ListBox("Mode", bgm, bgm_items, 4, 4);
 	        Text("Points");
-	        SliderInt("Max. Points", &params.maxPoints_, 10, 1000000);
+	        SliderInt("Max. Points", &params.maxPoints_, 10, 10000000);
 	        SliderFloat("Point Loss", &params.pointLoss_, 0.0f, 100.0f);
 	        Text("Optical flow");
 	        SliderInt("Max. Stroke Size", &params.maxStroke_, 1, 100);
@@ -520,9 +516,9 @@ public:
     	branch(BranchType::ONCE, always_)
 			->assign(RWS(params_.kernelSize_),
 					F(sqrt, F(&cv::Rect::width, vp_) * F(&cv::Rect::height, vp_))
-					/ V(200.0)
+					/ V(400.0)
 			)
-			->assign(RWS(params_.effectColor_[3]),RW(params_.effectColor_[3]) / F(pow, numWorkers_ + V(1.0), V(1.0) / numWorkers_))
+			->assign(RWS(params_.effectColor_[3]),RW(params_.effectColor_[3]) / F(pow, numWorkers_, V(1.0) / numWorkers_))
 			->plain(UMAT_CREATE,
 						RWS(foreground_),
 						F(&cv::Rect::size, vp_),
@@ -602,7 +598,7 @@ int main(int argc, char **argv) {
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Sparse Optical Flow Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 	auto src = Source::make(runtime, argv[1]);
 	runtime->setSource(src);
-	Plan::run<OptflowDemoPlan>(0);
+	Plan::run<OptflowDemoPlan>(2);
 
     return 0;
 }
