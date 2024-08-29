@@ -10,7 +10,7 @@
 using namespace cv::v4d;
 
 class ManyCubesDemoPlan : public Plan {
-	constexpr static size_t NUMBER_OF_CONTEXTS_ = 1;
+	constexpr static size_t NUMBER_OF_CONTEXTS_ = 10;
 
 	CubeScene scene_;
 	size_t currentGlCtx_ = 0;
@@ -24,8 +24,10 @@ public:
 
 	void infer() override {
 		//Render using multiple OpenGL contexts
-		gl<-1>(RW(currentGlCtx_) = (RW(currentGlCtx_) + V(1)) % V(NUMBER_OF_CONTEXTS_),
-				&CubeScene::render, R(scene_), V(true));
+		for(size_t i = 0; i < NUMBER_OF_CONTEXTS_; ++i) {
+			gl<-1>(V(i),
+				&CubeScene::render, R(scene_), V(true), V(double(i) / NUMBER_OF_CONTEXTS_));
+		}
 	}
 
 	void teardown() override {

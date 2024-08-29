@@ -205,6 +205,7 @@ public:
 	}
 
 	void infer() override {
+		capture();
 		bgfx([](const Params& params, const int64_t timeOffset) {
 			float time = (float)( (bx::getHPCounter()-timeOffset)/double(bx::getHPFrequency()));
 
@@ -275,12 +276,17 @@ public:
 			// process submitted rendering primitives.
 			bgfx::frame();
 		}, R(params_), CS(time_offset_));
+		write();
 	}
 };
 
 
 int main(int argc, char** argv) {
-	cv::Ptr<V4D> runtime = V4D::init(cv::Rect(0,0, 1280, 720), "Bgfx Demo", AllocateFlags::BGFX | AllocateFlags::IMGUI);
+	cv::Ptr<V4D> runtime = V4D::init(cv::Rect(0,0, 1920, 1080), "Bgfx Demo", AllocateFlags::BGFX | AllocateFlags::IMGUI, ConfigFlags::OFFSCREEN);
+    auto src = Source::make(runtime, argv[2]);
+    auto sink = Sink::make(runtime, "bgfx-demo2.mkv", 60, cv::Size(1920, 1080));
+    runtime->setSource(src);
+    runtime->setSink(sink);
     Plan::run<BgfxDemoPlan>(std::stoi(argv[1]));
 
     return 0;

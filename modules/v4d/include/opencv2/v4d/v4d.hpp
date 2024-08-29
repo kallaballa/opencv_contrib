@@ -346,12 +346,12 @@ public:
 					bool result = true;
 					TimeTracker::getInstance()->execute("worker", [&result, &global, runtime, runGraph](){
 						event::poll();
-						if(!runtime->hasSource() || (runtime->hasSource() && !runtime->getSource()->isOpen())) {
-							global.apply<size_t>(Global::Keys::RUN_COUNT, [runtime](size_t& s) {
-								runtime->setSequenceNumber(++s);
-								return s;
-							});
-						}
+//						if(!runtime->hasSource() || (runtime->hasSource() && !runtime->getSource()->isOpen())) {
+						global.apply<size_t>(Global::Keys::RUN_COUNT, [runtime](size_t& s) {
+							runtime->setSequenceNumber(++s);
+							return s;
+						});
+//						}
 
 						if(runtime->configFlags() & ConfigFlags::DISPLAY_MODE) {
 							frame_sync_sema_swap.release();

@@ -139,7 +139,7 @@ public:
 	}
 
 	//Renders a rotating rainbow-colored cube on a blueish background
-	void render(const bool clearColorBuffer) const {
+	void render(const bool clearColorBuffer, const double pos = -2.0) const {
 		glClear((clearColorBuffer ? GL_COLOR_BUFFER_BIT : 0) | GL_DEPTH_BUFFER_BIT);
 
 		//Use the prepared shader program
@@ -163,8 +163,13 @@ public:
 		cv::Matx44f rotZMat(cos(angle), -sin(angle), 0.0, 0.0, sin(angle),
 				cos(angle), 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0);
 
+		cv::Matx44f transMat(1.0, 0.0, 0.0, pos,
+				0.0, 1.0, 0.0, pos,
+				0.0, 0.0, 1.0, 0.0,
+				0.0, 0.0, 0.0, 1.0);
+
 		//calculate the transform
-		cv::Matx44f transform = scaleMat * rotXMat * rotYMat * rotZMat;
+		cv::Matx44f transform = scaleMat * rotXMat * rotYMat * rotZMat * transMat;
 		//set the corresponding uniform
 		glUniformMatrix4fv(handles_.uniform_, 1, GL_FALSE, transform.val);
 		//Bind the prepared vertex array object

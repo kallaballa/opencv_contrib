@@ -171,7 +171,7 @@ void FrameBufferContext::blendFramebuffer(const GLuint& otherID) {
     GL_CHECK(glEnable(GL_BLEND));
     GL_CHECK(glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
 
-    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, getFramebufferID()));
+    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, getFramebufferID()));
     GL_CHECK(glViewport(0, 0, size().width, size().height));
     GL_CHECK(glActiveTexture(GL_TEXTURE0));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, copyTextures_[otherID]));
@@ -628,12 +628,10 @@ void FrameBufferContext::begin(GLenum framebufferTarget, GLuint framebufferID) {
 
 void FrameBufferContext::end(bool copyBack) {
 	if(copyBack) {
-		CV_Assert(currentFBO_ != getFramebufferID());
 		if(copyFramebuffers_.find(currentFBO_) == copyFramebuffers_.end()) {
 			initBlend(currentFBO_);
 	    }
-
-		GL_CHECK(glBindFramebuffer(GL_READ_FRAMEBUFFER, currentFBO_));
+		GL_CHECK(glBindFramebuffer(GL_READ_FRAMEBUFFER, 0));
 		GLint dims[4] = {0};
 		glGetIntegerv(GL_VIEWPORT, dims);
 		GLint fbX = dims[0];
