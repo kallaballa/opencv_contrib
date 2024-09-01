@@ -22,28 +22,28 @@ public:
 
 		//Retrieve the bottom-left pixel (using getMat on a aub-UMat downloads the whole frame)
 		Scalar pix = cv::sum(bgra(cv::Rect(0, 0, 1, 1)));
-		//the HLS conversion produces ones where there should be zero values when it produces
-		//pure RGB/BGR colors (e.g. 255, 1, 1). Hence the product must be 255 or 255^2
-		double prod = pix[0] * pix[1] * pix[2];
-		bool isPureColor = prod == 0xff || prod == 0xffff;
+
+		double sum = pix[0] + pix[1] + pix[2];
+		bool isPureColor = sum == 257 || sum == 508;
+
 
 		if(lastColor_ != pix && isPureColor) {
-			cv::Vec4b binarized = convert_pix<-1, Scalar, cv::Vec4b, true>(pix, 1.0/255);
+			std::cerr << pix << std::endl;
+			cv::Vec4b binarized = convert_pix<-1, Scalar, cv::Vec4b, true>(pix, 1.0/255.0);
+			std::cerr << binarized << std::endl;
 			uchar key = binarized[0] | binarized[1] << 1 | binarized[2] << 2;
+			std::cerr << key - 1 << std::endl;
 			foundName_ = binarizedBGRIndex_[key - 1];
 			found_ = true;
 			lastColor_ = pix;
 		} else {
-			found_ = true;
+			found_ = false;
 		}
 	}
 
 	void draw(const Rect& vp) const {
 		using namespace cv::v4d::nvg;
-		string str = "Last pure color: " + foundName_;
-		if(!found()) {
-			str = "Detecting...";
-		}
+		string str = "Last detected color: " + foundName_;
 
 		fontSize(40.0f);
 		fontFace("sans-bold");
@@ -86,7 +86,7 @@ int main() {
     //check out the video after. It will only contain frames filtered by the plan by conditional branching
     //the frame rate is set to one frame every 3 seconds because that is what we are going to emit to the video.
     //anyway, xou may choose a fps value to your own liking.
-    cv::Ptr<Sink> videoSink = Sink::make(runtime, "custom_source_and_sink.mkv", 1.0/3.0, viewport.size());
+    cv::Ptr<Sink> videoSink = Sink::make(runtime, "custom_source_and_sink.mkv", 10, viewport.size());
 
 	//Make a source that generates a rainbow frames series.
 	cv::Ptr<Source> src = new Source([](cv::UMat& frame){
@@ -96,9 +96,10 @@ int main() {
 		if(frame.empty()) {
 		    frame.create(Size(960, 960), CV_8UC3);
 		}
-		uchar hue = (int64_t(seconds() * 10) % 255);
+		uchar hue = (int64_t(seconds() * 15) % 255);
+
 		//convert from HLS to RGB and set the whole frame to the RGB color
-		frame = convert_pix<cv::COLOR_HLS2RGB_FULL>(Vec3b(hue, 128, 255));
+		frame = convert_pix<cv::COLOR_HLS2RGB_FULL>(cv::Vec3b(hue, 128, 255));
 	    return true; //false signals end of stream (fatal errors should be propagated through exception)
 	}, 60.f);
 
@@ -110,8 +111,7 @@ int main() {
 		//on the frame, the sequence nummber and any  hidden state the sink holds
 		//(e.g. the video sink)
 		Scalar pix = cv::sum(frame(cv::Rect(0, 0, 1, 1)));
-		//simply print the (pure) main frame color.
-		std::cerr << "WRITE: " << pix << std::endl;
+
 		//pass the frame on to the video sink
 		videoSink->operator()(seq, frame);
 		return  videoSink->isOpen(); // false signals a temporary error. (fatal errors should be propagated through exceptions).

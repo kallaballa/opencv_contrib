@@ -2,6 +2,7 @@
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
 #include <opencv2/v4d/v4d.hpp>
+#include <opencv2/core/utility.hpp>
 
 #include <opencv2/features2d.hpp>
 #include <opencv2/highgui.hpp>
@@ -47,9 +48,8 @@ public:
 	    //Back to original size
 	    cv::resize(temp_.blur_, temp_.high_, srcFloat.size());
 
-	    //Multiply the src 2age with a blurred version of itself
+	    //Multiply the src with a blurred version of itself and convert back to CV_8U
 	    cv::multiply(temp_.dst_, temp_.high_, temp_.dst_, 1.0/255.0, CV_8U);
-	    //Normalize and convert back to CV_8U
 
 	    cv::bitwise_not(temp_.dst_, temp_.dst_);
 
@@ -345,7 +345,7 @@ private:
 		float fgScale_ = 0.5f;
 		// On every frame the foreground loses on brightness. Specifies the loss in percent.
 		float fgLoss_ = 20.0f;
-		PostProcessor::Modes postProcMode_ = PostProcessor::DISABLED;
+		PostProcessor::Modes postProcMode_ = PostProcessor::GLOW;
 		// Intensity of glow or bloom defined by kernel size. The default scales with the image diagonal.
 		int kernelSize_ = 0;
 		//The lightness selection threshold
@@ -367,7 +367,7 @@ private:
 		// of tracked points and therefor is usually much smaller.
 		int maxStroke_ = 6;
 		// Red, green, blue and alpha. All from 0.0f to 1.0f
-		cv::Scalar_<float> effectColor_ = {1.0f, 0.70f, 0.33f, 0.5f};
+		cv::Scalar_<float> effectColor_ = {1.0f, 0.5f, 0.0f, 1.0f};
 		//display on-screen FPS
 		bool showFps_ = true;
 		//Stretch frame buffer to window size
@@ -446,7 +446,7 @@ private:
     	void infer() override {
     		construct(RW(sz_), F(&cv::Rect::width, vp_) * CS(params_.fgScale_), F(&cv::Rect::height, vp_) * CS(params_.fgScale_));
     		plain(cv::resize, R(frames_.background_), RW(frames_.down_), R(sz_), V(0.0), V(0.0), V(cv::INTER_LINEAR));
-    		plain(cv::cvtColor, R(frames_.down_), RW(frames_.downNextGrey_), V(cv::COLOR_RGBA2GRAY), V(0));
+    		plain(cv::cvtColor, R(frames_.down_), RW(frames_.downNextGrey_), V(cv::COLOR_RGBA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT));
     		plain(&PrepareMasksPlan::prepareMotionMask, RW(*this), R(frames_.downNextGrey_), RW(frames_.downMotionMaskGrey_));
     	}
     };
@@ -518,21 +518,13 @@ public:
 					F(sqrt, F(&cv::Rect::width, vp_) * F(&cv::Rect::height, vp_))
 					/ V(400.0)
 			)
-			->assign(RWS(params_.effectColor_[3]),RW(params_.effectColor_[3]) / F(pow, numWorkers_, V(1.0) / numWorkers_))
+			->assign(RWS(params_.effectColor_[3]),RW(params_.effectColor_[3]) / F(pow, numWorkers_, V(0.5) / numWorkers_))
 			->plain(UMAT_CREATE,
 						RWS(foreground_),
 						F(&cv::Rect::size, vp_),
 						V(CV_8UC4),
 						V(cv::USAGE_DEFAULT)
 			)
-			->plain([](cv::UMat& fg){
-    			std::cerr << "CREATE:" << size_t(fg.u->handle) << std::endl;
-    		}, RWS(foreground_))
-//			->plain(RWS(std::cerr) << F(&cv::UMatData::handle, F(&cv::UMat::u, RWS(foreground_))) << V('\n'))
-		->elseBranch()
-			->plain([](cv::UMat& fg){
-				std::cerr << "USE:" << size_t(fg.u->handle) << std::endl;
-			}, RWS(foreground_))
 		->endBranch();
     	subSetup(prepareMasks_);
 	}

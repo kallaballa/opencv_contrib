@@ -759,7 +759,7 @@ constexpr int matrix_depth() {
 	}
 }
 
-template<bool Tround, typename T> T doRound(T& t) {
+template<bool Tround> uint64_t doRound(double t) {
 	if constexpr(Tround) {
 		return std::round(t);
 	} else {
@@ -774,7 +774,7 @@ template<bool Tround, typename T> T doRound(T& t) {
  * @return The color converted scalar
  */
 template<int Tcode = -1, typename Tsrc, typename Tdst = Vec<typename Tsrc::value_type, Tsrc::channels>, bool Tround = std::is_floating_point_v<typename Tsrc::value_type> && std::is_integral_v<typename Tdst::value_type>>
-Tdst convert_pix(const Tsrc& src, double alpha = 1, double beta = 0) {
+Tdst convert_pix(const Tsrc& src, double alpha = 1.0, double beta = 0.0) {
 	constexpr int srcCn = Tsrc::channels;
 	constexpr int dstCn = Tdst::channels;
 
@@ -807,11 +807,7 @@ Tdst convert_pix(const Tsrc& src, double alpha = 1, double beta = 0) {
 
 	if constexpr(Tcode >= 0) {
 		cvtColor(srcArr, intermediateMat, Tcode);
-		if(intermediateMat.depth() == CV_32F || intermediateMat.depth() == CV_64F) {
-			cv::normalize(intermediateMat, intermediateMat, 0.0, 1.0, cv::NORM_MINMAX);
-		}
 	}
-
 
 	std::array<dst_internal_t, 1> dstArr;
 	if constexpr(!std::is_same<srcv_t, dstv_t>::value) {
@@ -834,42 +830,48 @@ Tdst convert_pix(const Tsrc& src, double alpha = 1, double beta = 0) {
 		} else if constexpr(dstCn == 4) {
 			auto im = intermediateMat.at<src_internal_t>(0.0);
 			if(intermediateMat.depth() == CV_32F || intermediateMat.depth() == CV_64F) {
-				double alpha = 1.0;
-				dstArr[0] = dst_internal_t(im[0], im[1], im[2], alpha);
+				dstArr[0] = dst_internal_t(im[0], im[1], im[2], 1.0);
 			} else {
-				dstv_t alpha = std::numeric_limits<dstv_t>::max();
-				dstArr[0] = dst_internal_t(im[0], im[1], im[2], alpha);
+				dstv_t a = std::numeric_limits<dstv_t>::max();
+				dstArr[0] = dst_internal_t(im[0], im[1], im[2], a);
 			}
 		}
 	}
 
 	Tdst dst;
-	cv::Scalar temp;
-	bool doScale = alpha != 1 || beta != 0;
-	if(doScale) {
-		if constexpr (dstCn == 3) {
-			temp = cv::Scalar(dstArr[0][0], dstArr[0][1], dstArr[0][2]);
-		} else {
-			temp = cv::Scalar(dstArr[0][0], dstArr[0][1], dstArr[0][2], dstArr[0][3]);
-		}
 
-		temp *= Scalar::all(alpha);
-		temp += Scalar::all(beta);
-
-		if constexpr (dstCn == 3) {
-			dst = Tdst(doRound<Tround>(temp[0]), doRound<Tround>(temp[1]), doRound<Tround>(temp[2]));
-		} else {
-			dst = Tdst(doRound<Tround>(temp[0]), doRound<Tround>(temp[1]), doRound<Tround>(temp[2]), doRound<Tround>(temp[3]));
-		}
-	} else {
-		if constexpr (dstCn == 3) {
-			dst =  Tdst(doRound<Tround>(dstArr[0][0]), doRound<Tround>(dstArr[0][1]), doRound<Tround>(dstArr[0][2]));
-		} else if constexpr (dstCn == 4) {
-			dst =  Tdst(doRound<Tround>(dstArr[0][0]), doRound<Tround>(dstArr[0][1]), doRound<Tround>(dstArr[0][2]), doRound<Tround>(dstArr[0][3]));
-		}
+	if constexpr (dstCn == 3) {
+		dst =  Tdst(dstArr[0][0], dstArr[0][1], dstArr[0][2]);
+	} else if constexpr (dstCn == 4) {
+		dst =  Tdst(dstArr[0][0], dstArr[0][1], dstArr[0][2], dstArr[0][3]);
 	}
 
-	return dst;
+
+	if(alpha != 1.0) {
+		if constexpr (dstCn == 3) {
+			dst[0] = doRound<Tround>(double(dst[0]) * alpha);
+			dst[1] = doRound<Tround>(double(dst[1]) * alpha);
+			dst[2] = doRound<Tround>(double(dst[2]) * alpha);
+		} else if constexpr (dstCn == 4) {
+			dst[0] = doRound<Tround>(double(dst[0]) * alpha);
+			dst[1] = doRound<Tround>(double(dst[1]) * alpha);
+			dst[2] = doRound<Tround>(double(dst[2]) * alpha);
+			dst[3] = doRound<Tround>(double(dst[3]) * alpha);
+		}
+	}
+	if(beta != 0.0) {
+		if constexpr (dstCn == 3) {
+			dst[0] = doRound<Tround>(double(dst[0]) + beta);
+			dst[1] = doRound<Tround>(double(dst[1]) + beta);
+			dst[2] = doRound<Tround>(double(dst[2]) + beta);
+		} else if constexpr (dstCn == 4) {
+			dst[0] = doRound<Tround>(double(dst[0]) + beta);
+			dst[1] = doRound<Tround>(double(dst[1]) + beta);
+			dst[2] = doRound<Tround>(double(dst[2]) + beta);
+			dst[3] = doRound<Tround>(double(dst[3]) + beta);
+		}
+	}
+return dst;
 }
 
 inline double seconds() {

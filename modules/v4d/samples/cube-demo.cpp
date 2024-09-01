@@ -13,11 +13,13 @@ class CubeDemoPlan : public Plan {
 	CubeScene scene_;
 public:
 	void setup() override {
+		set(_(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(202, 61, 51, 255.0))));
 		gl(&CubeScene::init, RW(scene_));
 	}
 
 	void infer() override {
-		gl(&CubeScene::render, R(scene_), V(true), V(0.0));
+		clear();
+		gl(&CubeScene::render, R(scene_), V(0.0), V(0.0));
 	}
 
 	void teardown() override {
@@ -26,9 +28,9 @@ public:
 };
 
 int main() {
-	cv::Rect viewport(0, 0, 1280, 720);
+	cv::Rect viewport(0, 0, 1920, 1080);
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Cube Demo", AllocateFlags::IMGUI);
-	Plan::run<CubeDemoPlan>(0);
+	Plan::run<CubeDemoPlan>(2);
 
 	return 0;
 }

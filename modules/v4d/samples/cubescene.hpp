@@ -135,13 +135,10 @@ public:
 
 		handles_.program_ = load_shader();
 		handles_.uniform_ = glGetUniformLocation(handles_.program_, "transform");
-		glClearColor(0.2, 0.24, 0.4, 1);
 	}
 
 	//Renders a rotating rainbow-colored cube on a blueish background
-	void render(const bool clearColorBuffer, const double pos = -2.0) const {
-		glClear((clearColorBuffer ? GL_COLOR_BUFFER_BIT : 0) | GL_DEPTH_BUFFER_BIT);
-
+	void render(const double xpos = 0.0, const double ypos = 0.0) const {
 		//Use the prepared shader program
 		glUseProgram(handles_.program_);
 
@@ -154,8 +151,10 @@ public:
 		cv::Matx44f scaleMat(scale, 0.0, 0.0, 0.0, 0.0, scale, 0.0, 0.0, 0.0, 0.0,
 				scale, 0.0, 0.0, 0.0, 0.0, 1.0);
 
-		cv::Matx44f rotXMat(1.0, 0.0, 0.0, 0.0, 0.0, cos(angle), -sin(angle), 0.0,
-				0.0, sin(angle), cos(angle), 0.0, 0.0, 0.0, 0.0, 1.0);
+		cv::Matx44f rotXMat(1.0, 0.0, 0.0, 0.0,
+				0.0, cos(angle), -sin(angle), 0.0,
+				0.0, sin(angle), cos(angle), 0.0,
+				0.0, 0.0, 0.0, 1.0);
 
 		cv::Matx44f rotYMat(cos(angle), 0.0, sin(angle), 0.0, 0.0, 1.0, 0.0, 0.0,
 				-sin(angle), 0.0, cos(angle), 0.0, 0.0, 0.0, 0.0, 1.0);
@@ -163,10 +162,10 @@ public:
 		cv::Matx44f rotZMat(cos(angle), -sin(angle), 0.0, 0.0, sin(angle),
 				cos(angle), 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0);
 
-		cv::Matx44f transMat(1.0, 0.0, 0.0, pos,
-				0.0, 1.0, 0.0, pos,
+		cv::Matx44f transMat(1.0, 0.0, 0.0, 0,
+				0.0, 1.0, 0.0, 0,
 				0.0, 0.0, 1.0, 0.0,
-				0.0, 0.0, 0.0, 1.0);
+				xpos, ypos, 0.0, 1.0);
 
 		//calculate the transform
 		cv::Matx44f transform = scaleMat * rotXMat * rotYMat * rotZMat * transMat;

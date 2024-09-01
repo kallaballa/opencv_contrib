@@ -189,10 +189,15 @@ public:
 	}
 
 	bool extract(const cv::UMat& inputFrame, FaceFeatures& outputFeatures) {
+//		cv::imshow("", inputFrame);
+//		cv::waitKey(1);
 		shapes_.clear();
 		faceRects_.clear();
 		//Detect faces in the down-scaled image
 		detector_->detect(inputFrame, faces_);
+
+		std::cerr << "faces: " << !faces_.empty() << std::endl;
+
 		//Only add the first face
 		if(!faces_.empty())
 			faceRects_.push_back(cv::Rect(int(faces_.at<float>(0, 0)),
@@ -288,7 +293,7 @@ private:
 	Event<Mouse> releaseEvents_ = E<Mouse>(M_::PRESS);
 
 	static void prepare_frames(const cv::UMat& framebuffer, const cv::Size& downSize, Frames& frames) {
-		cvtColor(framebuffer, frames.orig_, cv::COLOR_BGRA2BGR);
+		cvtColor(framebuffer, frames.orig_, cv::COLOR_RGBA2BGR);
 		cv::resize(frames.orig_, frames.down_, downSize);
 		frames.orig_.copyTo(frames.stitched_);
 	}
@@ -392,7 +397,7 @@ public:
 		->endBranch();
 
 		plain(compose_result, vp_, R(frames_.stitched_), RW(frames_), CS(params_))
-		->fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2BGRA), V(0));
+		->fb<1>(cv::cvtColor, R(frames_.result_), V(cv::COLOR_BGR2RGBA), V(0), V(cv::ALGO_HINT_DEFAULT));
 	}
 };
 
@@ -414,9 +419,9 @@ public:
 
 	void infer() override {
 		nvg(&FaceFeatures::drawFaceOvalMask, R(inputFeatures_))
-		->fb(cv::cvtColor, RW(inputOutputFrames_.faceOval_), V(cv::COLOR_BGRA2GRAY), V(0))
+		->fb(cv::cvtColor, RW(inputOutputFrames_.faceOval_), V(cv::COLOR_BGRA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->nvg(&FaceFeatures::drawEyesAndLipsMask, R(inputFeatures_))
-		->fb(cv::cvtColor, RW(inputOutputFrames_.eyesAndLipsMaskGrey_), V(cv::COLOR_BGRA2GRAY), V(0))
+		->fb(cv::cvtColor, RW(inputOutputFrames_.eyesAndLipsMaskGrey_), V(cv::COLOR_BGRA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->plain(prepare_masks, RW(inputOutputFrames_));
 	}
 };
@@ -473,7 +478,7 @@ int main(int argc, char **argv) {
         exit(1);
     }
 
-	cv::Rect viewport(0, 0, 1280, 720);
+	cv::Rect viewport(0, 0, 1920, 1080);
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::DEFAULT);
     auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
