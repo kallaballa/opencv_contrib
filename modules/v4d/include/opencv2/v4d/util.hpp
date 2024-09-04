@@ -759,7 +759,7 @@ constexpr int matrix_depth() {
 	}
 }
 
-template<bool Tround> uint64_t doRound(double t) {
+template<bool Tround> double doRound(double t) {
 	if constexpr(Tround) {
 		return std::round(t);
 	} else {
@@ -799,9 +799,9 @@ Tdst convert_pix(const Tsrc& src, double alpha = 1.0, double beta = 0.0) {
 
 	if constexpr(dstCn == srcCn) {
 		intermediateMat = srcArr[0];
-	} else if constexpr(dstCn == 3) {
+	} else if constexpr(srcCn == 3) {
 		intermediateMat = intermediate_t(srcArr[0][0], srcArr[0][1], srcArr[0][2]);
-	} else if constexpr(dstCn == 4) {
+	} else if constexpr(srcCn == 4) {
 		intermediateMat =  intermediate_t(srcArr[0][0], srcArr[0][1], srcArr[0][2], srcArr[0][3]);
 	}
 
@@ -849,26 +849,26 @@ Tdst convert_pix(const Tsrc& src, double alpha = 1.0, double beta = 0.0) {
 
 	if(alpha != 1.0) {
 		if constexpr (dstCn == 3) {
-			dst[0] = doRound<Tround>(double(dst[0]) * alpha);
-			dst[1] = doRound<Tround>(double(dst[1]) * alpha);
-			dst[2] = doRound<Tround>(double(dst[2]) * alpha);
+			dst[0] = doRound<Tround>(dst[0] * alpha);
+			dst[1] = doRound<Tround>(dst[1] * alpha);
+			dst[2] = doRound<Tround>(dst[2] * alpha);
 		} else if constexpr (dstCn == 4) {
-			dst[0] = doRound<Tround>(double(dst[0]) * alpha);
-			dst[1] = doRound<Tround>(double(dst[1]) * alpha);
-			dst[2] = doRound<Tround>(double(dst[2]) * alpha);
-			dst[3] = doRound<Tround>(double(dst[3]) * alpha);
+			dst[0] = doRound<Tround>(dst[0] * alpha);
+			dst[1] = doRound<Tround>(dst[1] * alpha);
+			dst[2] = doRound<Tround>(dst[2] * alpha);
+			dst[3] = doRound<Tround>(dst[3] * alpha);
 		}
 	}
 	if(beta != 0.0) {
 		if constexpr (dstCn == 3) {
-			dst[0] = doRound<Tround>(double(dst[0]) + beta);
-			dst[1] = doRound<Tround>(double(dst[1]) + beta);
-			dst[2] = doRound<Tround>(double(dst[2]) + beta);
+			dst[0] = doRound<Tround>(dst[0] + beta);
+			dst[1] = doRound<Tround>(dst[1] + beta);
+			dst[2] = doRound<Tround>(dst[2] + beta);
 		} else if constexpr (dstCn == 4) {
-			dst[0] = doRound<Tround>(double(dst[0]) + beta);
-			dst[1] = doRound<Tround>(double(dst[1]) + beta);
-			dst[2] = doRound<Tround>(double(dst[2]) + beta);
-			dst[3] = doRound<Tround>(double(dst[3]) + beta);
+			dst[0] = doRound<Tround>(dst[0] + beta);
+			dst[1] = doRound<Tround>(dst[1] + beta);
+			dst[2] = doRound<Tround>(dst[2] + beta);
+			dst[3] = doRound<Tround>(dst[3] + beta);
 		}
 	}
 return dst;

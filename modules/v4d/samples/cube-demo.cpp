@@ -10,11 +10,16 @@
 using namespace cv::v4d;
 
 class CubeDemoPlan : public Plan {
+	constexpr static size_t WIDTH_ = 1920;
+	constexpr static size_t HEIGHT_ = 1080;
 	CubeScene scene_;
 public:
 	void setup() override {
-		set(_(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(202, 61, 51, 255.0))));
+		set(_(V4D::Keys::CLEAR_COLOR, V(cv::Scalar(102, 61, 51, 255))));
 		gl(&CubeScene::init, RW(scene_));
+		clear();
+		gl(glEnable, V(GL_SCISSOR_TEST));
+		gl(glScissor, V(760), V(400), V(400), V(280));
 	}
 
 	void infer() override {

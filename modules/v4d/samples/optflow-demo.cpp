@@ -36,7 +36,7 @@ struct GlowEffect {
 public:
 
 	//Glow post-processing effect
-	void apply(const cv::UMat& srcFloat, cv::UMat& dstFloat, const int ksize) {
+	void perform(const cv::UMat& srcFloat, cv::UMat& dstFloat, const int ksize) {
 		srcFloat.convertTo(temp_.src_, CV_8U, 127.0);
 
 		cv::bitwise_not(temp_.src_, temp_.dst_);
@@ -68,7 +68,7 @@ struct BloomEffect {
 	} temp_;
 public:
 	//Bloom post-processing effect
-	void apply(const cv::UMat& srcFloat, cv::UMat &dstFloat, int ksize = 3, int threshValue = 235, float gain = 4) {
+	void perform(const cv::UMat& srcFloat, cv::UMat &dstFloat, int ksize = 3, int threshValue = 235, float gain = 4) {
 	    //remove alpha channel
 	    cv::cvtColor(srcFloat, temp_.bgr_, cv::COLOR_BGRA2RGB);
 	    //convert to hls
@@ -104,10 +104,10 @@ public:
 	void perform(const cv::UMat& srcFloat, cv::UMat& dstFloat, const Modes& mode, const int& ksize, const int& bloomThresh, const int& bloomGain) {
 	    switch (mode) {
 	    case GLOW:
-	        glow_.apply(srcFloat, dstFloat, ksize);
+	        glow_.perform(srcFloat, dstFloat, ksize);
 	        break;
 	    case BLOOM:
-	        bloom_.apply(srcFloat, dstFloat, ksize, bloomThresh, bloomGain);
+	        bloom_.perform(srcFloat, dstFloat, ksize, bloomThresh, bloomGain);
 	        break;
 	    case DISABLED:
 	        srcFloat.copyTo(dstFloat);

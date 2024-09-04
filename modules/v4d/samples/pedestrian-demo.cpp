@@ -58,75 +58,160 @@ private:
 
 	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
 
-	//adapted from cv::dnn_objdetect::InferBbox
-	static inline bool pair_comparator(std::pair<double, size_t> l1, std::pair<double, size_t> l2) {
-	    return l1.first > l2.first;
+	static void prepare_frames(const Params& params, Frames &frames) {
+		cv::resize(frames.videoFrame_, frames.videoFrameDown_, params.downSize_);
+		cv::cvtColor(frames.videoFrameDown_, frames.videoFrameDownGrey_, cv::COLOR_RGB2GRAY);
+		cv::cvtColor(frames.videoFrame_, frames.background_, cv::COLOR_RGB2BGRA);
 	}
 
-	//adapted from cv::dnn_objdetect::InferBbox
-	static void intersection_over_union(std::vector<std::vector<double> > *boxes, std::vector<double> *base_box, std::vector<double> *iou) {
-	    double g_xmin = (*base_box)[0];
-	    double g_ymin = (*base_box)[1];
-	    double g_xmax = (*base_box)[2];
-	    double g_ymax = (*base_box)[3];
-	    double base_box_w = g_xmax - g_xmin;
-	    double base_box_h = g_ymax - g_ymin;
-	    for (size_t b = 0; b < (*boxes).size(); ++b) {
-	        double xmin = std::max((*boxes)[b][0], g_xmin);
-	        double ymin = std::max((*boxes)[b][1], g_ymin);
-	        double xmax = std::min((*boxes)[b][2], g_xmax);
-	        double ymax = std::min((*boxes)[b][3], g_ymax);
+	static void present(cv::UMat& framebuffer, const cv::UMat& background) {
+		cv::add(background, framebuffer, framebuffer);
+	};
 
-	        // Intersection
-	        double w = std::max(static_cast<double>(0.0), xmax - xmin);
-	        double h = std::max(static_cast<double>(0.0), ymax - ymin);
-	        // Union
-	        double test_box_w = (*boxes)[b][2] - (*boxes)[b][0];
-	        double test_box_h = (*boxes)[b][3] - (*boxes)[b][1];
+	class NonMaxSupression {
+	private:
+		//adapted from cv::dnn_objdetect::InferBbox
+		static inline bool pair_comparator(std::pair<double, size_t> l1, std::pair<double, size_t> l2) {
+			return l1.first > l2.first;
+		}
 
-	        double inter_ = w * h;
-	        double union_ = test_box_h * test_box_w + base_box_h * base_box_w - inter_;
-	        (*iou)[b] = inter_ / (union_ + 1e-7);
-	    }
-	}
+		//adapted from cv::dnn_objdetect::InferBbox
+		static void intersection_over_union(std::vector<std::vector<double> > *boxes, std::vector<double> *base_box, std::vector<double> *iou) {
+			double g_xmin = (*base_box)[0];
+			double g_ymin = (*base_box)[1];
+			double g_xmax = (*base_box)[2];
+			double g_ymax = (*base_box)[3];
+			double base_box_w = g_xmax - g_xmin;
+			double base_box_h = g_ymax - g_ymin;
+			for (size_t b = 0; b < (*boxes).size(); ++b) {
+				double xmin = std::max((*boxes)[b][0], g_xmin);
+				double ymin = std::max((*boxes)[b][1], g_ymin);
+				double xmax = std::min((*boxes)[b][2], g_xmax);
+				double ymax = std::min((*boxes)[b][3], g_ymax);
 
-	//adapted from cv::dnn_objdetect::InferBbox
-	static std::vector<bool> non_maximal_suppression(std::vector<std::vector<double> > *boxes, std::vector<double> *probs, const double threshold = 0.1) {
-	    std::vector<bool> keep(((*probs).size()));
-	    std::fill(keep.begin(), keep.end(), true);
-	    std::vector<size_t> prob_args_sorted((*probs).size());
+				// Intersection
+				double w = std::max(static_cast<double>(0.0), xmax - xmin);
+				double h = std::max(static_cast<double>(0.0), ymax - ymin);
+				// Union
+				double test_box_w = (*boxes)[b][2] - (*boxes)[b][0];
+				double test_box_h = (*boxes)[b][3] - (*boxes)[b][1];
 
-	    std::vector<std::pair<double, size_t> > temp_sort((*probs).size());
-	    for (size_t tidx = 0; tidx < (*probs).size(); ++tidx) {
-	        temp_sort[tidx] = std::make_pair((*probs)[tidx], static_cast<size_t>(tidx));
-	    }
-	    std::sort(temp_sort.begin(), temp_sort.end(), pair_comparator);
+				double inter_ = w * h;
+				double union_ = test_box_h * test_box_w + base_box_h * base_box_w - inter_;
+				(*iou)[b] = inter_ / (union_ + 1e-7);
+			}
+		}
+	public:
+		//adapted from cv::dnn_objdetect::InferBbox
+		std::vector<bool> perform(std::vector<std::vector<double> > *boxes, std::vector<double> *probs, const double threshold = 0.1) {
+			std::vector<bool> keep(((*probs).size()));
+			std::fill(keep.begin(), keep.end(), true);
+			std::vector<size_t> prob_args_sorted((*probs).size());
 
-	    for (size_t idx = 0; idx < temp_sort.size(); ++idx) {
-	        prob_args_sorted[idx] = temp_sort[idx].second;
-	    }
+			std::vector<std::pair<double, size_t> > temp_sort((*probs).size());
+			for (size_t tidx = 0; tidx < (*probs).size(); ++tidx) {
+				temp_sort[tidx] = std::make_pair((*probs)[tidx], static_cast<size_t>(tidx));
+			}
+			std::sort(temp_sort.begin(), temp_sort.end(), pair_comparator);
 
-	    for (std::vector<size_t>::iterator itr = prob_args_sorted.begin(); itr != prob_args_sorted.end() - 1; ++itr) {
-	        size_t idx = itr - prob_args_sorted.begin();
-	        std::vector<double> iou_(prob_args_sorted.size() - idx - 1);
-	        std::vector<std::vector<double> > temp_boxes(iou_.size());
-	        for (size_t bb = 0; bb < temp_boxes.size(); ++bb) {
-	            std::vector<double> temp_box(4);
-	            for (size_t b = 0; b < 4; ++b) {
-	                temp_box[b] = (*boxes)[prob_args_sorted[idx + bb + 1]][b];
-	            }
-	            temp_boxes[bb] = temp_box;
-	        }
-	        intersection_over_union(&temp_boxes, &(*boxes)[prob_args_sorted[idx]], &iou_);
-	        for (std::vector<double>::iterator _itr = iou_.begin(); _itr != iou_.end(); ++_itr) {
-	            size_t iou_idx = _itr - iou_.begin();
-	            if (*_itr > threshold) {
-	                keep[prob_args_sorted[idx + iou_idx + 1]] = false;
-	            }
-	        }
-	    }
-	    return keep;
-	}
+			for (size_t idx = 0; idx < temp_sort.size(); ++idx) {
+				prob_args_sorted[idx] = temp_sort[idx].second;
+			}
+
+			for (std::vector<size_t>::iterator itr = prob_args_sorted.begin(); itr != prob_args_sorted.end() - 1; ++itr) {
+				size_t idx = itr - prob_args_sorted.begin();
+				std::vector<double> iou_(prob_args_sorted.size() - idx - 1);
+				std::vector<std::vector<double> > temp_boxes(iou_.size());
+				for (size_t bb = 0; bb < temp_boxes.size(); ++bb) {
+					std::vector<double> temp_box(4);
+					for (size_t b = 0; b < 4; ++b) {
+						temp_box[b] = (*boxes)[prob_args_sorted[idx + bb + 1]][b];
+					}
+					temp_boxes[bb] = temp_box;
+				}
+				intersection_over_union(&temp_boxes, &(*boxes)[prob_args_sorted[idx]], &iou_);
+				for (std::vector<double>::iterator _itr = iou_.begin(); _itr != iou_.end(); ++_itr) {
+					size_t iou_idx = _itr - iou_.begin();
+					if (*_itr > threshold) {
+						keep[prob_args_sorted[idx + iou_idx + 1]] = false;
+					}
+				}
+			}
+			return keep;
+		}
+	} nms;
+
+	class HOG {
+	public:
+		void detect(const cv::UMat& videoFrameDownGrey, Detection& detection, NonMaxSupression& nms, Params& params, const cv::Rect& tracked) const {
+			detection.redetect_ = true;
+			//Detect pedestrians
+			detection.hog_.detectMultiScale(videoFrameDownGrey, detection.locations_, 0, cv::Size(), cv::Size(), 1.15, 2.0, true);
+			if (!detection.locations_.empty()) {
+				detection.boxes_.clear();
+				detection.probs_.clear();
+				//collect all found boxes
+				for (const auto &rect : detection.locations_) {
+					detection.boxes_.push_back( { double(rect.x), double(rect.y), double(rect.x + rect.width), double(rect.y + rect.height) });
+					detection.probs_.push_back(1.0);
+				}
+
+				//use nms to filter overlapping boxes (https://medium.com/analytics-vidhya/non-max-suppression-nms-6623e6572536)
+				vector<bool> keep = nms.perform(&detection.boxes_, &detection.probs_, 0.1);
+				for (size_t i = 0; i < keep.size(); ++i) {
+					//only track the first pedestrian found
+					if (keep[i]) {
+						params.newTracked_= detection.locations_[i];
+						detection.redetect_ = false;
+						break;
+					}
+				}
+
+				if(!detection.trackerInit_ && !detection.redetect_){
+					//initialize the tracker once
+					detection.tracker_->init(videoFrameDownGrey, params.newTracked_);
+					detection.trackerInit_ = true;
+				}
+			}
+		}
+	} hog;
+
+	class Tracking {
+	public:
+		void perform(const cv::UMat& videoFrameDownGrey, Detection& detection, Params& params, const cv::Rect& tracked) const {
+			params.newTracked_ = tracked;
+			if(params.newTracked_.width == 0 || params.newTracked_.height == 0 || !detection.tracker_->update(videoFrameDownGrey, params.newTracked_)) {
+				detection.redetect_ = true;
+			} else {
+				detection.redetect_ = false;
+			}
+		}
+
+		void save(const Params& params, cv::Rect& tracked) const {
+			tracked.x = (params.newTracked_.x + tracked.x) / 2.0;
+			tracked.y = (params.newTracked_.y + tracked.y) / 2.0;
+			tracked.width = (params.newTracked_.width + tracked.width) / 2.0;
+			tracked.height = (params.newTracked_.height+ tracked.height) / 2.0;
+		}
+	} tracking;
+
+	class ObjectMarker {
+	public:
+		void draw(const cv::Rect& vp, const Params& params, const cv::Rect& tracked) const {
+		//Draw an ellipse around the tracked pedestrian
+		using namespace cv::v4d::nvg;
+		float width = tracked.width * params.scale_.width;
+		float height = tracked.height * params.scale_.height;
+		float cx = (params.scale_.width * tracked.x + (width / 2.0));
+		float cy = (params.scale_.height * tracked.y + ((height) / 2.0));
+		clearScreen();
+		beginPath();
+		strokeWidth(std::fmax(5.0, vp.width / 960.0));
+		strokeColor(cv::v4d::convert_pix(cv::Scalar(0, 127, 255, 200), cv::COLOR_HLS2BGR));
+		ellipse(cx, cy, (width), (height));
+		stroke();
+		}
+	} marker_;
 public:
     void setup() override {
     	plain([](const cv::Rect& vp, Detection& detection, Params& params){
@@ -143,87 +228,22 @@ public:
 	void infer() override {
 		capture();
 
-		fb([](const cv::UMat& framebuffer, cv::UMat& videoFrame){
-			//copy video frame
-			cvtColor(framebuffer,videoFrame,cv::COLOR_BGRA2RGB);
-		}, RW(frames_.videoFrame_));
-
-		plain([](const Params& params, Frames &frames){
-			cv::resize(frames.videoFrame_, frames.videoFrameDown_, params.downSize_);
-			cv::cvtColor(frames.videoFrameDown_, frames.videoFrameDownGrey_, cv::COLOR_RGB2GRAY);
-			cv::cvtColor(frames.videoFrame_, frames.background_, cv::COLOR_RGB2BGRA);
-		}, R(params_), RW(frames_));
+		fb(cv::cvtColor,RW(frames_.videoFrame_),V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT))
+		->plain(prepare_frames, R(params_), RW(frames_));
 
 		//Try to track the pedestrian (if we currently are tracking one), else re-detect using HOG descriptor
 		branch(doRedect_, R(detection_))
-			->plain([](const cv::UMat& videoFrameDownGrey, Detection& detection, Params& params, const cv::Rect& tracked) {
-				detection.redetect_ = true;
-				//Detect pedestrians
-				detection.hog_.detectMultiScale(videoFrameDownGrey, detection.locations_, 0, cv::Size(), cv::Size(), 1.15, 2.0, true);
-				if (!detection.locations_.empty()) {
-					detection.boxes_.clear();
-					detection.probs_.clear();
-					//collect all found boxes
-					for (const auto &rect : detection.locations_) {
-						detection.boxes_.push_back( { double(rect.x), double(rect.y), double(rect.x + rect.width), double(rect.y + rect.height) });
-						detection.probs_.push_back(1.0);
-					}
-
-					//use nms to filter overlapping boxes (https://medium.com/analytics-vidhya/non-max-suppression-nms-6623e6572536)
-					vector<bool> keep = non_maximal_suppression(&detection.boxes_, &detection.probs_, 0.1);
-					for (size_t i = 0; i < keep.size(); ++i) {
-						//only track the first pedestrian found
-						if (keep[i]) {
-							params.newTracked_= detection.locations_[i];
-							detection.redetect_ = false;
-							break;
-						}
-					}
-
-					if(!detection.trackerInit_ && !detection.redetect_){
-						//initialize the tracker once
-						detection.tracker_->init(videoFrameDownGrey, params.newTracked_);
-						detection.trackerInit_ = true;
-					}
-				}
-			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), CS(tracked_))
+			->plain(&HOG::detect, R(hog), R(frames_.videoFrameDownGrey_), RW(detection_), RW(nms), RW(params_), CS(tracked_))
 		->elseBranch()
-			->plain([](const cv::UMat& videoFrameDownGrey, Detection& detection, Params& params, const cv::Rect& tracked) {
-				params.newTracked_ = tracked;
-				if(params.newTracked_.width == 0 || params.newTracked_.height == 0 || !detection.tracker_->update(videoFrameDownGrey, params.newTracked_)) {
-					detection.redetect_ = true;
-				} else {
-					detection.redetect_ = false;
-				}
-			}, R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), CS(tracked_))
+			->plain(&Tracking::perform, R(tracking), R(frames_.videoFrameDownGrey_), RW(detection_), RW(params_), CS(tracked_))
 		->endBranch();
 
-		plain([](const Params& params, cv::Rect& tracked) {
-			tracked.x = (params.newTracked_.x + tracked.x) / 2.0;
-			tracked.y = (params.newTracked_.y + tracked.y) / 2.0;
-			tracked.width = (params.newTracked_.width + tracked.width) / 2.0;
-			tracked.height = (params.newTracked_.height+ tracked.height) / 2.0;
-		}, R(params_), RWS(tracked_));
+		plain(&Tracking::save, R(tracking), R(params_), RWS(tracked_));
 
-		nvg([](const cv::Rect& vp, const Params& params, const cv::Rect& tracked) {
-			//Draw an ellipse around the tracked pedestrian
-			using namespace cv::v4d::nvg;
-			float width = tracked.width * params.scale_.width;
-			float height = tracked.height * params.scale_.height;
-			float cx = (params.scale_.width * tracked.x + (width / 2.0));
-			float cy = (params.scale_.height * tracked.y + ((height) / 2.0));
-			clearScreen();
-			beginPath();
-			strokeWidth(std::fmax(5.0, vp.width / 960.0));
-			strokeColor(cv::v4d::convert_pix(cv::Scalar(0, 127, 255, 200), cv::COLOR_HLS2BGR));
-			ellipse(cx, cy, (width), (height));
-			stroke();
-		}, vp_, R(params_), CS(tracked_));
+		nvg(&ObjectMarker::draw, R(marker_), vp_, R(params_), CS(tracked_))
+		->fb(present, R(frames_.background_));
 
-		fb([](cv::UMat& framebuffer, const cv::UMat& background) {
-			//Put it all together
-			cv::add(background, framebuffer, framebuffer);
-		}, R(frames_.background_));
+		write();
 	}
 };
 
@@ -237,7 +257,9 @@ int main(int argc, char **argv) {
     cv::Rect viewport(0, 0, 1280, 720);
     cv::Ptr<V4D> runtime = V4D::init(viewport, "Pedestrian Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
     auto src = Source::make(runtime, argv[1]);
+    auto sink = Sink::make(runtime, "pedestrian-demo.mkv", 200, viewport.size());
     runtime->setSource(src);
-    Plan::run<PedestrianDemoPlan>(0);
+    runtime->setSink(sink);
+    Plan::run<PedestrianDemoPlan>(7);
     return 0;
 }

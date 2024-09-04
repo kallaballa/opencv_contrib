@@ -20,7 +20,7 @@ using std::istringstream;
 
 using namespace cv::v4d;
 
-inline static const cv::Scalar_<float> INITIAL_COLOR = cv::v4d::convert_pix<cv::COLOR_HLS2RGB_FULL, cv::Vec3b, cv::Scalar_<float>>(cv::Vec3b(30, 127, 255), 1.0/255.0);
+inline static const cv::Scalar_<float> INITIAL_COLOR = cv::v4d::convert_pix<cv::COLOR_HLS2RGB_FULL, cv::Vec3b, cv::Scalar_<float>>(cv::Vec3b(35, 127, 255), 1.0/255.0);
 
 struct TextRenderer {
 	cv::Scalar_<float> color_ = INITIAL_COLOR;
@@ -57,7 +57,7 @@ public:
 		clearScreen();
 		fontSize(fontSize_);
 		fontFace("sans-bold");
-		fillColor(convert_pix<cv::COLOR_RGBA2BGRA>(color_ * 255.0, 255.0));
+		fillColor(convert_pix<cv::COLOR_BGR2RGBA>(color_, 255.0));
 		textAlign(NVG_ALIGN_CENTER | NVG_ALIGN_TOP);
 
 		/** only draw lines that are visible **/
@@ -77,10 +77,10 @@ class StarsRenderer {
 public:
     cv::UMat rendering_;
     float minStarSize_ = 0.75f;
-	float maxStarSize_ = 1.5f;
+	float maxStarSize_ = 2.0f;
 	int minStarCount_ = 1000;
 	int maxStarCount_ = 2000;
-	float starAlpha_ = 0.2f;
+	float maxStarAlpha_ = 0.25f;
 	bool update_ = true;
 
 	void draw(const cv::Rect& vp) {
@@ -91,8 +91,9 @@ public:
 		for(int i = 0; i < numStars; ++i) {
 			beginPath();
 			const auto size = rng_.uniform(minStarSize_, maxStarSize_);
+			const auto alpha = rng_.uniform(0.05f, maxStarAlpha_);
 			strokeWidth(size);
-			strokeColor(cv::Scalar(255, 255, 255, starAlpha_ * 255.0f));
+			strokeColor(cv::Scalar(255, 255, 255, alpha * 255.0f));
 			circle(rng_.uniform(0, vp.width) , rng_.uniform(0, vp.height), size / 2.0);
 			stroke();
 		}
@@ -154,15 +155,15 @@ public:
                 warp_.update_ = true;
             ColorPicker4("Text Color", text.color_.val);
             Text("Stars");
-            if(SliderFloat("Min Star Size", &stars.minStarSize_, 0.5f, 1.0f))
+            if(SliderFloat("Min Star Size", &stars.minStarSize_, 0.0f, 1.0f))
             	stars.update_ = true;
-            if(SliderFloat("Max Star Size", &stars.maxStarSize_, 1.0f, 10.0f))
+            if(SliderFloat("Max Star Size", &stars.maxStarSize_, 0.0f, 10.0f))
             	stars.update_ = true;
             if(SliderInt("Min Star Count", &stars.minStarCount_, 1, 1000))
             	stars.update_ = true;
-            if(SliderInt("Max Star Count", &stars.maxStarCount_, 1000, 5000))
+            if(SliderInt("Max Star Count", &stars.maxStarCount_, 2, 5000))
             	stars.update_ = true;
-            if(SliderFloat("Min Star Alpha", &stars.starAlpha_, 0.2f, 1.0f))
+            if(SliderFloat("Max Star Alpha", &stars.maxStarAlpha_, 0.0f, 1.0f))
             	stars.update_ = true;
             End();
         }, text_, stars_, warp_);
@@ -211,8 +212,8 @@ Warp FontDemoPlan::warp_;
 double FontDemoPlan::timeOffset_ = 0.0f;
 
 int main() {
-	cv::Rect viewport(0, 0, 1280, 720);
-	cv::Ptr<V4D> runtime = V4D::init(viewport, cv::Size(1280, 720),  "Font Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+	cv::Rect viewport(0, 0, 1920, 1080);
+	cv::Ptr<V4D> runtime = V4D::init(viewport, viewport.size(),  "Font Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
 	Plan::run<FontDemoPlan>(0);
     return 0;
 }
