@@ -830,7 +830,7 @@ Tdst convert_pix(const Tsrc& src, double alpha = 1.0, double beta = 0.0) {
 		} else if constexpr(dstCn == 4) {
 			auto im = intermediateMat.at<src_internal_t>(0.0);
 			if(intermediateMat.depth() == CV_32F || intermediateMat.depth() == CV_64F) {
-				dstArr[0] = dst_internal_t(im[0], im[1], im[2], 1.0);
+				dstArr[0] = dst_internal_t(im[0], im[1], im[2], 255.0);
 			} else {
 				dstv_t a = std::numeric_limits<dstv_t>::max();
 				dstArr[0] = dst_internal_t(im[0], im[1], im[2], a);

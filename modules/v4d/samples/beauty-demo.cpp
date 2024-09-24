@@ -189,14 +189,10 @@ public:
 	}
 
 	bool extract(const cv::UMat& inputFrame, FaceFeatures& outputFeatures) {
-//		cv::imshow("", inputFrame);
-//		cv::waitKey(1);
 		shapes_.clear();
 		faceRects_.clear();
 		//Detect faces in the down-scaled image
 		detector_->detect(inputFrame, faces_);
-
-		std::cerr << "faces: " << !faces_.empty() << std::endl;
 
 		//Only add the first face
 		if(!faces_.empty())

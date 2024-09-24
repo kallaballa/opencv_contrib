@@ -32,8 +32,8 @@ static void draw_color_wheel(float x, float y, float w, float h, double hue) {
         bx = cx + cosf(a1) * (r0 + r1) * 0.5f;
         by = cy + sinf(a1) * (r0 + r1) * 0.5f;
         paint = linearGradient(ax, ay, bx, by,
-                cv::v4d::convert_pix(cv::Scalar((a0 / (CV_PI * 2.0)) * 180.0, 0.55 * 255.0, 255.0, 255.0), cv::COLOR_HLS2BGR),
-                cv::v4d::convert_pix(cv::Scalar((a1 / (CV_PI * 2.0)) * 180.0, 0.55 * 255, 255, 255), cv::COLOR_HLS2BGR));
+                cv::v4d::convert_pix<cv::COLOR_HLS2BGR, cv::Vec3b, cv::Vec4f>(cv::Vec3b((a0 / (CV_PI * 2.0)) * 180, 0.55 * 255, 255)),
+                cv::v4d::convert_pix<cv::COLOR_HLS2BGR, cv::Vec3b, cv::Vec4f>(cv::Vec3b((a1 / (CV_PI * 2.0)) * 180, 0.55 * 255, 255)));
         fillPaint(paint);
         fill();
     }
@@ -76,7 +76,7 @@ static void draw_color_wheel(float x, float y, float w, float h, double hue) {
     lineTo(ax, ay);
     lineTo(bx, by);
     closePath();
-    paint = linearGradient(r, 0, ax, ay, cv::v4d::convert_pix(cv::Scalar(hue, 128.0, 255.0, 255.0), cv::COLOR_HLS2BGR_FULL), cv::Scalar(255, 255, 255, 255));
+    paint = linearGradient(r, 0, ax, ay, cv::v4d::convert_pix<cv::COLOR_HLS2BGR_FULL, cv::Vec3b, cv::Vec4f>(cv::Vec3b(uchar(hue), 128, 255)), cv::Scalar(255, 255, 255, 255));
     fillPaint(paint);
     fill();
     paint = linearGradient((r + ax) * 0.5f, (0 + ay) * 0.5f, bx, by, cv::Scalar(0, 0, 0, 0), cv::Scalar(0, 0, 0, 255));
@@ -117,47 +117,38 @@ class NanoVGDemoPlan : public Plan {
 	cv::UMat hueChannel_;
 	double hue_ = 0;
 	Property<cv::Rect> vp_ = P<cv::Rect>(V4D::Keys::VIEWPORT);
+	size_t width_ = 0;
+	size_t height_ = 0;
+
+	constexpr static auto SPLIT_ = _OL_(void, cv::split, cv::InputArray, cv::OutputArrayOfArrays);
+	constexpr static auto MERGE_ = _OL_(void, cv::merge, cv::InputArrayOfArrays, cv::OutputArray);
 public:
 	NanoVGDemoPlan() {
 	}
 
 	void infer() override {
-		plain([](double& hue){
-			//we use time to calculate the current hue
-			double t = cv::getTickCount() / cv::getTickFrequency();
-			//nanovg hue fading depending on t
-			hue = (sinf(t * 0.12) + 1.0) * 127.5;
-		},  RW(hue_));
-
 		capture();
 
+		assign(RW(hue_), R((sinf(cv::getTickCount() / cv::getTickFrequency() * 0.12) + 1.0) * 127.5));
+
 		//Acquire the framebuffer and convert it to RGB
-		fb(&cv::cvtColor, RW(rgb_), V(cv::COLOR_BGRA2RGB), V(0));
+		fb(cv::cvtColor, RW(rgb_), V(cv::COLOR_BGRA2RGB), V(0), V(cv::ALGO_HINT_DEFAULT));
 
-		plain([](cv::UMat& rgb, cv::UMat& hsv, std::vector<cv::UMat>& hsvChannels, const double& hue){
-			//Color-conversion from RGB to HSV
-			cv::cvtColor(rgb, hsv, cv::COLOR_RGB2HSV_FULL);
+		//Transform HSV space
+		plain(cv::cvtColor, R(rgb_), RW(hsv_), V(cv::COLOR_RGB2HSV_FULL), V(0), V(cv::ALGO_HINT_DEFAULT))
+		->plain(SPLIT_, R(hsv_), RW(hsvChannels_))
+		->plain(&cv::UMat::setTo, RW(hsvChannels_[0]), V(std::round(hue_)), V(cv::noArray()))
+		->plain(MERGE_, R(hsvChannels_), RW(hsv_))
+		->plain(cv::cvtColor, R(hsv_), RW(rgb_), V(cv::COLOR_HSV2RGB_FULL), V(0), V(cv::ALGO_HINT_DEFAULT));
 
-			//Split the channels
-			split(hsv,hsvChannels);
-			//Set the current hue
-			hsvChannels[0].setTo(std::round(hue));
-			//Merge the channels back
-			merge(hsvChannels,hsv);
+		//Acquire the framebuffer and convert rgb_ into it
+		fb<1>(cv::cvtColor, RW(rgb_), V(cv::COLOR_BGR2BGRA), V(0), V(cv::ALGO_HINT_DEFAULT));
 
-			//Color-conversion from HSV to RGB
-			cv::cvtColor(hsv, rgb, cv::COLOR_HSV2RGB_FULL);
-		}, RW(rgb_), RW(hsv_), RW(hsvChannels_), R(hue_));
-
-		//Acquire the framebuffer and convert the rgb_ into it
-		fb([](cv::UMat& framebuffer, const cv::UMat& rgb) {
-			cv::cvtColor(rgb, framebuffer, cv::COLOR_BGR2BGRA);
-		}, R(rgb_));
+		assign(RW(width_), F(&cv::Rect::width, vp_))
+		->assign(RW(height_), F(&cv::Rect::height, vp_));
 
 		//Render using nanovg
-		nvg([](const cv::Rect &vp, const double& h) {
-			draw_color_wheel(vp.width - (vp.width / 5), vp.height - (vp.width / 5), vp.width / 6, vp.width / 6, h);
-		}, vp_, R(hue_));
+		nvg(draw_color_wheel, V(width_ - (width_ / 5)), V(height_ - (width_ / 5)), V(width_ / 6), V(width_ / 6), V(hue_));
 	}
 };
 
