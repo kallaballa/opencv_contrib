@@ -16,6 +16,7 @@ ExtContext::ExtContext(const int32_t& idx, cv::Ptr<FrameBufferContext> fbContext
 int ExtContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 		FrameBufferContext::WindowScope winScope(fbCtx());
 		FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0, true);
+		glViewport(vp.x, vp.y, vp.width, vp.height);
 		fn();
 		return 1;
 }

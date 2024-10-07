@@ -370,13 +370,13 @@ public:
 			ptr_ = new internal_base_t();
 		} else if constexpr(ispointer_t::value) {
 			ptr_ = t;
+		} else if constexpr(byvalue_t::value) {
+			ptr_ = holder_;
 		} else if constexpr(deref_t::value) {
 			ptr_ = holder_.get();
 		} else if constexpr(issmart_t::value) {
 			ptr_ = holder_.get();
-		}  else if constexpr(byvalue_t::value) {
-			ptr_ = &holder_;
-		}  else {
+		} else {
 			ptr_ = &t;
 		}
 
@@ -394,11 +394,7 @@ public:
 				*ptr_ = holder_.operator()();
 			}
 		}
-//		else if constexpr(issmart_t::value) {
-//			ptr_ = holder_.get();
-//		} else if constexpr(deref_t::value) {
-//			ptr_ = holder_.get();
-//		}
+
 		CV_Assert(ptr_ != nullptr);
 		return ptr_;
 	}

@@ -17,6 +17,7 @@
 #include <map>
 #include <cmath>
 #include <cassert>
+#include <iostream>
 
 #ifndef EVENT_API_EXPORT
 #define EVENT_API_EXPORT
@@ -838,7 +839,7 @@ constexpr Joystick::Type v4d_joystick_event_type(int glfw_state) {
 
 class EventQueue: public std::deque<std::shared_ptr<Event>> {
 	std::mutex mutex_;
-	size_t capacity_ = 100;
+	size_t capacity_ = 1000;
 	typedef std::deque<std::shared_ptr<Event>> parent_t;
 public:
 	EventQueue() {
@@ -876,10 +877,13 @@ public:
 				remainder.push_back(event);
 			}
 		}
-		if(remainder.size() != size()) {
-			parent_t::clear();
+
+		clear();
+
+		if(remainder.size() > 0) {
 			parent_t::operator =(std::move(remainder));
 		}
+
 		return found;
 	}
 
@@ -906,8 +910,9 @@ public:
 			}
 		}
 
-		if(remainder.size() != size()) {
-			parent_t::clear();
+		clear();
+
+		if(remainder.size() > 0) {
 			parent_t::operator =(std::move(remainder));
 		}
 
@@ -919,9 +924,8 @@ public:
 		std::unique_lock < std::mutex > lock(mutex_);
 		return parent_t::empty();
 	}
-
+private:
 	void clear() {
-		std::unique_lock < std::mutex > lock(mutex_);
 		parent_t empty_queue;
 		std::swap(*this, empty_queue);
 	}
@@ -1212,11 +1216,6 @@ EVENT_API_EXPORT inline void poll() {
 	assert(detail::Holder::main_window);
 	glfwPollEvents();
 	detail::poll_joystick_events();
-}
-
-EVENT_API_EXPORT inline void clear() {
-	static std::mutex mtx;
-	detail::queue().clear();
 }
 
 }

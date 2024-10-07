@@ -62,6 +62,15 @@ const LogTag mon_tag("Monitor", LogLevel::LOG_LEVEL_INFO);
 namespace event {
 	typedef Mouse_<cv::Point> Mouse;
 	typedef Window_<cv::Point> Window;
+
+	inline std::vector<std::shared_ptr<Joystick>> fetch(const Joystick::Type& t){
+		return fetch<Joystick>(t);
+	}
+
+	inline std::vector<std::shared_ptr<Keyboard>> fetch(const Keyboard::Type& t){
+		return fetch<Keyboard>(t);
+	}
+
 	inline std::vector<std::shared_ptr<Mouse>> fetch(const Mouse::Type& t){
 		return fetch<Mouse>(t);
 	}
@@ -903,6 +912,15 @@ public:
 
 	template<typename TeventClass, typename Tfn = std::function<std::vector<std::shared_ptr<TeventClass>>()>, typename Tparent = Edge<Tfn, false, true, false>>
 	struct Event : Tparent {
+		Event(cv::Ptr<Plan> plan) : Tparent(Tparent::make(plan, wrap_callable<>([]() {
+			if(!V4D::instance()->get<bool>(V4D::Keys::DISABLE_INPUT_EVENTS))
+				return cv::v4d::event::fetch<TeventClass>();
+			else
+				return typename TeventClass::List();
+		}))) {
+			static_assert(Tparent::func_t::value, "Internal error: Function not recognized!");
+		}
+
 		Event(cv::Ptr<Plan> plan, const typename TeventClass::Type t) : Tparent(Tparent::make(plan, wrap_callable<>([t]() {
 			if(!V4D::instance()->get<bool>(V4D::Keys::DISABLE_INPUT_EVENTS))
 				return cv::v4d::event::fetch(t);
@@ -966,7 +984,6 @@ public:
 		return self<Plan>();
     }
 
-    std::map<size_t, size_t> indexPointerMap_;
     template <int32_t pos = 0, typename Tedge, typename Tfn, typename ... Args>
     typename std::enable_if<std::is_base_of<EdgeBase, Tedge>::value, cv::Ptr<Plan>>::type
 	gl(Tedge indexEdge, Tfn fn, Args ... args) {
@@ -989,8 +1006,9 @@ public:
     }
 
     template <typename Tfn, typename ... Args>
-    cv::Ptr<Plan> ext(Tfn fn, Args ... args) {
-    	auto wrap = wrap_callable<typename Args::ref_t ...>(fn);
+    typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value, cv::Ptr<Plan>>::type
+    ext(Tfn fn, Args ... args) {
+    	auto wrap = wrap_callable<typename Args::ref_t...>(fn);
         const string id = make_id(this->space(), "ext", fn, args...);
         emit_access(id, R(*this));
         (emit_access(id, args ),...);
@@ -998,15 +1016,24 @@ public:
 		return self<Plan>();
     }
 
-    template <typename Tedge, typename Tfn, typename ... Args>
-    cv::Ptr<Plan> ext(Tedge indexEdge, Tfn fn, Args ... args) {
-        auto wrap = wrap_callable<typename Tedge::ref_t, typename Args::ref_t...>(fn);
-        const string id = make_id(this->space(), "ext" + int_to_hex(indexEdge.ptr()), fn, args...);
-        emit_access(id, R(*this));
-        emit_access(id, indexEdge);
-        (emit_access(id, args ),...);
-        std::function<void((const int32_t&,typename Args::ref_t...))> functor(fn);
-		add_transaction([this, indexEdge](){ return runtime_->extCtx(indexEdge.ref());},id, wrap, indexEdge, args...);
+    template <int32_t pos = 0, typename Tedge, typename Tfn, typename ... Args>
+    typename std::enable_if<std::is_base_of<EdgeBase, Tedge>::value, cv::Ptr<Plan>>::type
+	ext(Tedge indexEdge, Tfn fn, Args ... args) {
+        auto ctxCallback = [this, indexEdge]() {
+			Tedge copy = indexEdge;
+			return runtime_->glCtx(copy.ref());};
+		auto argsTuple = std::make_tuple(args...);
+		if constexpr(pos > 0) {
+			auto beforePos = sub_tuple<0,pos>(argsTuple);
+			auto afterPos = sub_tuple<pos, sizeof...(args) - pos>(argsTuple);
+			auto allTuple = std::tuple_cat(beforePos, indexEdge, afterPos);
+			return call(ctxCallback, "ext-i", fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
+		} else if constexpr(pos < 0) {
+			return call(ctxCallback, "ext-i", fn, std::forward<decltype(argsTuple)>(argsTuple), std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
+		} else {
+			auto allTuple = std::tuple_cat(index, argsTuple);
+			return call(ctxCallback, "ext-i", fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
+		}
 		return self<Plan>();
     }
 
@@ -1870,6 +1897,11 @@ public:
 	Property<Tval> P(Global::Keys::Enum key) {
 		const auto& ref = Global::instance().get<Tval>(key);
 		return Property<Tval>(self<Plan>(), ref);
+	}
+
+	template<typename Tclass>
+	Event<Tclass> E() {
+		return Event<Tclass>(self<Plan>());
 	}
 
 	template<typename Tclass>

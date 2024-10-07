@@ -126,6 +126,9 @@ public:
 	NanoVGDemoPlan() {
 	}
 
+	void setup() override {
+		plain(&std::vector<cv::UMat>::reserve, RW(hsvChannels_), V(3));
+	}
 	void infer() override {
 		capture();
 
