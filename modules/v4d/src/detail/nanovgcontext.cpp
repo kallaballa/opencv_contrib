@@ -6,6 +6,11 @@
 
 #include "opencv2/v4d/detail/nanovgcontext.hpp"
 #include "opencv2/v4d/nvg.hpp"
+#ifdef OPENCV_V4D_USE_GLES3
+#	define NANOVG_GLES3_IMPLEMENTATION 1
+#else
+#	define NANOVG_GL3_IMPLEMENTATION 1
+#endif
 #include "nanovg_gl.h"
 #include "opencv2/v4d/detail/gl.hpp"
 

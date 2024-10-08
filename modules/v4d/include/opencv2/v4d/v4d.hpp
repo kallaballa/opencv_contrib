@@ -973,15 +973,18 @@ public:
 		return parent_;
 	}
 
+
     template <typename Tfn, typename ... Args>
     typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value, cv::Ptr<Plan>>::type
     gl(Tfn fn, Args ... args) {
-    	auto wrap = wrap_callable<typename Args::ref_t...>(fn);
-        const string id = make_id(this->space(), "gl", fn, args...);
-        emit_access(id, R(*this));
-        (emit_access(id, args ),...);
-		add_transaction(runtime_->glCtx(-1), id, wrap, args...);
-		return self<Plan>();
+//    	auto wrap = wrap_callable<typename Args::ref_t...>(fn);
+//        const string id = make_id(this->space(), "gl", fn, args...);
+//        emit_access(id, R(*this));
+//        (emit_access(id, args ),...);
+//		add_transaction(runtime_->glCtx(-1), id, wrap, args...);
+    	auto argsTuple = std::make_tuple(args...);
+    	call(runtime_->glCtx(-1), "gl", fn, std::forward<decltype(argsTuple)>(argsTuple), std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
+    	return self<Plan>();
     }
 
     template <int32_t pos = 0, typename Tedge, typename Tfn, typename ... Args>
@@ -999,7 +1002,7 @@ public:
 		} else if constexpr(pos < 0) {
 			return call(ctxCallback, "gl-i", fn, std::forward<decltype(argsTuple)>(argsTuple), std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
 		} else {
-			auto allTuple = std::tuple_cat(index, argsTuple);
+			auto allTuple = std::make_tuple(indexEdge, args...);
 			return call(ctxCallback, "gl-i", fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
 		}
 		return self<Plan>();
@@ -1008,20 +1011,34 @@ public:
     template <typename Tfn, typename ... Args>
     typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value, cv::Ptr<Plan>>::type
     ext(Tfn fn, Args ... args) {
-    	auto wrap = wrap_callable<typename Args::ref_t...>(fn);
-        const string id = make_id(this->space(), "ext", fn, args...);
-        emit_access(id, R(*this));
-        (emit_access(id, args ),...);
-		add_transaction(runtime_->extCtx(-1), id, wrap, args...);
-		return self<Plan>();
+//    	auto wrap = wrap_callable<typename Args::ref_t...>(fn);
+//        const string id = make_id(this->space(), "gl", fn, args...);
+//        emit_access(id, R(*this));
+//        (emit_access(id, args ),...);
+//		add_transaction(runtime_->glCtx(-1), id, wrap, args...);
+
+
+    	auto argsTuple = std::make_tuple(args...);
+    	call(runtime_->extCtx(-1), "ext", fn, std::forward<decltype(argsTuple)>(argsTuple), std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
+    	return self<Plan>();
     }
+//    template <typename Tfn, typename ... Args>
+//    typename std::enable_if<!std::is_base_of<EdgeBase, Tfn>::value, cv::Ptr<Plan>>::type
+//    ext(Tfn fn, Args ... args) {
+//    	auto wrap = wrap_callable<typename Args::ref_t...>(fn);
+//        const string id = make_id(this->space(), "ext", fn, args...);
+//        emit_access(id, R(*this));
+//        (emit_access(id, args ),...);
+//		add_transaction(runtime_->extCtx(-1), id, wrap, args...);
+//		return self<Plan>();
+//    }
 
     template <int32_t pos = 0, typename Tedge, typename Tfn, typename ... Args>
     typename std::enable_if<std::is_base_of<EdgeBase, Tedge>::value, cv::Ptr<Plan>>::type
 	ext(Tedge indexEdge, Tfn fn, Args ... args) {
         auto ctxCallback = [this, indexEdge]() {
 			Tedge copy = indexEdge;
-			return runtime_->glCtx(copy.ref());};
+			return runtime_->extCtx(copy.ref());};
 		auto argsTuple = std::make_tuple(args...);
 		if constexpr(pos > 0) {
 			auto beforePos = sub_tuple<0,pos>(argsTuple);
@@ -1031,7 +1048,7 @@ public:
 		} else if constexpr(pos < 0) {
 			return call(ctxCallback, "ext-i", fn, std::forward<decltype(argsTuple)>(argsTuple), std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
 		} else {
-			auto allTuple = std::tuple_cat(index, argsTuple);
+			auto allTuple = std::make_tuple(indexEdge, args...);
 			return call(ctxCallback, "ext-i", fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
 		}
 		return self<Plan>();
