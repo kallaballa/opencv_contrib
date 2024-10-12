@@ -1257,8 +1257,7 @@ public:
 			auto allTuple = std::tuple_cat(beforeFb, fbEdge, afterFb);
 			return call(runtime_->fbCtx(), "fb", fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
 		} else {
-			auto fbEdge = std::make_tuple(makeInternalEdge<std::is_const<Tfb>::value>(runtime_->fbCtx()->fb()));
-			auto allTuple = std::tuple_cat(fbEdge, argsTuple);
+			auto allTuple = std::make_tuple(makeInternalEdge<std::is_const<Tfb>::value>(runtime_->fbCtx()->fb()), args...);
 			return call(runtime_->fbCtx(), "fb", fn, std::forward<decltype(allTuple)>(allTuple), std::make_index_sequence<std::tuple_size<decltype(allTuple)>::value>());
 		}
     }
@@ -1815,7 +1814,7 @@ public:
 	}
 
 	template<typename Tfn, typename ... Args>
-	auto F(Tfn src, Args ... args) {
+	auto F(Tfn src, Args&& ... args) {
 		return make_op(src, args...);
 	}
 

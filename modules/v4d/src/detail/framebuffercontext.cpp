@@ -183,7 +183,7 @@ void FrameBufferContext::blendFramebuffer(const GLuint& otherID) {
     draw_quad();
     GL_CHECK(glDisable(GL_BLEND));
     GL_CHECK(glEnable(GL_DEPTH_TEST));
-    GL_CHECK(glFinish());
+//    GL_CHECK(glFinish());
 }
 
 
