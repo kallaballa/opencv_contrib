@@ -57,7 +57,7 @@ macro(add_binary_sample sample source)
   if(NOT (TARGET ${sample}))
     ocv_add_executable(${sample} ${source})
   endif()
-  ocv_target_link_libraries(${sample} opencv_v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn opencv_flann bimg bx bgfx OpenCL OpenGL GLEW glfw nanovg)
+  ocv_target_link_libraries(${sample} opencv_v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_features2d opencv_dnn opencv_flann bimg bx bgfx OpenCL OpenGL GLEW glfw nanovg)
   target_compile_features(${sample} PRIVATE cxx_std_20)
   # set_property(TARGET ${sample} PROPERTY POSITION_INDEPENDENT_CODE ON)
   target_link_directories(${sample} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/../../lib")
@@ -141,7 +141,7 @@ if(NOT (TARGET ${the_module}))
   ocv_create_module()
   set_target_properties(${the_module} PROPERTIES LINKER_LANGUAGE CXX)
 
-  ocv_add_samples(opencv_v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgproc opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn opencv_flann)
+  ocv_add_samples(opencv_v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn opencv_flann)
   # Populate assets
   fetch_file("LBFMODEL" "https://github.com/kurnianggoro/GSOC2017/raw/master/data/lbfmodel.yaml" "70dd8b1657c42d1595d6bd13d97d932877b3bed54a95d3c4733a0f740d1fd66b")
 
