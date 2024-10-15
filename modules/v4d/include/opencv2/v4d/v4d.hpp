@@ -2000,7 +2000,7 @@ public:
 				}
 			} else {
 				if(V4D::instance()->debugFlags() & DebugFlags::LOWER_WORKER_PRIORITY) {
-#ifdef defined(__linux__)
+#if defined(__linux__)
 					CV_LOG_INFO(&v4d_tag, "Lowering worker thread niceness from: " << getpriority(PRIO_PROCESS, gettid()) << " to: " << 1);
 
 					if (setpriority(PRIO_PROCESS, gettid(), 1)) {

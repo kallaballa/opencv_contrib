@@ -52,7 +52,7 @@ V4D::V4D(const cv::Rect& viewport, cv::Size fbsize, const string& title, Allocat
     create<false>(Keys::DISABLE_VIDEO_IO, false);
     create<false>(Keys::DISABLE_INPUT_EVENTS, false);
 
-    int fbFlags = FBConfigFlags::VSYNC
+    int fbFlags = (configFlags() &  ConfigFlags::DISPLAY_MODE ? FBConfigFlags::VSYNC : 0)
     		| (debugFlags() &  DebugFlags::DEBUG_GL_CONTEXT ? FBConfigFlags::DEBUG_GL_CONTEXT : 0)
 			| (debugFlags() &  DebugFlags::ONSCREEN_CONTEXTS ? FBConfigFlags::ONSCREEN_CHILD_CONTEXTS : 0)
 			| (configFlags() &  ConfigFlags::OFFSCREEN ? FBConfigFlags::OFFSCREEN : 0);
@@ -367,7 +367,8 @@ bool V4D::display() {
 #if !defined(OPENCV_V4D_USE_ES3)
 			GL_CHECK(glDrawBuffer(GL_BACK));
 #endif
-			imguiCtx()->render(getShowFPS());
+			if(allocateFlags() & AllocateFlags::IMGUI)
+				imguiCtx()->render(getShowFPS());
 		}
 		TimeTracker::getInstance()->newCount();
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
