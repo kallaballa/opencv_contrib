@@ -14,7 +14,7 @@
 #include "../../third/imgui/backends/imgui_impl_glfw.h"
 
 #define GLAD_GL_IMPLEMENTATION
-#if !defined(OPENCV_V4D_USE_ES3)
+#if defined(__APPLE__) || !defined(OPENCV_V4D_USE_ES3)
 #  include "glad/gl.h"
 #else
 #  include "glad/gles3.h"
@@ -269,7 +269,7 @@ void FrameBufferContext::init() {
         glfwSwapInterval(configFlags() & FBConfigFlags::VSYNC ? 1 : 0);
     }
 
-#if !defined(OPENCV_V4D_USE_ES3)
+#if defined(__APPLE__) || !defined(OPENCV_V4D_USE_ES3)
     if (!hasParent()) {
     	GladGLContext context;
     	int version = gladLoadGLContext(&context, glfwGetProcAddress);
