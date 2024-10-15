@@ -5,13 +5,9 @@ OCV_OPTION(OPENCV_V4D_ENABLE_ES3 "Enable OpenGL ES 3.0 backend for V4D" OFF
 
 include(FetchContent)
 include(FindOpenCL)
-
-if(NOT EMSCRIPTEN)
-  find_package(glfw3 3 REQUIRED)
-  #  find_package(OpenCL REQUIRED)
-  find_package(GLEW REQUIRED)
-  include("FindOpenGL")
-endif()
+find_package(glfw3 3 REQUIRED)
+find_package(GLEW REQUIRED)
+include(FindOpenGL)
 
 set(the_description "V4D Visualization Module")
 set(OPENCV_MODULE_IS_PART_OF_WORLD OFF)
