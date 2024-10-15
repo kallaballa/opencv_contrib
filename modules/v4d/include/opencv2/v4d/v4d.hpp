@@ -9,6 +9,7 @@
 #include "flags.hpp"
 #include "source.hpp"
 #include "sink.hpp"
+#include "util.hpp"
 #include "nvg.hpp"
 #include "detail/context.hpp"
 #include "detail/transaction.hpp"
