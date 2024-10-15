@@ -13,6 +13,9 @@
 
 namespace cv {
 namespace v4d {
+
+class Plan;
+
 namespace detail {
 
 enum Operators {
@@ -224,7 +227,6 @@ struct Operation {
 
 };
 class EdgeBase {};
-class cv::v4d::Plan;
 
 template<typename T, bool Tcopy, bool Tread, bool Tshared = false, typename Tbase = std::false_type, bool TbyValue = false>
 class Edge : public EdgeBase {
@@ -410,7 +412,6 @@ public:
 
 
 	ref_t ref() {
-
 		if constexpr(!copy_t::value) {
 			if constexpr(ispointer_t::value) {
 				return ptr_;

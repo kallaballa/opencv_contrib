@@ -61,9 +61,9 @@ BgfxContext::BgfxContext(cv::Ptr<FrameBufferContext> fbContext) :
 	init.platformData.ndt = glfwGetX11Display();
 	init.platformData.nwh = (void*)(uintptr_t)glfwGetX11Window(fbCtx()->getGLFWWindow());
 #elif BX_PLATFORM_OSX
-	init.platformData.nwh = glfwGetCocoaWindow(window);
+	init.platformData.nwh = glfwGetCocoaWindow(fbCtx()->getGLFWWindow());
 #elif BX_PLATFORM_WINDOWS
-	init.platformData.nwh = glfwGetWin32Window(window);
+	init.platformData.nwh = glfwGetWin32Window(fbCtx()->getGLFWWindow());
 #endif
 	cv::Size sz = fbCtx()->size();
 	init.resolution.width  = sz.width;

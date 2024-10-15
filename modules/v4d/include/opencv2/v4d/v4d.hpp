@@ -9,7 +9,6 @@
 #include "flags.hpp"
 #include "source.hpp"
 #include "sink.hpp"
-#include "util.hpp"
 #include "nvg.hpp"
 #include "detail/context.hpp"
 #include "detail/transaction.hpp"
@@ -2000,11 +1999,13 @@ public:
 				}
 			} else {
 				if(V4D::instance()->debugFlags() & DebugFlags::LOWER_WORKER_PRIORITY) {
+#ifdef defined(__linux__)
 					CV_LOG_INFO(&v4d_tag, "Lowering worker thread niceness from: " << getpriority(PRIO_PROCESS, gettid()) << " to: " << 1);
 
 					if (setpriority(PRIO_PROCESS, gettid(), 1)) {
 						CV_LOG_INFO(&v4d_tag, "Failed to set niceness: " << std::strerror(errno));
 					}
+#endif
 				}
 			}
 		}

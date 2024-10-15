@@ -9,7 +9,11 @@
 
 #if !defined(OPENCV_V4D_USE_ES3)
 #    define GL_GLEXT_PROTOTYPES
-#	include "GL/glcorearb.h"
+#	if defined(__APPLE__)
+#		include <OpenGL/gl3.h>
+#	else
+#		include "GL/glcorearb.h"
+#	endif
 #else
 #	include "GLES3/gl3.h"
 #	include "GLES2/gl2ext.h"
