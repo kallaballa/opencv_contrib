@@ -101,15 +101,7 @@ class MandelbrotScene {
 
     //mandelbrot shader code adapted from my own project: https://github.com/kallaballa/FractalDive#after
     GLuint loadShaders() {
-        #if !defined(OPENCV_V4D_USE_ES3)
-        const string shaderVersion = "330";
-        #else
-        const string shaderVersion = "300 es";
-        #endif
-
-        const string vert =
-        "    #version " + shaderVersion
-        + R"(
+        const string vert = R"(
         in vec4 position;
 
         void main()
@@ -117,9 +109,7 @@ class MandelbrotScene {
             gl_Position = vec4(position.xyz, 1.0);
         })";
 
-        const string frag =
-                "    #version " + shaderVersion
-                        + R"(
+        const string frag = R"(
         precision highp float;
 
         out vec4 outColor;

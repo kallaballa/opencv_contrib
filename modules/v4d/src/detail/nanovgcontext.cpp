@@ -3,15 +3,17 @@
 // of this distribution and at http://opencv.org/license.html.
 // Copyright Amir Hassan (kallaballa) <amir@viel-zu.org>
 
+
+#include "opencv2/v4d/detail/nanovgcontext.hpp"
+#include "opencv2/v4d/nvg.hpp"
 #if defined(OPENCV_V4D_USE_ES3)
 #	define NANOVG_GLES3_IMPLEMENTATION 1
 #else
 #	define NANOVG_GL3_IMPLEMENTATION 1
 #endif
 
-#include "opencv2/v4d/detail/nanovgcontext.hpp"
-#include "opencv2/v4d/nvg.hpp"
 #include "nanovg_gl.h"
+#include "nanovg_gl_utils.h"
 #include "opencv2/v4d/detail/gl.hpp"
 
 namespace cv {

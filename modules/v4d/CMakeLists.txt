@@ -72,15 +72,12 @@ endmacro()
 
 
 if (NOT (TARGET nanovg))
-    #Configure NanoVG build options
-    if(OPENCV_V4D_ENABLE_ES3)
-        set(NANOVG_ES3 ON)
-    else()
-        set(NANOVG_ES3 OFF)
-    endif()
-
+#    if(OPENCV_V4D_ENABLE_ES3)
+#	    add_definitions(-DNANOVG_GLES3_IMPLEMENATION=1)
+#    else()
+#		add_definitions(-DNANOVG_GL3_IMPLEMENATION=1)
+#    endif()
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/")
-
     target_compile_options(nanovg PUBLIC -Wno-error)
     target_compile_options(nanovg PUBLIC -pthread)
     target_compile_options(nanovg PUBLIC -fvisibility=default)
@@ -124,12 +121,6 @@ if (NOT (TARGET nanovg))
 # Add the opencv module
 if(NOT (TARGET ${the_module}))
   ocv_add_module(v4d opencv_core opencv_imgproc opencv_videoio opencv_video)
-
-  if(NANOVG_GLES3)
-    add_definitions(-DNANOVG_GLES3=1 )
-  else()
-    add_definitions(-DNANOVG_GL3=1 )
-  endif()
 
   file(GLOB imgui_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/src/detail/imguicontext.cpp")
   file(GLOB imgui_backend_sources CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/third/imgui/backends/imgui_impl_opengl3*.cpp")
@@ -224,9 +215,7 @@ if(NOT (TARGET ${the_module}))
   endif()
 
   if(OPENCV_V4D_ENABLE_ES3)
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOPENCV_V4D_USE_ES3=1 -DNANOVG_GLES3=1")
-    else()
-      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DNANOVG_GL3=1")
+      set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DOPENCV_V4D_USE_ES3=1")
   endif()
 
 

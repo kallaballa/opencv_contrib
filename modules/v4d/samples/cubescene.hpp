@@ -63,15 +63,8 @@ class CubeScene {
 	static GLuint load_shader() {
 		//Shader versions "330" and "300 es" are very similar.
 		//If you are careful you can write the same code for both versions.
-	#if !defined(OPENCV_V4D_USE_ES3)
-		const string shaderVersion = "330";
-	#else
-		const string shaderVersion = "300 es";
-	#endif
 
-		const string vert =
-				"    #version " + shaderVersion
-						+ R"(
+		const string vert = R"(
 		precision lowp float;
 		layout(location = 0) in vec3 pos;
 		layout(location = 1) in vec3 vertex_color;
@@ -85,9 +78,7 @@ class CubeScene {
 		}
 	)";
 
-		const string frag =
-				"    #version " + shaderVersion
-						+ R"(
+		const string frag = R"(
 		precision lowp float;
 		in vec3 color;
 		

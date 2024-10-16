@@ -100,15 +100,7 @@ int FrameBufferContext::configFlags() {
 }
 
 void FrameBufferContext::loadShaders(const size_t& index) {
-#if !defined(OPENCV_V4D_USE_ES3)
-    const string shaderVersion = "330";
-#else
-    const string shaderVersion = "300 es";
-#endif
-
-    const string vert =
-    		"    #version " + shaderVersion
-            	+ R"(
+    const string vert = R"(
     		precision highp float;
     		
     		layout (location = 0) in vec2 aPos;
@@ -123,9 +115,7 @@ void FrameBufferContext::loadShaders(const size_t& index) {
     		}
     	)";
 
-    const string frag =
-            "    #version " + shaderVersion
-                    + R"(
+    const string frag = R"(
     precision mediump float;
     
 	in vec2 TexCoords;

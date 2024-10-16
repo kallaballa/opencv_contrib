@@ -105,11 +105,18 @@ void init_fragment_shader(unsigned int handles[2], const char* fshader) {
     }
 }
 
-void init_shaders(unsigned int handles[3], const char* vShader, const char* fShader, const char* outputAttributeName) {
-    struct Shader {
+void init_shaders(unsigned int handles[3], const string vShader, const string fShader, const string outputAttributeName) {
+#if !defined(OPENCV_V4D_USE_ES3)
+	const string version="#version 330\n";
+#else
+	const string version="#version 300 es\n";
+#endif
+	string vs = (version + vShader);
+	string fs = (version + fShader);
+	struct Shader {
         GLenum type;
         const char* source;
-    } shaders[2] = { { GL_VERTEX_SHADER, vShader }, { GL_FRAGMENT_SHADER, fShader } };
+    } shaders[2] = { { GL_VERTEX_SHADER, vs.c_str() }, { GL_FRAGMENT_SHADER, fs.c_str() } };
 
     GLuint program = glCreateProgram();
     handles[0] = program;
@@ -139,7 +146,7 @@ void init_shaders(unsigned int handles[3], const char* vShader, const char* fSha
     }
 #if !defined(OPENCV_V4D_USE_ES3)
     /* Link output */
-    glBindFragDataLocation(program, 0, outputAttributeName);
+    glBindFragDataLocation(program, 0, outputAttributeName.c_str());
 #else
     CV_UNUSED(outputAttributeName);
 #endif
