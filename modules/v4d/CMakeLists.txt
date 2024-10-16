@@ -74,14 +74,16 @@ endmacro()
 if (NOT (TARGET nanovg))
     #Configure NanoVG build options
     if(OPENCV_V4D_ENABLE_ES3)
-      set(NANOVG_GLES3 ON)
+        set(NANOVG_ES3 ON)
     else()
-      set(NANOVG_GLES3 OFF)
+        set(NANOVG_ES3 OFF)
     endif()
 
     add_subdirectory("${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/")
+
     target_compile_options(nanovg PUBLIC -Wno-error)
     target_compile_options(nanovg PUBLIC -pthread)
+    target_compile_options(nanovg PUBLIC -fvisibility=default)
 
     # # target_include_directories(nanovg PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/")
     # # include_directories("${CMAKE_CURRENT_SOURCE_DIR}/third/nanovg/src/")
