@@ -176,6 +176,7 @@ void FrameBufferContext::blendFramebuffer(const GLuint& otherID) {
 //    GL_CHECK(glFinish());
 }
 
+#if !defined(__APPLE__)
 void glDebugOutput(GLenum source,
                             GLenum type,
                             unsigned int id,
@@ -222,6 +223,7 @@ void glDebugOutput(GLenum source,
 //    } std::cout << std::endl;
     std::cout << std::endl;
 }
+#endif
 
 GLuint FrameBufferContext::getFramebufferID() {
     return framebufferID_;
@@ -254,6 +256,7 @@ void FrameBufferContext::init() {
 
     glfwSetErrorCallback(cv::v4d::detail::glfw_error_callback);
 
+#if !defined(__APPLE__)
     if (!hasParent() && (configFlags() & FBConfigFlags::DEBUG_GL_CONTEXT)) {
         glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
         glEnable(GL_DEBUG_OUTPUT);
@@ -261,7 +264,7 @@ void FrameBufferContext::init() {
         glDebugMessageCallback(glDebugOutput, nullptr);
         glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
     }
-
+#endif
     glfwSetTime(0);
 #ifdef __APPLE__
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
