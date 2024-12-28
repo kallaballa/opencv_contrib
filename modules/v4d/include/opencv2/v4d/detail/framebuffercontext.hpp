@@ -48,7 +48,7 @@ public:
     {
     	if(cv::ocl::useOpenCL()) {
 			CV_Assert(!ctx.empty());
-			ctx_ = CLExecContext_t::getCurrentRef();
+			ctx_ = CLExecContext_t::getCurrent();
 			ctx.bind();
 		}
     }
@@ -158,7 +158,7 @@ public:
         {
             CV_Assert(!m.empty());
 #ifdef HAVE_OPENCL
-            if(pExecCtx) {
+            if(pExecCtx->empty()) {
                 CLExecScope_t execScope(*pExecCtx.get());
                 ctx_->acquireFromGL(m_);
             } else {
@@ -173,7 +173,7 @@ public:
          */
         CV_EXPORTS virtual ~FrameBufferScope() {
 #ifdef HAVE_OPENCL
-            if (pExecCtx) {
+            if (pExecCtx->empty()) {
                 CLExecScope_t execScope(*pExecCtx.get());
                 ctx_->releaseToGL(m_);
             }
@@ -307,7 +307,7 @@ public:
      * @param stretch if true stretch the framebuffer to window size
      */
     void blitFrameBufferToFrameBuffer(const cv::Rect& srcViewport, const cv::Size& targetFbSize,
-            GLuint targetFramebufferID = 0, bool stretch = true, bool flipY = false);
+    		bool stretch = true, bool flipY = false);
 protected:
     CLExecContext_t& getCLExecContext();
     int getIndex();

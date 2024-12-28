@@ -24,7 +24,7 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext) :
         mainFbContext_(fbContext), nvgFbContext_(FrameBufferContext::make("NanoVG", fbContext)), context_(
                 nullptr) {
 		FrameBufferContext::WindowScope winScope(fbCtx());
-		FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER);
+		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
 #if defined(OPENCV_V4D_USE_ES3)
 		context_ = nvgCreateGLES3(NVG_ANTIALIAS | NVG_STENCIL_STROKES | NVG_DEBUG);
 #else
@@ -40,7 +40,7 @@ NanoVGContext::NanoVGContext(cv::Ptr<FrameBufferContext> fbContext) :
 int NanoVGContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 	{
 		FrameBufferContext::WindowScope winScope(fbCtx());
-		FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER);
+		FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER);
 		glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 //		glViewport(vp.x, vp.y, vp.width, vp.height);
 		NanoVGContext::Scope nvgScope(*this, vp);

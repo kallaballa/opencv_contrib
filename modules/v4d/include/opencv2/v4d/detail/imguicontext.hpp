@@ -6,6 +6,11 @@
 #ifndef SRC_OPENCV_IMGUIContext_HPP_
 #define SRC_OPENCV_IMGUIContext_HPP_
 
+#if defined(OPENCV_V4D_USE_ES3)
+#   define IMGUI_IMPL_OPENGL_ES3
+#endif
+
+
 #include "framebuffercontext.hpp"
 #include "../../../third/imgui/imgui.h"
 

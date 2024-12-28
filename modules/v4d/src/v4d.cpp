@@ -287,16 +287,20 @@ void V4D::swapContextBuffers() {
         FrameBufferContext::GLScope glScope(glCtx(i)->fbCtx(), GL_READ_FRAMEBUFFER);
 //		cv::Rect initial = get<cv::Rect>(Keys::INIT_VIEWPORT);
 //		initial.y = (fbCtx()->size().height - initial.height) + initial.y;
-        glCtx(i)->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, size(), 0, get<bool>(Keys::STRETCHING));
+        GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+        assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+        glCtx(i)->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, size(), get<bool>(Keys::STRETCHING));
         GL_CHECK(glFinish());
         glfwSwapBuffers(glCtx(i)->fbCtx()->getGLFWWindow());
-//        std::cerr << "blit" << std::endl;
     }
 
     if(hasNvgCtx()) {
     	FrameBufferContext::WindowScope winScope(nvgCtx()->fbCtx());
 		FrameBufferContext::GLScope glScope(nvgCtx()->fbCtx(), GL_READ_FRAMEBUFFER);
-		nvgCtx()->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, size(), 0, get<bool>(Keys::STRETCHING));
+
+		GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+        assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+		nvgCtx()->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, size(), get<bool>(Keys::STRETCHING));
 //        GL_CHECK(glFinish());
 		glfwSwapBuffers(nvgCtx()->fbCtx()->getGLFWWindow());
     }
@@ -304,7 +308,10 @@ void V4D::swapContextBuffers() {
     if(hasBgfxCtx()) {
     	FrameBufferContext::WindowScope winScope(bgfxCtx()->fbCtx());
 		FrameBufferContext::GLScope glScope(bgfxCtx()->fbCtx(), GL_READ_FRAMEBUFFER);
-		bgfxCtx()->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, size(), 0, get<bool>(Keys::STRETCHING));
+
+        GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+        assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+		bgfxCtx()->fbCtx()->blitFrameBufferToFrameBuffer(fbViewport, size(), get<bool>(Keys::STRETCHING));
 //        GL_CHECK(glFinish());
 		glfwSwapBuffers(bgfxCtx()->fbCtx()->getGLFWWindow());
     }
@@ -358,17 +365,22 @@ bool V4D::display() {
 			FrameBufferContext::GLScope glScope(fbCtx(), GL_READ_FRAMEBUFFER);
 			cv::Rect initial = get<cv::Rect>(Keys::INIT_VIEWPORT);
 			initial.y = (fbCtx()->size().height - initial.height) + initial.y;
-			fbCtx()->blitFrameBufferToFrameBuffer(initial, size(), 0, get<bool>(Keys::STRETCHING));
-		}
 
-		FrameBufferContext::WindowScope winScope(fbCtx());
-		FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0);
-		if(hasImguiCtx()) {
+			GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+			assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+
+			fbCtx()->blitFrameBufferToFrameBuffer(initial, size(), get<bool>(Keys::STRETCHING));
+		}
+		{
+			FrameBufferContext::WindowScope winScope(fbCtx());
+			FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0);
+			if(hasImguiCtx()) {
 #if !defined(OPENCV_V4D_USE_ES3)
-			GL_CHECK(glDrawBuffer(GL_BACK));
+				GL_CHECK(glDrawBuffer(GL_BACK));
 #endif
-			if(allocateFlags() & AllocateFlags::IMGUI)
-				imguiCtx()->render(getShowFPS());
+				if(allocateFlags() & AllocateFlags::IMGUI)
+					imguiCtx()->render(getShowFPS());
+			}
 		}
 		TimeTracker::getInstance()->newCount();
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
@@ -394,7 +406,10 @@ bool V4D::display() {
 			FrameBufferContext::GLScope glScope(fbCtx(), GL_READ_FRAMEBUFFER);
 			cv::Rect initial = get<cv::Rect>(Keys::INIT_VIEWPORT);
 			initial.y = (fbCtx()->size().height - initial.height) + initial.y;
-			fbCtx()->blitFrameBufferToFrameBuffer(initial, size(), 0, get<bool>(Keys::STRETCHING));
+	        GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0));
+	        assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+
+			fbCtx()->blitFrameBufferToFrameBuffer(initial, size(), get<bool>(Keys::STRETCHING));
 			glfwSwapBuffers(fbCtx()->getGLFWWindow());
 		}
 	}

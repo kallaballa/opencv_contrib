@@ -161,7 +161,7 @@ void FrameBufferContext::blendFramebuffer(const GLuint& otherID) {
     GL_CHECK(glEnable(GL_BLEND));
     GL_CHECK(glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA));
 
-    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, getFramebufferID()));
+    GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, getFramebufferID()));
     GL_CHECK(glViewport(0, 0, size().width, size().height));
     GL_CHECK(glActiveTexture(GL_TEXTURE0));
     GL_CHECK(glBindTexture(GL_TEXTURE_2D, copyTextures_[otherID]));
@@ -259,10 +259,10 @@ void FrameBufferContext::init() {
 #if !defined(__APPLE__)
     if (!hasParent() && (configFlags() & FBConfigFlags::DEBUG_GL_CONTEXT)) {
         glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
-        glEnable(GL_DEBUG_OUTPUT);
-        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-        glDebugMessageCallback(glDebugOutput, nullptr);
-        glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
+//        glEnable(GL_DEBUG_OUTPUT);
+//        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+//        glDebugMessageCallback(glDebugOutput, nullptr);
+//        glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, GL_TRUE);
     }
 #endif
     glfwSetTime(0);
@@ -390,7 +390,7 @@ void FrameBufferContext::setup() {
     	GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferFlippedID_));
     	GL_CHECK(glGenTextures(1, &textureFlippedID_));
     	GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureFlippedID_));
-    	GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+//    	GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
     	GL_CHECK(
     			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
     	GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -405,7 +405,7 @@ void FrameBufferContext::setup() {
 
         GL_CHECK(glGenTextures(1, &textureID_));
         GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
-        GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+//        GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
         GL_CHECK(
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -413,18 +413,18 @@ void FrameBufferContext::setup() {
         GL_CHECK(
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureID_, 0));
 
-        GL_CHECK(glBindRenderbuffer(GL_RENDERBUFFER, renderBufferID_));
+/*        GL_CHECK(glBindRenderbuffer(GL_RENDERBUFFER, renderBufferID_));
         GL_CHECK(
                 glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH24_STENCIL8, sz.width, sz.height));
         GL_CHECK(
-                glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, renderBufferID_));
+                glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_STENCIL_ATTACHMENT, GL_RENDERBUFFER, renderBufferID_));*/
 
         assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
     } else if(hasParent()) {
         GL_CHECK(glGenFramebuffers(1, &framebufferID_));
         GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferID_));
         GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
-        GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+//        GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
         GL_CHECK(
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -489,17 +489,21 @@ void FrameBufferContext::flip() {
 //            glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureID_, 0));
     assert(glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
 
-	blitFrameBufferToFrameBuffer(cv::Rect(0, 0, size().width, size().height), size(), framebufferFlippedID_, false, true);
+    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebufferFlippedID_));
+    assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+	blitFrameBufferToFrameBuffer(cv::Rect(0, 0, size().width, size().height), size(), false, true);
 }
 
 void FrameBufferContext::unflip() {
 	GL_CHECK(glBindFramebuffer(GL_READ_FRAMEBUFFER, framebufferFlippedID_));
-//    GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureFlippedID_));
+    assert(glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+	//    GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureFlippedID_));
 //    GL_CHECK(
 //            glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureFlippedID_, 0));
 //    assert(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-
-	blitFrameBufferToFrameBuffer(cv::Rect(0, 0, size().width, size().height), size(), framebufferID_, false, true);
+	GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, framebufferID_));
+    assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+	blitFrameBufferToFrameBuffer(cv::Rect(0, 0, size().width, size().height), size(), false, true);
 }
 
 #ifdef HAVE_OPENCL
@@ -624,7 +628,7 @@ CLExecContext_t& FrameBufferContext::getCLExecContext() {
 }
 
 void FrameBufferContext::blitFrameBufferToFrameBuffer(const cv::Rect& srcViewport,
-        const cv::Size& targetFbSize, GLuint targetFramebufferID, bool stretch, bool flipY) {
+        const cv::Size& targetFbSize, bool stretch, bool flipY) {
 	double hf = double(targetFbSize.height) / framebufferSize_.height;
     double wf = double(targetFbSize.width) / framebufferSize_.width;
     double f;
@@ -654,8 +658,7 @@ void FrameBufferContext::blitFrameBufferToFrameBuffer(const cv::Rect& srcViewpor
         dstY0 = dstY1;
         dstY1 = tmp;
     }
-    GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, targetFramebufferID));
-    assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+
     GL_CHECK(glBlitFramebuffer( srcX0, srcY0, srcX1, srcY1,
             dstX0, dstY0, dstX1, dstY1,
             GL_COLOR_BUFFER_BIT, GL_NEAREST));
@@ -682,8 +685,9 @@ void FrameBufferContext::end(bool copyBack) {
 		GLint fbY = dims[1];
 		GLint fbWidth = dims[2];
 		GLint fbHeight = dims[3];
-
-		blitFrameBufferToFrameBuffer(cv::Rect(fbX, fbY, fbWidth, fbHeight), size(), copyFramebuffers_[currentFBO_], false, false);
+		GL_CHECK(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, copyFramebuffers_[currentFBO_]));
+	    assert(glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
+		blitFrameBufferToFrameBuffer(cv::Rect(fbX, fbY, fbWidth, fbHeight), size(), false, false);
 		blendFramebuffer(currentFBO_);
 	}
 }

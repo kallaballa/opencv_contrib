@@ -473,7 +473,6 @@ class Plan {
     std::deque<BranchState> branchStateStack_;
     std::deque<std::pair<string, BranchType::Enum>> branchStack_;
 
-
 	template<typename Tedge>
     void emit_access(const string& context, Tedge tp) {
 //    	cout << "access: " << std::this_thread::get_id() << " " << context << string(read ? " <- " : " -> ") << demangle(typeid(std::remove_const_t<T>).name()) << "(" << (long)tp << ") " << endl;
@@ -1274,6 +1273,13 @@ public:
     	return self<Plan>();
     }
 
+    template <typename Tfn, typename ... Args>
+    cv::Ptr<Plan> capture(Tfn fn, Args ... args) {
+    	auto srcEdge = makeInternalEdge<false>(runtime_->sourceCtx()->sourceBuffer());
+    	auto argsTuple = std::make_tuple(srcEdge, args...);
+    	return call(runtime_->sourceCtx(), "src", fn, std::forward<decltype(argsTuple)>(argsTuple), std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
+    }
+
     cv::Ptr<Plan> capture() {
     	capture([](const cv::UMat& inputFrame, cv::UMat& f){
     		if(!inputFrame.empty())
@@ -1291,53 +1297,32 @@ public:
 		return self<Plan>();
     }
 
-    template <typename Tfn, typename ... Args>
-    cv::Ptr<Plan> capture(Tfn fn, Args ... args) {
-		auto srcEdge = makeInternalEdge<true>(runtime_->sourceCtx()->sourceBuffer());
-    	auto wrap = wrap_callable<typename decltype(srcEdge)::ref_t, typename Args::ref_t...>(fn);
-
-        const string id = make_id(this->space(), "capture", fn, args...);
-
-		emit_access(id, R(*this));
-		(emit_access(id, args ),...);
-
-		std::function<void((
-				typename decltype(srcEdge)::ref_t,
-				typename Args::ref_t...))> functor(wrap);
-		add_transaction(runtime_->sourceCtx(),id, functor, srcEdge, args...);
-		return self<Plan>();
-    }
-
-    cv::Ptr<Plan> write() {
-        fb([](const cv::UMat& framebuffer, cv::UMat& f) {
-            framebuffer.copyTo(f);
-        }, Edge<cv::UMat, false, false>::make(self<Plan>(), writerFrame_));
-
-    	write([](cv::UMat& outputFrame, const cv::UMat& f){
-   			f.copyTo(outputFrame);
-    	}, Edge<cv::UMat, false, true>::make(self<Plan>(), writerFrame_));
-		return self<Plan>();
-    }
-
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> write(Tfn fn, Args ... args) {
 		using Tfb = typename std::tuple_element<0, typename function_traits<Tfn>::argument_types>::type;
 		static_assert((std::is_same<Tfb,cv::UMat>::value) || !"The first argument must be of type 'cv::UMat&'");
 		auto sinkEdge = makeInternalEdge<std::is_const<Tfb>::value>(runtime_->sinkCtx()->sinkBuffer());
-    	auto wrap = wrap_callable<typename decltype(sinkEdge)::ref_t, typename Args::ref_t...>(fn);
 
-        const string id = make_id(this->space(), "write", fn, args...);
-		emit_access(id, R(*this));
-		(emit_access(id, args ),...);
-
-
-		std::function<void((
-				typename decltype(sinkEdge)::ref_t,
-				typename Args::ref_t...))> functor(wrap);
-		add_transaction(runtime_->sinkCtx(),id, functor, sinkEdge, args...);
+		auto argsTuple = std::make_tuple(sinkEdge, args...);
+		return call(runtime_->sinkCtx(), "sink", fn, std::forward<decltype(argsTuple)>(argsTuple), std::make_index_sequence<std::tuple_size<decltype(argsTuple)>::value>());
 		return self<Plan>();
     }
+
+    cv::Ptr<Plan> write() {
+    	auto writerEdge = makeInternalEdge<false>(writerFrame_);
+    	auto writerEdgeConst = makeInternalEdge<true>(writerFrame_);
+
+        fb([](const cv::UMat& framebuffer, cv::UMat& f) {
+            framebuffer.copyTo(f);
+        }, writerEdge);
+
+     	write([](cv::UMat& outputFrame, const cv::UMat& f){
+   			f.copyTo(outputFrame);
+    	}, writerEdgeConst);
+		return self<Plan>();
+    }
+
 
     template <typename Tfn, typename ... Args>
     cv::Ptr<Plan> nvg(Tfn fn, Args... args) {

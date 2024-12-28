@@ -70,7 +70,7 @@ BgfxContext::BgfxContext(cv::Ptr<FrameBufferContext> fbContext) :
 	init.resolution.height = sz.height;
 	init.resolution.reset  = BGFX_RESET_VSYNC;
 	FrameBufferContext::WindowScope winScope(fbCtx());
-	FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0, true);
+	FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER, 0, true);
 	bgfx::init(init);
 
 	// Enable debug text.
@@ -79,7 +79,7 @@ BgfxContext::BgfxContext(cv::Ptr<FrameBufferContext> fbContext) :
 
 int BgfxContext::execute(const cv::Rect& vp, std::function<void()> fn) {
 	FrameBufferContext::WindowScope winScope(fbCtx());
-	FrameBufferContext::GLScope glScope(fbCtx(), GL_DRAW_FRAMEBUFFER, 0, true);
+	FrameBufferContext::GLScope glScope(fbCtx(), GL_FRAMEBUFFER, 0, true);
 	fn();
 	CV_Assert(fbCtx()->getGLFWWindow() == glfwGetCurrentContext());
 	return 1;

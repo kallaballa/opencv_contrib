@@ -18,12 +18,30 @@
 #include <functional>
 #include <iostream>
 #include <cmath>
+#include <regex>
 
 using std::cerr;
 using std::endl;
 
 namespace cv {
 namespace v4d {
+namespace detail {
+void print_nth_line(const std::string& str, int n) {
+    std::istringstream stream(str);
+    std::string line;
+    int currentLine = 1;
+
+    while (std::getline(stream, line)) {
+        if (currentLine == n) {
+            std::cout << line << std::endl;
+            return;
+        }
+        ++currentLine;
+    }
+
+    std::cout << "Line " << n << " does not exist." << std::endl;
+}
+}
 
 size_t cnz(const cv::UMat& m) {
     cv::UMat grey;
@@ -81,7 +99,8 @@ void init_fragment_shader(unsigned int handles[2], const char* fshader) {
 		glGetShaderiv(handles[1], GL_INFO_LOG_LENGTH, &logSize);
 		char* logMsg = new char[logSize];
 		glGetShaderInfoLog(handles[1] , logSize, NULL, logMsg);
-		std::cerr << logMsg << std::endl;
+        std::cerr <<  logMsg << std::endl;
+
 		delete[] logMsg;
 
 		exit (EXIT_FAILURE);
@@ -94,11 +113,13 @@ void init_fragment_shader(unsigned int handles[2], const char* fshader) {
     GLint linked;
     glGetProgramiv(handles[0], GL_LINK_STATUS, &linked);
     if (!linked) {
-        std::cerr << "Shader program failed to link" << std::endl;
+        std::cerr << "Shader program failed to link: " << fshader << std::endl;
         GLint logSize;
         glGetProgramiv(handles[0], GL_INFO_LOG_LENGTH, &logSize);
         char* logMsg = new char[logSize];
         glGetProgramInfoLog(handles[0], logSize, NULL, logMsg);
+        std::cerr <<  logMsg << std::endl;
+
         delete[] logMsg;
 
         exit (EXIT_FAILURE);
@@ -136,7 +157,17 @@ void init_shaders(unsigned int handles[3], const string vShader, const string fS
             glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &logSize);
             char* logMsg = new char[logSize];
             glGetShaderInfoLog(shader, logSize, NULL, logMsg);
+
             std::cerr << shaders[i].source << std::endl <<  logMsg << std::endl;
+            std::regex rex(R"(\d+:(\d+)\(\d+\))");
+
+            std::cmatch cm;
+            if (std::regex_search(logMsg, cm, rex)) {
+            	for(size_t i = 0; i < cm.size(); ++i)
+            		print_nth_line(shaders[i].source, atoi(std::string(cm[1]).c_str()));
+            }
+            std::cerr << std::endl;
+
             delete[] logMsg;
 
             exit (EXIT_FAILURE);
@@ -156,12 +187,14 @@ void init_shaders(unsigned int handles[3], const string vShader, const string fS
     GLint linked;
     glGetProgramiv(program, GL_LINK_STATUS, &linked);
     if (!linked) {
-        std::cerr << "Shader program failed to link" << std::endl;
+    	std::cerr << "Shader program failed to link: " << fShader << std::endl;
         GLint logSize;
         glGetProgramiv(program, GL_INFO_LOG_LENGTH, &logSize);
         char* logMsg = new char[logSize];
         glGetProgramInfoLog(program, logSize, NULL, logMsg);
-        std::cerr << logMsg << std::endl;
+
+        std::cerr <<  logMsg << std::endl;
+
         delete[] logMsg;
 
         exit (EXIT_FAILURE);

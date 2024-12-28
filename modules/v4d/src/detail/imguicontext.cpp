@@ -6,7 +6,7 @@
 #include "opencv2/v4d/v4d.hpp"
 #include "opencv2/v4d/detail/imguicontext.hpp"
 
-#if defined(OPENCV_V4D_USE_ES3) || defined(EMSCRIPTEN)
+#if defined(OPENCV_V4D_USE_ES3)
 #   define IMGUI_IMPL_OPENGL_ES3
 #endif
 
