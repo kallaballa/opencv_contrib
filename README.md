@@ -165,7 +165,83 @@ make -j8
 cpack DEB
 ```
 
-### Download the example videos
+### Cleaning up and leaving the chroot
+```bash
+umount proc
+umount sys
+umount tmp
+umount dev/pts
+exit #After this command you are back outside the chroot with access to your system.
+```
+
+### Unbind dev
+```bash
+sudo umount plan-v4d-noble/dev
+```
+
+## Instructions for Mac OS X Using Homebrew
+
+### Install Required Dependencies
+First, ensure you have Homebrew installed on your system. Then, install the required dependencies:
+
+```bash
+# Update Homebrew
+brew update
+
+# Install packages
+brew install cmake git qt@5 glfw glew zlib doxygen wget yt-dlp
+brew install clinfo # For OpenCL information
+brew install opencl-headers # OpenCL headers
+```
+
+### Clone Repositories
+```bash
+git clone --branch GCV https://github.com/kallaballa/opencv.git
+git clone https://github.com/kallaballa/Plan-V4D.git
+mkdir opencv/build
+cd opencv/build
+```
+
+### Minimal Plan-V4D Build (without examples, demos, and packages)
+```bash
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DOPENCV_V4D_ENABLE_ES3=OFF \
+      -DWITH_QT=ON \
+      -DWITH_OPENGL=ON \
+      -DWITH_FFMPEG=ON \
+      -DBUILD_EXAMPLES=OFF \
+      -DBUILD_PACKAGE=OFF \
+      -DBUILD_TESTS=OFF \
+      -DBUILD_PERF_TESTS=OFF \
+      -DBUILD_DOCS=OFF \
+      -DBUILD_SHARED_LIBS=ON \
+      -DWITH_OPENCL=ON \
+      -DOPENCV_EXTRA_MODULES_PATH="../../Plan-V4D/modules" ..
+```
+
+### Full Plan-V4D Build (with examples, demos, and packages)
+```bash
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DOPENCV_V4D_ENABLE_ES3=OFF \
+      -DWITH_QT=ON \
+      -DWITH_OPENGL=ON \
+      -DWITH_FFMPEG=ON \
+      -DBUILD_EXAMPLES=ON \
+      -DBUILD_PACKAGE=OFF \
+      -DBUILD_TESTS=OFF \
+      -DBUILD_PERF_TESTS=OFF \
+      -DBUILD_DOCS=OFF \
+      -DBUILD_SHARED_LIBS=ON \
+      -DWITH_OPENCL=ON \
+      -DOPENCV_EXTRA_MODULES_PATH="../../Plan-V4D/modules" ..
+```
+
+### Build the Project
+```bash
+make -j$(sysctl -n hw.ncpu)
+```
+
+## Download the example videos
 ```bash
 # big buck bunny video
 wget -O bunny.webm https://upload.wikimedia.org/wikipedia/commons/transcoded/f/f3/Big_Buck_Bunny_first_23_seconds_1080p.ogv/Big_Buck_Bunny_first_23_seconds_1080p.ogv.1080p.vp9.webm
@@ -175,7 +251,7 @@ yt-dlp -o dance.webm "https://www.youtube.com/watch?v=yg6LZtNeO_8"
 yt-dlp -o kristen.webm "https://www.youtube.com/watch?v=hUAT8Jm_dvw&t=11s"
 ```
 
-### Run the examples and demos
+## Run the examples and demos
 ```bash
 # Examples
 bin/example_v4d_display_image
@@ -200,21 +276,7 @@ bin/example_v4d_optflow-demo dance.webm
 bin/example_v4d_beauty-demo kristen.webm
 ```
 
-### Cleaning up and leaving the chroot
-```bash
-umount proc
-umount sys
-umount tmp
-umount dev/pts
-exit #After this command you are back outside the chroot with access to your system.
-```
-
-### Unbind dev
-```bash
-sudo umount plan-v4d-noble/dev
-```
-
-### Attribution
+## Attribution
 * The author of the bunny video is the Blender Foundation ([Original video](https://upload.wikimedia.org/wikipedia/commons/transcoded/f/f3/Big_Buck_Bunny_first_23_seconds_1080p.ogv/Big_Buck_Bunny_first_23_seconds_1080p.ogv.1080p.vp9.webm)).
 * The author of the dance video is GNI Dance Company ([Original video](https://www.youtube.com/watch?v=yg6LZtNeO_8)).
 * The author of the video used in the beauty-demo video is Kristen Leanne ([Original video](https://www.youtube.com/watch?v=hUAT8Jm_dvw)).
