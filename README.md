@@ -61,7 +61,7 @@ The following examples have been selected to deepen your understanding of Plan-V
 Please refer to the examples and demos as well as [this OpenCV issue](https://github.com/opencv/opencv/issues/22923) to find out exactly what it can do for you.
 
 ## GPU Support
-* Intel Gen 8+ (Tested: Gen 11 + Gen 13) tested
+* Intel Gen 8+ (Tested: Gen 11 + Gen 13)
 * NVIDIA Ada Lovelace (Tested: GTX 4070 Ti) with proprietary drivers (535.104.05) and CUDA toolkit (12.2) tested.
 * Intel Arc770 (Mesa 24.3.1) tested
 * AMD: never tested
