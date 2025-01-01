@@ -45,3 +45,40 @@ The following examples have been selected to deepen your understanding of Plan-V
 
 ### A realtime beauty filter (using sub-plans)
 [source](modules/v4d/samples/beauty-demo.cpp)
+
+## Why Plan-V4D?
+
+* Computation Graph Engine: Fast parallel code.
+* OpenGL: Easy access to OpenGL.
+* GUI: Simple yet powerful user interfaces through ImGui.
+* Vector graphics: Elegant and fast vector graphics through NanoVG.
+* 3D graphics: Powerful 3D graphics through bgfx.
+* Font rendering: Loading of fonts and sophisticated rendering options.
+* Video pipeline: Through a simple source/sink system videos can be efficently read, displayed, edited and saved.
+* Hardware acceleration: Transparent hardware acceleration usage where possible. (e.g. OpenGL, OpenCL, CL-GL interop, VAAPI and CL-VAAPI interop, nvenc). Actually it is possible to write programs that 
+* No more highgui with it's heavy dependencies, licenses and limitations.
+
+Please refer to the examples and demos as well as [this OpenCV issue](https://github.com/opencv/opencv/issues/22923) to find out exactly what it can do for you.
+
+## GPU Support
+* Intel Gen 8+ (Tested: Gen 11 + Gen 13) tested
+* NVIDIA Ada Lovelace (Tested: GTX 4070 Ti) with proprietary drivers (535.104.05) and CUDA toolkit (12.2) tested.
+* Intel Arc770 (Mesa 24.3.1) tested
+* AMD: never tested
+
+## Requirements
+* C++20 (at the moment)
+* OpenGL 3.2 Core (optionally Compat)/OpenGL ES 3.0/WebGL2
+
+## Optional requirements
+* Support for OpenCL 1.2
+* Support for cl_khr_gl_sharing and cl_intel_va_api_media_sharing OpenCL extensions.
+
+## Dependencies
+* My OpenCV 4.x fork (It works with mainline OpenCV 4.x as well, but using my fork is highly recommended because it features several improvements and fixes)
+* GLEW
+* GLFW3
+* NanoVG (included as a sub-repo)
+* ImGui (included as a sub-repo)
+* bgfx (included as a sub-repo)
+* Glad (included)
