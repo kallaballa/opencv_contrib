@@ -125,7 +125,7 @@ echo "deb http://archive.ubuntu.com/ubuntu noble main universe" > /etc/apt/sourc
 ```bash
 apt update
 apt install vainfo clinfo libqt5opengl5-dev freeglut3-dev ocl-icd-opencl-dev libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev libpostproc-dev libswresample-dev libswscale-dev libglfw3-dev libstb-dev libglew-dev cmake make git-core build-essential opencl-clhpp-headers pkg-config zlib1g-dev doxygen libxinerama-dev libxcursor-dev libxi-dev libva-dev yt-dlp wget intel-opencl-icd ca-certificates
-```bash
+```
 
 ### Optional: install packaging tools
 ```bash
