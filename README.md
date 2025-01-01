@@ -1,60 +1,284 @@
-# V4D OpenCV Module: A Library for Fast Graphical Applications with OpenCV
+## Introduction to "Plan" and "V4D"
 
-The V4D OpenCV module is a library that integrates **OpenCV** functionalities with **V4D**, a framework for creating fast graphical applications with *multiple-context rendering* and *parallel execution*. It enables users to perform and visualize various tasks on video inputs and outputs using OpenCV functions and classes, such as image processing, computer vision, and machine learning.
+### Overview of "Plan"
+**Plan** is a computational graph engine built with C++20 templates, enabling developers to construct directed acyclic graphs (DAGs) from fragments of algorithms. By leveraging these graphs, Plan facilitates the optimization of parallel and concurrent algorithms, ensuring efficient resource utilization. The framework divides the lifetime of an algorithm into two distinct phases: **inference** and **execution**. 
 
-## Overview
+- **Inference Phase:** During this phase, the computational graph is constructed by running the Plan implementation. This process organizes the algorithm's fragments and binds them to data, which may be classified as:
+  - **Safe Data:** Member variables of the Plan.
+  - **Shared Data:** External variables (e.g., global or static data).
+  
+  Functions and data are explicitly flagged as shared when necessary, adhering to Plan’s transparent approach to state management. The framework discourages hidden states, as they impede program integrity and graph optimization. 
 
-The V4D OpenCV module allows users to perform image processing, computer vision, and machine learning tasks on video inputs and outputs using OpenCV functions and classes, and to visualize the results using V4D contexts such as **OpenGL**, **NanoVG**, and **ImGui**.
+- **Execution Phase:** This phase executes the constructed graph using the defined nodes and edges. Nodes typically represent algorithmic fragments such as functions or lambdas, while edges define data flow, supporting various access patterns (e.g., read, write, copy).
 
-The V4D OpenCV module uses a graph-based pipelining approach to *parallelize the execution* of different tasks on multiple instances of V4D as workers. The graph is inferred from the context calls in the `setup`, `infer`, and `teardown` functions of the `Plan` class. Each context call emits a graph node that contains the functor, the l-value references to the parameters, and the underlying context it needs active when being called. After the graph has been inferred from the plan, V4D executes the graph in parallel using multiple instances of Plan as workers. Each worker has its own instance of Plan and therefore its own graph. This way, data races are only possible if a global variable or a static member of the plan is accessed. For such shared variables, there are synchronization facilities that V4D provides, such as `Global::registerShared`, `Global::safe_copy`, and `Global::Scope` structures.
+Plan also allows hierarchical composition, where one Plan may be composed of other sub-Plans. Special rules govern data sharing in such compositions to maintain performance and correctness. Currently, optimizations are limited to “best-effort” pipelining, with plans for more sophisticated enhancements.
 
-The V4D OpenCV module also supports *conditional branching* in the graph based on some predicates. The `branch()` and `endbranch()` methods of the V4D object can be used to create conditional branches in the graph based on some predicates. The `branch()` method takes a predicate as the first argument, and optionally some l-value references as the following arguments. The predicate defines the condition for branching, and the references define the dependencies of the condition. Note that the arguments of an `endbranch()` call must match exactly the corresponding `branch()` call or they won't be associated. The V4D API also provides some predefined branch predicates, such as `always_`, `isTrue_`, `isFalse_`, `and_`, and `or_`. These predicates can be used to control the execution flow of the graph nodes based on some boolean conditions. The `always_` predicate always returns true, the `isTrue_` predicate returns the value of a boolean reference, the `isFalse_` predicate returns the negation of a boolean reference, the `and_` predicate returns the logical and of two boolean references, and the `or_` predicate returns the logical or of two boolean references.
+### Overview of "V4D"
+**V4D** is a versatile 2D/3D graphics runtime designed to integrate seamlessly with Plan. Built atop OpenGL (3.0 or ES 3.2), V4D extends its functionality through bindings to prominent libraries:
+- **NanoVG:** For 2D vector and raster graphics, including font rendering.
+- **bgfx:** A 3D engine modified to defer its concurrency model to Plan for optimal parallel execution.
+- **IMGui:** A lightweight GUI overlay.
 
-The V4D OpenCV module also provides some helper functions and classes that simplify the usage of the OpenCV functions and classes, such as `makeCaptureSource`, `makeWriterSink`, `colorConvert`, and `Global::Scope`. These helper functions and classes can be used to create and manipulate sources, sinks, colors, and locks using OpenCV objects.
+V4D encourages direct OpenGL usage and external API integrations via **context sharing**, which is implemented using shared textures. Each external API operates within its isolated OpenGL state machine, maintaining thread safety and modularity.
 
-## Advantages
+The runtime’s capabilities are further augmented by its integration with OpenCV, providing:
+- **Hardware Acceleration:** Utilizing OpenGL for graphics, VAAPI and NVENC for video, and OpenCL-OpenGL interop for compute tasks.
+- **Data Sharing on GPU:** Depending on hardware and software features, V4D can directly share or copy data within GPU memory for efficient processing.
 
-- Light-weight and unencumbered by *QT* or *GTK* licenses: The V4D OpenCV module does not depend on any heavy or restrictive GUI libraries, such as QT or GTK. It only uses *GLEW* and *GLFW3* as dependencies for OpenGL, which are light-weight and have permissive licenses. This makes the V4D OpenCV module more portable and flexible for different platforms and applications.
-- Vector graphics using *NanoVG*: The V4D OpenCV module allows users to draw vector graphics using the NanoVG library, which is a small and fast library for high-quality antialiased vector graphics. NanoVG provides methods for creating and manipulating paths, shapes, colors, gradients, fonts, and text.
-- GUI based on *ImGui*: The V4D OpenCV module allows users to create a user interface using the ImGui library, which is a fast and lightweight library for immediate mode graphical user interfaces. ImGui provides methods for creating and manipulating widgets, such as buttons, sliders, checkboxes, menus, and dialogs.
-- Hardware acceleration: The V4D OpenCV module supports hardware acceleration where possible, such as CL-GL interop, VAAPI, and CL-VAAPI interop. This means that the V4D OpenCV module can use the GPU to perform some operations on the video frames, such as processing, rendering, capturing, writing, and displaying. This can improve the performance and efficiency of the graphical applications. The V4D OpenCV module can also run almost entirely on the GPU, given that the driver features are available. The V4D OpenCV module detects, enables, and uses the hardware acceleration transparently, without requiring any user intervention or configuration.
-- No more *highgui*: The V4D OpenCV module replaces the highgui module of OpenCV, which is a module for displaying images and basic user interface. The highgui module has some limitations, such as heavy dependencies, licenses, and platform-specific issues. The V4D OpenCV module provides a more powerful and flexible alternative to the highgui module, by using V4D and its multiple contexts.
+### Integration and Platform Support
+V4D and Plan share a tightly bonded design, simplifying combined use cases. However, plans are underway to decouple them, enabling the adoption of alternative runtimes. V4D is actively developed for Linux (X11 and Wayland via EGL or GLX), with auto-detection of supported backends. While macOS support lags slightly, Windows compatibility remains untested but is considered during development.
+
+### Key Principles and Features
+1. **Fine-Grained Edge Calls:** Plan introduces specialized edge calls (e.g., `R`, `RW`, `V`) to define data access patterns, supporting smart pointers and OpenCV `UMat` objects. This granularity allows better graph optimization.
+2. **State and Data Transparency:** Functions and data in a Plan must avoid introducing hidden states unless explicitly marked as shared. This principle ensures the integrity of the graph and its optimizations.
+3. **Parallelism and Pipelining:** Multiple OpenGL contexts can be created and utilized in parallel, making V4D a robust solution for high-performance graphics applications.
+4. **Algorithm Modularity:** By structuring algorithms into smaller, reusable fragments or sub-Plans, Plan fosters modular development and scalability.
+
+## Selected Commented Examples (read sequentially)
+The following examples have been selected to deepen your understanding of Plan-V4D. There are many more.
+
+### Blue Sreen using OpenGL
+[source](modules/v4d/samples/render_opengl.cpp)
+
+### Displaying an Image using NanoVG
+[source](modules/v4d/samples/display_image_nvg.cpp)
+
+### A realtime beauty filter (using sub-plans)
+[source](modules/v4d/samples/beauty-demo.cpp)
+
+## Why Plan-V4D?
+
+* Computation Graph Engine: Fast parallel code.
+* OpenGL: Easy access to OpenGL.
+* GUI: Simple yet powerful user interfaces through ImGui.
+* Vector graphics: Elegant and fast vector graphics through NanoVG.
+* 3D graphics: Powerful 3D graphics through bgfx.
+* Font rendering: Loading of fonts and sophisticated rendering options.
+* Video pipeline: Through a simple source/sink system videos can be efficently read, displayed, edited and saved.
+* Hardware acceleration: Transparent hardware acceleration usage where possible. (e.g. OpenGL, OpenCL, CL-GL interop, VAAPI and CL-VAAPI interop, nvenc). Actually it is possible to write programs that 
+* No more highgui with it's heavy dependencies, licenses and limitations.
+
+Please refer to the examples and demos as well as [this OpenCV issue](https://github.com/opencv/opencv/issues/22923) to find out exactly what it can do for you.
+
+## Platforms
+
+* Linux
+* Mac OS
+* Planned but entirely untested: Windows
+
+## GPU Support
+* Intel iGPU Gen 8+ (Tested: Gen 11 & Gen 13)
+* NVIDIA Ada Lovelace (Tested: GTX 4070 Ti) with proprietary drivers (535.104.05) and CUDA toolkit (12.2) tested.
+* Intel Arc770 (Mesa 24.3.1) tested
+* AMD: never tested
 
 ## Requirements
+* C++20 (at the moment)
+* OpenGL 3.2 Core (optionally Compat)/OpenGL ES 3.0/WebGL2
 
-- **C++20**: The V4D OpenCV module requires C++20 as the minimum standard for compiling and running the graphical applications.
-- **OpenGL 3.2 Core (optionally Compat)/OpenGL ES 3.0**: The V4D OpenCV module requires OpenGL 3.2 Core or OpenGL ES 3.0 as the minimum version for rendering the video frames. Optionally, the V4D OpenCV module can also use OpenGL 3.2 Compat, which provides some backward compatibility with older OpenGL versions.
-- **OpenCL 1.2 (optional)**: The V4D OpenCV module can optionally use OpenCL 1.2 as the minimum version for performing OpenCV algorithms on the video frames using the GPU.
-- **cl_khr_gl_sharing and cl_intel_va_api_media_sharing OpenCL extensions (optional)**: The V4D OpenCV module can optionally use some OpenCL extensions that enable interoperability with OpenGL and VAAPI. The cl_khr_gl_sharing extension allows sharing of OpenGL objects, such as textures and buffers, with OpenCL. The cl_intel_va_api_media_sharing extension allows sharing of VAAPI objects, such as surfaces and contexts, with OpenCL. These extensions are not required, but they can improve the performance and efficiency of the graphical applications.
+## Optional requirements
+* Support for OpenCL 1.2
+* Support for cl_khr_gl_sharing and cl_intel_va_api_media_sharing OpenCL extensions.
 
 ## Dependencies
+* My OpenCV 4.x fork (It works with mainline OpenCV 4.x as well, but using my fork is highly recommended because it features several improvements and fixes)
+* GLEW
+* GLFW3
+* NanoVG (included as a sub-repo)
+* ImGui (included as a sub-repo)
+* bgfx (included as a sub-repo)
+* Glad (included)
 
-The V4D OpenCV module depends on some external libraries that provide some functionalities for the graphical applications, such as *OpenGL*, *GLFW3*, *NanoVG*, and *ImGui*. These dependencies are listed below:
+## Instructions for Linux (Ubuntu 24.04.1 LTS - Noble Numbat)
 
-- **OpenCV 4.x**: The V4D OpenCV module depends on OpenCV 4.x as the main library for image processing, computer vision, and machine learning. The V4D OpenCV module works with the mainline OpenCV 4.x, but it also has a fork that provides some additional features, such as VAAPI support and CL-VAAPI interop.
-- **GLEW**: The V4D OpenCV module depends on GLEW as the library for loading and managing OpenGL extensions. GLEW provides a cross-platform way to access the OpenGL functions and constants that are defined by the extensions.
-- **GLFW3**: The V4D OpenCV module depends on GLFW3 as the library for creating and managing windows and contexts for OpenGL. GLFW3 provides a simple and portable way to create and manage windows and contexts for OpenGL.
-- **NanoVG**: The V4D OpenCV module depends on NanoVG as the library for drawing vector graphics using OpenGL. NanoVG is a small and fast library that provides high-quality antialiased vector graphics. NanoVG supports various shapes, colors, gradients, fonts, and text, and integrates well with the framebuffer context of the V4D OpenCV module.
-- **ImGui**: The V4D OpenCV module depends on ImGui as the library for creating user interfaces using OpenGL. ImGui is a fast and lightweight library that provides immediate mode graphical user interfaces. ImGui supports various widgets, such as buttons, sliders, checkboxes, menus, and dialogs, and integrates well with the framebuffer context of the V4D OpenCV module.
+### Optional: Create a chroot if you are using another distribution or Ubuntu version 
 
-## The V4D-Context Abstraction and Multi-Context Rendering
+#### Build minbase chroot (basically installing a minimal Ubuntu into the directory plan-v4d-noble)
+```bash
+sudo debootstrap --variant=minbase --arch=amd64 noble plan-v4d-noble http://archive.ubuntu.com/ubuntu/
+```
 
-Most sub-systems of V4D abstract their resource handles as "contexts". Examples are *OpenGL*, *NanoGUI*, *ImGUI*, *OpenCL*, and *VAAPI*. Though of course NanoGUI- and ImGUI-contexts are based on OpenGL-context, which means V4D uses multiple OpenGL-contexts for rendering. Actually, through a dedicated context call (`gl()`) more OpenGL-instances may be instanced. Each of these OpenGL-contexts has a framebuffer bound to it with the same shared texture attached to it. The orchestration of (easily dozens or even hundreds of) OpenGL-contexts is called *multi-context rendering*. There are two reasons why V4D does multi-context rendering.
+#### Bind /dev - WARNING: Don't delete the chroot without umounting plan-v4d-noble/dev or your system will crash
+```bash
+sudo mount --bind /dev/ plan-v4d-noble/dev
+```
 
-1. Every OpenGL-context has its own separate state, which is necessary because usually OpenGL frameworks assume exclusive access to the state-machine. By using multiple OpenGL contexts, frameworks can be used side-by-side.
-2. Parallel rendering to multiple contexts can be highly beneficial to performance, depending on the use-case (see *many-cubes_demo*).
+#### Enter the chroot - from here on you are inside the ubuntu chroot and you cannot access the files of your system anymore until you leave it (e.g: by running "exit")
+```bash
+sudo chroot plan-v4d-noble/
+```
 
-*Note*: There is another shared texture in V4D's abstraction of a framebuffer, but that is used to transfer frames from the workers to the main V4D instance (on the main thread).
+#### Setup essential virtual filesystems - NOTE: umount those after you are done with the chroot
+```bash
+mount -t proc none /proc
+mount -t sysfs none /sys
+mount -t tmpfs none /tmp
+mount -t devpts none /dev/pts
+```
 
-## Types of V4D-Contexts
+### Configure apt
+```bash
+echo "deb http://archive.ubuntu.com/ubuntu noble main universe" > /etc/apt/sources.list
+```
 
-The V4D OpenCV module supports various types of V4D-contexts that allow users to perform different operations on the video frames using different libraries and frameworks. The types of V4D-contexts are listed below:
+### Install required packages
+```bash
+apt update
+apt install vainfo clinfo libqt5opengl5-dev freeglut3-dev ocl-icd-opencl-dev libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev libpostproc-dev libswresample-dev libswscale-dev libglfw3-dev libstb-dev libglew-dev cmake make git-core build-essential opencl-clhpp-headers pkg-config zlib1g-dev doxygen libxinerama-dev libxcursor-dev libxi-dev libva-dev yt-dlp wget intel-opencl-icd ca-certificates
+```
 
-- The **FrameBufferContext** is the main context that holds the framebuffer that is displayed in the window or the offscreen buffer. It also provides methods for copying to and from the framebuffer, such as `copyTo()`, `copyFrom()`. It also provides access to the OpenGL texture and the OpenCL context that are associated with the framebuffer. The `fb()` method of the V4D object can be used to emit a graph node that performs some operation on the framebuffer, such as drawing, blending, or filtering. The `fb()` method takes a stateless lambda as the first argument, and optionally some l-value references as the following arguments. The lambda defines the operation to be performed on the framebuffer, and the references define the dependencies or outputs of the operation.
-- The **SourceContext** is the context that handles the video input from a source, such as a file, a camera, or a network stream. The `capture()` method of the V4D object can be used to emit a graph node that performs some operation on the source buffer, such as processing, converting, or copying. The `capture()` method takes a stateless lambda as the first argument, and optionally some l-value references as the following arguments. The lambda defines the operation to be performed on the source buffer, and the references define the dependencies or outputs of the operation.
-- The **SinkContext** is the context that handles the video output to a sink, such as a file, a screen, or a network stream. The `write()` method of the V4D object can be used to emit a graph node that performs some operation on the sink buffer, such as processing, converting, or copying. The `write()` method takes a stateless lambda as the first argument, and optionally some l-value references as the following arguments. The lambda defines the operation to be performed on the sink buffer, and the references define the dependencies or outputs of the operation.
-- The **NanoVGContext** is the context that allows users to draw vector graphics using the NanoVG library. It provides methods for creating and manipulating paths, shapes, colors, gradients, fonts, and text. The `nvg()` method of the V4D object can be used to emit a graph node that performs some drawing operation using the NanoVG context, such as creating a path, filling a shape, or rendering text. The `nvg()` method takes a stateless lambda as the first argument, and optionally some l-value references as the following arguments. The lambda defines the drawing operation to be performed using the NanoVG context, and the references define the dependencies or outputs of the operation.
-- The **ImGuiContext** is the context that allows users to create a user interface using the *ImGui* library. It provides methods for creating and manipulating widgets, such as buttons, sliders, checkboxes, menus, and dialogs. It also provides access to the *ImGui* context that is associated with the framebuffer. The `imgui()` method of the *V4D* object can be used to emit a graph node that performs some user interface operation using the *ImGui* context, such as creating a widget, handling an input, or displaying a message. The `imgui()` method takes a stateless lambda as the first argument, and optionally some l-value references as the following arguments. The lambda defines the user interface operation to be performed using the *ImGui* context, and the references define the dependencies or outputs of the operation. Note that `imgui()` can only be called from `Plan::gui`, which is executed on the main thread.
-- The **OnceContext** is the context that allows users to perform some operation only once, such as initializing some data structures, loading some resources, or printing some information. The `once()` method of the *V4D* object can be used to emit a graph node that performs some operation only once, such as initializing some data structures, loading some resources, or printing some information. The `once()` method takes a stateless lambda as the first argument, and optionally some l-value references as the following arguments. The lambda defines the operation to be performed only once, and the references define the dependencies or outputs of the operation.
-- The **PlainContext** is the context that allows users to perform some operation without any specific context, such as setting some parameters, creating some data structures, or calling some functions. The `plain()` method of the *V4D* object can be used to emit a graph node that performs some operation without any specific context, such as setting some parameters, creating some data structures, or calling some functions. The `plain()` method takes a stateless lambda as the first argument, and optionally some l-value references as the following arguments. The lambda defines the operation to be performed without any specific context, and the references define the dependencies or outputs of the operation.
-- The **GLContext** is the context that allows users to perform some operation using the *OpenGL* context, such as creating and manipulating textures, buffers, shaders, and programs. The `gl()` method of the *V4D* object can be used to emit a graph node that performs some operation using the *OpenGL* context, such as creating and manipulating textures, buffers, shaders, and programs. The `gl()` method takes a stateless lambda as the first argument, and optionally some l-value references as the following arguments. The lambda defines the operation to be performed using the *OpenGL* context, and the references define the dependencies or outputs of the operation.
+### Optional: install packaging tools
+```bash
+apt install ubuntu-dev-tools dh-cmake gdebi
+```
+
+### EITHER: Minimal Plan-V4D build WITHOUT examples, demos and packages
+```bash
+git clone --branch GCV https://github.com/kallaballa/opencv.git
+git clone https://github.com/kallaballa/Plan-V4D.git
+mkdir opencv/build
+cd opencv/build
+
+# Configuring a Wayland (-DWITH_WAYLAND=ON) build without examples (-DBUILD_EXAMPLES=OFF) and packages (-DBUILD_PACKAGE=OFF)
+```bash
+cmake -DWITH_WAYLAND=ON -DOPENCV_V4D_ENABLE_ES3=OFF -DCMAKE_CXX_FLAGS="-DCL_TARGET_OPENCL_VERSION=120" -DCMAKE_MODULE_LINKER_FLAGS="/usr/local/lib64/" -DINSTALL_BIN_EXAMPLES=OFF -DOPENCV_CUSTOM_PACKAGE_INFO=ON -DCPACK_PACKAGE_VERSION_MAJOR=4 -DCPACK_PACKAGE_VERSION_MINOR=10 -DCPACK_PACKAGE_VERSION_PATCH=0 -DCPACK_PACKAGE_VERSION=4:10.0-yourname -DCMAKE_BUILD_TYPE=Release -DCPACK_PACKAGE_CONTACT="you@example.com" -DOPENCV_GENERATE_PKGCONFIG=ON -DCPACK_PACKAGE_VENDOR=yourname -DCPACK_DEBIAN_PACKAGE_DEPENDS="libqt5opengl5,freeglut3,ocl-icd-libopencl1,libavcodec58,libavdevice58,libavfilter7,libavformat58,libavutil56,libpostproc55,libswresample3,libswscale5,libglfw3,libstb0,libglew2.2,zlib1g,libxinerama1,libxcursor1,libxi6,libva2,intel-opencl-icd,ca-certificates" -DINSTALL_CREATE_DISTRIB=ON -DCPACK_BINARY_DEB=ON -DCV_TRACE=OFF -DBUILD_SHARED_LIBS=ON -DWITH_OPENGL=ON -DOPENCV_ENABLE_EGL=ON -DOPENCV_ENABLE_GLX=ON -DOPENCV_FFMPEG_ENABLE_LIBAVDEVICE=ON -DWITH_QT=ON -DWITH_FFMPEG=ON -DOPENCV_FFMPEG_SKIP_BUILD_CHECK=ON -DWITH_VA=ON -DWITH_VA_INTEL=ON -DWITH_1394=OFF -DWITH_ADE=OFF -DWITH_VTK=OFF -DWITH_EIGEN=OFF -DWITH_GTK=OFF -DWITH_GTK_2_X=OFF -DWITH_IPP=OFF -DWITH_JASPER=OFF -DWITH_WEBP=OFF -DWITH_OPENEXR=OFF -DWITH_OPENVX=OFF -DWITH_OPENNI=OFF -DWITH_OPENNI2=OFF-DWITH_TBB=OFF -DWITH_TIFF=OFF -DWITH_OPENCL=ON -DWITH_OPENCL_SVM=OFF -DWITH_OPENCLAMDFFT=OFF -DWITH_OPENCLAMDBLAS=OFF -DWITH_GPHOTO2=OFF -DWITH_LAPACK=OFF -DWITH_ITT=OFF -DWITH_QUIRC=ON -DBUILD_ZLIB=OFF -DBUILD_opencv_apps=OFF -DBUILD_opencv_calib3d=ON -DBUIlD_opencv_ccalib=OFF -DBUILD_opencv_dnn=ON -DBUILD_opencv_features2d=ON -DBUILD_opencv_flann=ON -DBUILD_opencv_gapi=OFF -DBUILD_opencv_ml=OFF -DBUILD_opencv_photo=ON -DBUILD_opencv_imgcodecs=ON -DBUILD_opencv_shape=OFF -DBUILD_opencv_videoio=ON -DBUILD_opencv_videostab=OFF -DBUILD_opencv_highgui=ON -DBUILD_opencv_superres=OFF -DBUILD_opencv_stitching=ON -DBUILD_opencv_java=OFF -DBUILD_opencv_js=OFF -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF -DBUILD_opencv_alphamat=OFF -DBUILD_opencv_aruco=OFF -DBUILD_opencv_barcode=OFF -DBUILD_opencv_bgsegm=OFF -DBUILD_opencv_bioinspired=OFF -DBUILD_opencv_ccalib=ON -DBUILD_opencv_cnn_3dobj=OFF -DBUILD_opencv_cudaarithm=OFF -DBUILD_opencv_cudabgsegm=OFF -DBUILD_opencv_cudacodec=OFF -DBUILD_opencv_cudafeatures2d=OFF -DBUILD_opencv_cudafilters=OFF -DBUILD_opencv_cudaimgproc=OFF -DBUILD_opencv_cudalegacy=OFF -DBUILD_opencv_cudaobjdetect=OFF -DBUILD_opencv_cudaoptflow=OFF -DBUILD_opencv_cudastereo=OFF -DBUILD_opencv_cudawarping=OFF -DBUILD_opencv_cudev=OFF -DBUILD_opencv_cvv=OFF -DBUILD_opencv_datasets=OFF -DBUILD_opencv_dnn_objdetect=OFF -DBUILD_opencv_dnns_easily_fooled=OFF -DBUILD_opencv_dnn_superres=OFF -DBUILD_opencv_dpm=OFF -DBUILD_opencv_face=ON -DBUILD_opencv_freetype=OFF -DBUILD_opencv_fuzzy=OFF -DBUILD_opencv_hdf=OFF -DBUILD_opencv_hfs=OFF -DBUILD_opencv_img_hash=OFF -DBUILD_opencv_intensity_transform=OFF -DBUILD_opencv_julia=OFF -DBUILD_opencv_line_descriptor=OFF -DBUILD_opencv_matlab=OFF -DBUILD_opencv_mcc=OFF -DBUILD_opencv_optflow=ON -DBUILD_opencv_ovis=OFF -DBUILD_opencv_phase_unwrapping=OFF -DBUILD_opencv_plot=ON -DBUILD_opencv_quality=OFF -DBUILD_opencv_rapid=OFF -DBUILD_opencv_README.md=OFF -DBUILD_opencv_reg=OFF -DBUILD_opencv_rgbd=OFF -DBUILD_opencv_saliency=OFF -DBUILD_opencv_sfm=OFF -DBUILD_opencv_shape=OFF -DBUILD_opencv_stereo=OFF -DBUILD_opencv_structured_light=OFF -DBUILD_opencv_superres=OFF -DBUILD_opencv_surface_matching=OFF -DBUILD_opencv_text=OFF -DBUILD_opencv_tracking=ON -DBUILD_opencv_videostab=OFF -DBUILD_opencv_viz=OFF -DBUILD_opencv_wechat_qrcode=OFF -DBUILD_opencv_xfeatures2d=OFF -DBUILD_opencv_ximgproc=ON -DBUILD_opencv_xobjdetect=OFF -DBUILD_opencv_xphoto=OFF -DBUILD_opencv_world=OFF -DBUILD_EXAMPLES=OFF -DBUILD_PACKAGE=OFF -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF -DWITH_PTHREADS_PF=ON -DCV_ENABLE_INTRINSICS=ON -DBUILD_opencv_video=ON -DBUILD_opencv_v4d=ON -DGBFX_CONFIG_MULTITHREADED=OFF -DBGFX_CONFIG_PASSIVE=ON -DOPENCV_EXTRA_MODULES_PATH="../../Plan-V4D/modules" ..
+```
+### OR: Full Plan-V4D build WITH examples, demos and packages
+```bash
+git clone --branch GCV https://github.com/kallaballa/opencv.git
+git clone https://github.com/kallaballa/Plan-V4D.git
+mkdir opencv/build
+cd opencv/build
+
+# Configuring a Wayland (-DWITH_WAYLAND=ON) build with examples (-DBUILD_EXAMPLES=ON) and packages (-DBUILD_PACKAGE=ON) - NOTE: you might want to update the package info (-DCPACK_PACKAGE_VERSION, -DCPACK_PACKAGE_CONTACT, -DCPACK_PACKAGE_VENDOR)
+```bash
+cmake -DWITH_WAYLAND=ON -DOPENCV_V4D_ENABLE_ES3=OFF -DCMAKE_CXX_FLAGS="-DCL_TARGET_OPENCL_VERSION=120" -DCMAKE_MODULE_LINKER_FLAGS="/usr/local/lib64/" -DINSTALL_BIN_EXAMPLES=OFF -DOPENCV_CUSTOM_PACKAGE_INFO=ON -DCPACK_PACKAGE_VERSION_MAJOR=4 -DCPACK_PACKAGE_VERSION_MINOR=10 -DCPACK_PACKAGE_VERSION_PATCH=0 -DCPACK_PACKAGE_VERSION=4:10.0-yourname -DCMAKE_BUILD_TYPE=Release -DCPACK_PACKAGE_CONTACT="you@example.com" -DOPENCV_GENERATE_PKGCONFIG=ON -DCPACK_PACKAGE_VENDOR=yourname -DCPACK_DEBIAN_PACKAGE_DEPENDS="libqt5opengl5,freeglut3,ocl-icd-libopencl1,libavcodec58,libavdevice58,libavfilter7,libavformat58,libavutil56,libpostproc55,libswresample3,libswscale5,libglfw3,libstb0,libglew2.2,zlib1g,libxinerama1,libxcursor1,libxi6,libva2,intel-opencl-icd,ca-certificates" -DINSTALL_CREATE_DISTRIB=ON -DCPACK_BINARY_DEB=ON -DCV_TRACE=OFF -DBUILD_SHARED_LIBS=ON -DWITH_OPENGL=ON -DOPENCV_ENABLE_EGL=ON -DOPENCV_ENABLE_GLX=ON -DOPENCV_FFMPEG_ENABLE_LIBAVDEVICE=ON -DWITH_QT=ON -DWITH_FFMPEG=ON -DOPENCV_FFMPEG_SKIP_BUILD_CHECK=ON -DWITH_VA=ON -DWITH_VA_INTEL=ON -DWITH_1394=OFF -DWITH_ADE=OFF -DWITH_VTK=OFF -DWITH_EIGEN=OFF -DWITH_GTK=OFF -DWITH_GTK_2_X=OFF -DWITH_IPP=OFF -DWITH_JASPER=OFF -DWITH_WEBP=OFF -DWITH_OPENEXR=OFF -DWITH_OPENVX=OFF -DWITH_OPENNI=OFF -DWITH_OPENNI2=OFF-DWITH_TBB=OFF -DWITH_TIFF=OFF -DWITH_OPENCL=ON -DWITH_OPENCL_SVM=OFF -DWITH_OPENCLAMDFFT=OFF -DWITH_OPENCLAMDBLAS=OFF -DWITH_GPHOTO2=OFF -DWITH_LAPACK=OFF -DWITH_ITT=OFF -DWITH_QUIRC=ON -DBUILD_ZLIB=OFF -DBUILD_opencv_apps=OFF -DBUILD_opencv_calib3d=ON -DBUIlD_opencv_ccalib=OFF -DBUILD_opencv_dnn=ON -DBUILD_opencv_features2d=ON -DBUILD_opencv_flann=ON -DBUILD_opencv_gapi=OFF -DBUILD_opencv_ml=OFF -DBUILD_opencv_photo=ON -DBUILD_opencv_imgcodecs=ON -DBUILD_opencv_shape=OFF -DBUILD_opencv_videoio=ON -DBUILD_opencv_videostab=OFF -DBUILD_opencv_highgui=ON -DBUILD_opencv_superres=OFF -DBUILD_opencv_stitching=ON -DBUILD_opencv_java=OFF -DBUILD_opencv_js=OFF -DBUILD_opencv_python2=OFF -DBUILD_opencv_python3=OFF -DBUILD_opencv_alphamat=OFF -DBUILD_opencv_aruco=OFF -DBUILD_opencv_barcode=OFF -DBUILD_opencv_bgsegm=OFF -DBUILD_opencv_bioinspired=OFF -DBUILD_opencv_ccalib=ON -DBUILD_opencv_cnn_3dobj=OFF -DBUILD_opencv_cudaarithm=OFF -DBUILD_opencv_cudabgsegm=OFF -DBUILD_opencv_cudacodec=OFF -DBUILD_opencv_cudafeatures2d=OFF -DBUILD_opencv_cudafilters=OFF -DBUILD_opencv_cudaimgproc=OFF -DBUILD_opencv_cudalegacy=OFF -DBUILD_opencv_cudaobjdetect=OFF -DBUILD_opencv_cudaoptflow=OFF -DBUILD_opencv_cudastereo=OFF -DBUILD_opencv_cudawarping=OFF -DBUILD_opencv_cudev=OFF -DBUILD_opencv_cvv=OFF -DBUILD_opencv_datasets=OFF -DBUILD_opencv_dnn_objdetect=OFF -DBUILD_opencv_dnns_easily_fooled=OFF -DBUILD_opencv_dnn_superres=OFF -DBUILD_opencv_dpm=OFF -DBUILD_opencv_face=ON -DBUILD_opencv_freetype=OFF -DBUILD_opencv_fuzzy=OFF -DBUILD_opencv_hdf=OFF -DBUILD_opencv_hfs=OFF -DBUILD_opencv_img_hash=OFF -DBUILD_opencv_intensity_transform=OFF -DBUILD_opencv_julia=OFF -DBUILD_opencv_line_descriptor=OFF -DBUILD_opencv_matlab=OFF -DBUILD_opencv_mcc=OFF -DBUILD_opencv_optflow=ON -DBUILD_opencv_ovis=OFF -DBUILD_opencv_phase_unwrapping=OFF -DBUILD_opencv_plot=ON -DBUILD_opencv_quality=OFF -DBUILD_opencv_rapid=OFF -DBUILD_opencv_README.md=OFF -DBUILD_opencv_reg=OFF -DBUILD_opencv_rgbd=OFF -DBUILD_opencv_saliency=OFF -DBUILD_opencv_sfm=OFF -DBUILD_opencv_shape=OFF -DBUILD_opencv_stereo=OFF -DBUILD_opencv_structured_light=OFF -DBUILD_opencv_superres=OFF -DBUILD_opencv_surface_matching=OFF -DBUILD_opencv_text=OFF -DBUILD_opencv_tracking=ON -DBUILD_opencv_videostab=OFF -DBUILD_opencv_viz=OFF -DBUILD_opencv_wechat_qrcode=OFF -DBUILD_opencv_xfeatures2d=OFF -DBUILD_opencv_ximgproc=ON -DBUILD_opencv_xobjdetect=OFF -DBUILD_opencv_xphoto=OFF -DBUILD_opencv_world=OFF -DBUILD_EXAMPLES=ON -DBUILD_PACKAGE=ON -DBUILD_TESTS=OFF -DBUILD_PERF_TESTS=OFF -DBUILD_DOCS=OFF -DWITH_PTHREADS_PF=ON -DCV_ENABLE_INTRINSICS=ON -DBUILD_opencv_video=ON -DBUILD_opencv_v4d=ON -DGBFX_CONFIG_MULTITHREADED=OFF -DBGFX_CONFIG_PASSIVE=ON -DOPENCV_EXTRA_MODULES_PATH="../../Plan-V4D/modules" ..
+```
+
+### Build
+```bash
+make -j8
+```
+
+### Optional: Build packages
+```bash
+cpack DEB
+```
+
+### Cleaning up and leaving the chroot
+```bash
+umount proc
+umount sys
+umount tmp
+umount dev/pts
+exit #After this command you are back outside the chroot with access to your system.
+```
+
+### Unbind dev
+```bash
+sudo umount plan-v4d-noble/dev
+```
+
+## Instructions for Mac OS X Using Homebrew
+
+### Install Required Dependencies
+First, ensure you have Homebrew installed on your system. Then, install the required dependencies:
+
+```bash
+# Update Homebrew
+brew update
+
+# Install packages
+brew install cmake git qt@5 glfw glew zlib doxygen wget yt-dlp
+brew install clinfo # For OpenCL information
+brew install opencl-headers # OpenCL headers
+```
+
+### Clone Repositories
+```bash
+git clone --branch GCV https://github.com/kallaballa/opencv.git
+git clone https://github.com/kallaballa/Plan-V4D.git
+mkdir opencv/build
+cd opencv/build
+```
+
+### Minimal Plan-V4D Build (without examples, demos, and packages)
+```bash
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DOPENCV_V4D_ENABLE_ES3=OFF \
+      -DWITH_QT=ON \
+      -DWITH_OPENGL=ON \
+      -DWITH_FFMPEG=ON \
+      -DBUILD_EXAMPLES=OFF \
+      -DBUILD_PACKAGE=OFF \
+      -DBUILD_TESTS=OFF \
+      -DBUILD_PERF_TESTS=OFF \
+      -DBUILD_DOCS=OFF \
+      -DBUILD_SHARED_LIBS=ON \
+      -DWITH_OPENCL=ON \
+      -DOPENCV_EXTRA_MODULES_PATH="../../Plan-V4D/modules" ..
+```
+
+### Full Plan-V4D Build (with examples, demos, and packages)
+```bash
+cmake -DCMAKE_BUILD_TYPE=Release \
+      -DOPENCV_V4D_ENABLE_ES3=OFF \
+      -DWITH_QT=ON \
+      -DWITH_OPENGL=ON \
+      -DWITH_FFMPEG=ON \
+      -DBUILD_EXAMPLES=ON \
+      -DBUILD_PACKAGE=OFF \
+      -DBUILD_TESTS=OFF \
+      -DBUILD_PERF_TESTS=OFF \
+      -DBUILD_DOCS=OFF \
+      -DBUILD_SHARED_LIBS=ON \
+      -DWITH_OPENCL=ON \
+      -DOPENCV_EXTRA_MODULES_PATH="../../Plan-V4D/modules" ..
+```
+
+### Build the Project
+```bash
+make -j$(sysctl -n hw.ncpu)
+```
+
+## Download the example videos
+```bash
+# big buck bunny video
+wget -O bunny.webm https://upload.wikimedia.org/wikipedia/commons/transcoded/f/f3/Big_Buck_Bunny_first_23_seconds_1080p.ogv/Big_Buck_Bunny_first_23_seconds_1080p.ogv.1080p.vp9.webm
+# dance video
+yt-dlp -o dance.webm "https://www.youtube.com/watch?v=yg6LZtNeO_8"
+# kristen video
+yt-dlp -o kristen.webm "https://www.youtube.com/watch?v=hUAT8Jm_dvw&t=11s"
+```
+
+## Run the examples and demos
+```bash
+# Examples
+bin/example_v4d_display_image
+bin/example_v4d_display_image_fb
+bin/example_v4d_vector_graphics
+bin/example_v4d_vector_graphics_and_fb
+bin/example_v4d_render_opengl
+bin/example_v4d_font_rendering
+bin/example_v4d_video_editing
+bin/example_v4d_custom_source_and_sink
+bin/example_v4d_font_with_gui
+ 
+# Demos
+bin/example_v4d_cube-demo
+bin/example_v4d_many_cubes-demo
+bin/example_v4d_video-demo bunny.webm
+bin/example_v4d_nanovg-demo bunny.webm
+bin/example_v4d_shader-demo bunny.webm
+bin/example_v4d_font-demo
+bin/example_v4d_pedestrian-demo dance.webm
+bin/example_v4d_optflow-demo dance.webm
+bin/example_v4d_beauty-demo kristen.webm
+```
+
+## Attribution
+* The author of the bunny video is the Blender Foundation ([Original video](https://upload.wikimedia.org/wikipedia/commons/transcoded/f/f3/Big_Buck_Bunny_first_23_seconds_1080p.ogv/Big_Buck_Bunny_first_23_seconds_1080p.ogv.1080p.vp9.webm)).
+* The author of the dance video is GNI Dance Company ([Original video](https://www.youtube.com/watch?v=yg6LZtNeO_8)).
+* The author of the video used in the beauty-demo video is Kristen Leanne ([Original video](https://www.youtube.com/watch?v=hUAT8Jm_dvw)).
+* The author of cxxpool is Copyright (c) 2022 Christian Blume: ([LICENSE](https://github.com/bloomen/cxxpool/blob/master/LICENSE))
+* The author of the roboto font family is Google Inc. ([LICENSE](https://github.com/googlefonts/roboto/blob/main/LICENSE))
