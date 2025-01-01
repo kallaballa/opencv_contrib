@@ -216,7 +216,7 @@ sudo umount plan-v4d-noble/dev
 
 ### Attribution
 * The author of the bunny video is the Blender Foundation ([Original video](https://upload.wikimedia.org/wikipedia/commons/transcoded/f/f3/Big_Buck_Bunny_first_23_seconds_1080p.ogv/Big_Buck_Bunny_first_23_seconds_1080p.ogv.1080p.vp9.webm)).
-* The author of the dance video is GNI Dance Company ()[Original video](https://www.youtube.com/watch?v=yg6LZtNeO_8)).
+* The author of the dance video is GNI Dance Company ([Original video](https://www.youtube.com/watch?v=yg6LZtNeO_8)).
 * The author of the video used in the beauty-demo video is Kristen Leanne ([Original video](https://www.youtube.com/watch?v=hUAT8Jm_dvw)).
 * The author of cxxpool is Copyright (c) 2022 Christian Blume: ([LICENSE](https://github.com/bloomen/cxxpool/blob/master/LICENSE))
-* The author of the roboto font family is Google Inc. ()[LICENSE](https://github.com/googlefonts/roboto/blob/main/LICENSE))
+* The author of the roboto font family is Google Inc. ([LICENSE](https://github.com/googlefonts/roboto/blob/main/LICENSE))
