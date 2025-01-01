@@ -91,7 +91,7 @@ Please refer to the examples and demos as well as [this OpenCV issue](https://gi
 
 ## Instructions for Linux (Ubuntu 24.04.1 LTS - Noble Numbat)
 
-### Optional; Create a chroot if you are using another distribution or Ubuntu version 
+### Optional: Create a chroot if you are using another distribution or Ubuntu version 
 
 #### Build minbase chroot (basically installing a minimal Ubuntu into the directory plan-v4d-noble)
 ```bash
