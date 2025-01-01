@@ -269,6 +269,7 @@ public:
 
 	FaceFeatures features_;
 private:
+	//Key spaces of different state machines of V4D
 	using G_ = Global::Keys;
 	using S_ = RunState::Keys;
 	using K_ = V4D::Keys;
@@ -282,11 +283,13 @@ private:
 	Frames frames_;
 	cv::Ptr<FaceFeatureExtractor> extractor_;
 
+	//think of properties as data-pinholes into one of the v4d runtime's state-machines. Properties are in fact a special kind of edge.
 	Property<cv::Rect> vp_ = P<cv::Rect>(K_::VIEWPORT);
 	Property<size_t> numWorkers_ = P<size_t>(G_::WORKERS_STARTED);
 	Property<size_t> workerIndex_ = P<size_t>(S_::WORKER_INDEX);
 
-	Event<Mouse> releaseEvents_ = E<Mouse>(M_::PRESS);
+	//A special kind of edge used to signal user input events
+	Event<Mouse> pressEvents_ = E<Mouse>(M_::PRESS);
 
 	static void prepare_frames(const cv::UMat& framebuffer, const cv::Size& downSize, Frames& frames) {
 		cvtColor(framebuffer, frames.orig_, cv::COLOR_RGBA2BGR);
@@ -308,14 +311,17 @@ private:
 		}
 	}
 
+	//sub-plans
 	cv::Ptr<FaceFeatureMasksPlan> prepareFeatureMasksPlan_;
 	cv::Ptr<BeautyFilterPlan> beautyFilterPlan_;
 public:
 	BeautyDemoPlan() {
+		//construct sub-plans only in the constructor
 		prepareFeatureMasksPlan_ = _sub<FaceFeatureMasksPlan>(this, features_, frames_);
 		beautyFilterPlan_ = _sub<BeautyFilterPlan>(this, params_, frames_);
 	}
 
+	//at the moment gui is an exception from the rule that a Plan only implements the graph, because it runs on the display thread. in the future it should implement its own graph which would run in concurrent to the main algorithm - locking shared state where neccessary
 	void gui() override {
 		imgui([](Params& params){
 			using namespace ImGui;
@@ -361,30 +367,41 @@ public:
 	}
 
 	void setup() override {
+		//emits a node the performs and assignment. F creates and edge that reads the result of a funcion call-
 		assign(RW(size_), F(&cv::Rect::size, vp_));
 		assign(RW(scale_), F(aspect_preserving_scale, R(size_), R(downSize_)));
+		//emits a node that calls a contructor
 		construct(RW(extractor_), R(downSize_), R(scale_));
 	}
 
 	void infer() override {
+		//emits a node setting the states for "fullscreen" and "stretching" during execution of the graph reading values from the shared data by copying it.
 		set(_(K_::FULLSCREEN, CS(params_.fullscreen_)),
 			_(K_::STRETCHING, CS(params_.stretch_)));
 
+		//create a node the will capture video
 		capture();
 		fb(prepare_frames, R(downSize_), RW(frames_));
 
-		branch(RWS(params_.enabled_) = IF(
-											F(&Mouse::List::empty, releaseEvents_),
+		// a branch is basically a graph node that decides what graph node to run next.
+		branch(
+				//edge-calls result in edge-objects which support many operators.
+				RWS(params_.enabled_) = IF(
+											///query mouse release events
+											F(&Mouse::List::empty, pressEvents_),
 											CS(params_.enabled_),
 											!CS(params_.enabled_)
 										))
+			//every numWorkers_ frames redect the face features.
 			->branch(++RWS(params_.frame_cnt) % numWorkers_ == workerIndex_)
 				->branch(!(F(&FaceFeatureExtractor::extract, RW(extractor_), R(frames_.down_), RW(features_))));
+					//Set a shared state that will be displayed on-screen.
 					assign(RWS(params_.state_), V(Params::NOT_DETECTED))
 				->endBranch()
 			->endBranch()
 			->branch(!(F(&FaceFeatures::empty, R(features_))));
 				assign(RWS(params_.state_), V(Params::ON))
+				//run inference on the sub-plans which will emit their own nodes
 				->subInfer(prepareFeatureMasksPlan_)
 				->subInfer(beautyFilterPlan_)
 			->endBranch()
@@ -397,7 +414,7 @@ public:
 	}
 };
 
-
+//A sub-plan the provides face features
 class FaceFeatureMasksPlan : public Plan {
 	const FaceFeatures& inputFeatures_;
 	BeautyDemoPlan::Frames& inputOutputFrames_;
@@ -414,14 +431,18 @@ public:
 	}
 
 	void infer() override {
+		//context-call provides a nanovg context to the node emitteed
 		nvg(&FaceFeatures::drawFaceOvalMask, R(inputFeatures_))
+		//context-call provides a cv::UMat representation of the framebuffer to the node emitteed
 		->fb(cv::cvtColor, RW(inputOutputFrames_.faceOval_), V(cv::COLOR_BGRA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT))
 		->nvg(&FaceFeatures::drawEyesAndLipsMask, R(inputFeatures_))
 		->fb(cv::cvtColor, RW(inputOutputFrames_.eyesAndLipsMaskGrey_), V(cv::COLOR_BGRA2GRAY), V(0), V(cv::ALGO_HINT_DEFAULT))
+		//
 		->plain(prepare_masks, RW(inputOutputFrames_));
 	}
 };
 
+//a sub-plan implementing the actual beauty-filter.
 class BeautyFilterPlan : public Plan {
 	const BeautyDemoPlan::Params& inputParams_;
 	BeautyDemoPlan::Frames& inputOutputFrames_;
@@ -465,7 +486,7 @@ public:
 		->plain(stitch_face, RW(blender_), RW(inputOutputFrames_), RW(stitchedFloat_));
 	}
 };
-
+//Shared data
 BeautyDemoPlan::Params BeautyDemoPlan::params_;
 
 int main(int argc, char **argv) {
@@ -476,7 +497,8 @@ int main(int argc, char **argv) {
 
 	cv::Rect viewport(0, 0, 1920, 1080);
 	cv::Ptr<V4D> runtime = V4D::init(viewport, "Beautification Demo", AllocateFlags::NANOVG | AllocateFlags::IMGUI, ConfigFlags::DEFAULT, DebugFlags::DEFAULT);
-    auto src = Source::make(runtime, argv[1]);
+	//V4D provides a source, sink system which is use mostly but not exclusively used with video data.
+	auto src = Source::make(runtime, argv[1]);
     runtime->setSource(src);
     Plan::run<BeautyDemoPlan>(0);
 

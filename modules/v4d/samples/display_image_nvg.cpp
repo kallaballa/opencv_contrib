@@ -5,55 +5,66 @@ using namespace cv;
 using namespace cv::v4d;
 
 class DisplayImageNVG : public Plan {
-	using K = V4D::Keys;
-	//A simple struct to hold our image variables
-	struct Image_t {
-	    std::string filename_;
-	    nvg::Paint paint_;
-	    int w_;
-	    int h_;
-	} image_;
+    using K = V4D::Keys; // Key constants for V4D properties
+
+    // Struct to hold image metadata and NanoVG paint object
+    struct Image_t {
+        std::string filename_; // Image file name
+        nvg::Paint paint_;     // NanoVG paint object for the image
+        int w_;                // Image width
+        int h_;                // Image height
+    } image_;
+
 public:
-	DisplayImageNVG(const string& filename) {
-		//Set the filename
-		image_.filename_ = filename;
-	}
+    // Constructor to initialize the image file name
+    DisplayImageNVG(const std::string& filename) {
+        image_.filename_ = filename;
+    }
 
-	void setup() override {
-		//Creates a NanoVG context. The wrapped C-functions of NanoVG are available in the namespace cv::v4d::nvg;
-		nvg([](Image_t& img) {
-			using namespace cv::v4d::nvg;
-			//Create the image_ and receive a handle.
-			int handle = createImage(img.filename_.c_str(), NVG_IMAGE_NEAREST);
-			//Make sure it was created successfully
-			CV_Assert(handle > 0);
-			//Query the image_ size
-			imageSize(handle, &img.w_, &img.h_);
-			//Create a simple image_ pattern with the image dimensions
-			img.paint_ = imagePattern(0, 0, img.w_, img.h_, 0.0f/180.0f*NVG_PI, handle, 1.0);
-		}, RW(image_));
-	}
+    // Setup phase: Create the NanoVG context and load the image
+    void setup() override {
+        nvg([](Image_t& img) {
+            using namespace cv::v4d::nvg;
 
-	void infer() override{
-		//Creates a NanoVG context to draw the loaded image_ over again to the screen.
-		nvg([](const cv::Rect& vp, const Image_t& img) {
-			using namespace cv::v4d::nvg;
-			beginPath();
-			//Scale all further calls to window size
-			scale(double(vp.width)/img.w_, double(vp.height)/img.h_);
-			//Create a rounded rectangle with the images dimensions.
-			//Note that actually this rectangle will have the size of the window
-			//because of the previous scale call.
-			roundedRect(0,0, img.w_, img.h_, 50);
-			//Fill the rounded rectangle with our picture
-			fillPaint(img.paint_);
-			fill();
-		}, P<cv::Rect>(K::VIEWPORT), RW(image_));
-	}
+            // Load the image and get a NanoVG handle
+            int handle = createImage(img.filename_.c_str(), NVG_IMAGE_NEAREST);
+            CV_Assert(handle > 0); // Ensure the image was loaded successfully
+
+            // Retrieve the image dimensions
+            imageSize(handle, &img.w_, &img.h_);
+
+            // Create a NanoVG paint object using the loaded image
+            img.paint_ = imagePattern(0, 0, img.w_, img.h_, 0.0f / 180.0f * NVG_PI, handle, 1.0);
+        }, RW(image_)); // `RW` denotes read-write access to the shared image data
+    }
+
+    // Inference phase: Render the loaded image to the screen
+    void infer() override {
+        nvg([](const cv::Rect& vp, const Image_t& img) {
+            using namespace cv::v4d::nvg;
+
+            beginPath();
+
+            // Scale further rendering calls to match the viewport size
+            scale(double(vp.width) / img.w_, double(vp.height) / img.h_);
+
+            // Create a rounded rectangle matching the scaled image dimensions
+            roundedRect(0, 0, img.w_, img.h_, 50);
+
+            // Fill the rectangle with the loaded image pattern
+            fillPaint(img.paint_);
+            fill();
+        }, P<cv::Rect>(K::VIEWPORT), RW(image_)); // Pass viewport and image data to the graph node
+    }
 };
 
 int main() {
-	cv::Rect viewport(0, 0, 960, 960);
-	Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+    // Define the viewport dimensions
+    cv::Rect viewport(0, 0, 960, 960);
+
+    // Initialize the V4D runtime with NanoVG and IMGUI subsystems
+    Ptr<V4D> runtime = V4D::init(viewport, "Display an image using NanoVG", AllocateFlags::NANOVG | AllocateFlags::IMGUI);
+
+    // Run the Plan with the specified image file
     Plan::run<DisplayImageNVG>(0, samples::findFile("lena.jpg"));
 }
