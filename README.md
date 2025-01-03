@@ -73,6 +73,7 @@ Please refer to the examples and demos as well as [this OpenCV issue](https://gi
 * NVIDIA Ada Lovelace (Tested: GTX 4070 Ti) with proprietary drivers (535.104.05) and CUDA toolkit (12.2) tested.
 * Intel Arc770 (Mesa 24.3.1) tested
 * AMD: never tested
+* Uses software rendering through Mesa for testing as well
 
 ## Requirements
 * C++20 (at the moment)
