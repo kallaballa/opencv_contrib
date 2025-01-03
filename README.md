@@ -48,7 +48,7 @@ The following examples have been selected to deepen your understanding of Plan-V
 
 ## Why Plan-V4D?
 
-* Computation Graph Engine: Fast parallel code.
+* Computational Graph Engine: Fast parallel code.
 * OpenGL: Easy access to OpenGL.
 * GUI: Simple yet powerful user interfaces through ImGui.
 * Vector graphics: Elegant and fast vector graphics through NanoVG.
