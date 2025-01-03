@@ -1,3 +1,5 @@
+For videos & screenshots, progress and more see: https://github.com/opencv/opencv/issues/22923
+
 ## Introduction to "Plan" and "V4D"
 
 ### Overview of "Plan"
