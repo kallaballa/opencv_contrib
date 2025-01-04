@@ -130,7 +130,7 @@ if(NOT (TARGET ${the_module}))
   ocv_create_module()
   set_target_properties(${the_module} PROPERTIES LINKER_LANGUAGE CXX)
 
-  ocv_add_samples(opencv_v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_imgcodecs opencv_features2d opencv_dnn opencv_flann)
+  ocv_add_samples(opencv_v4d)
   # Populate assets
   fetch_file("LBFMODEL" "https://github.com/kurnianggoro/GSOC2017/raw/master/data/lbfmodel.yaml" "70dd8b1657c42d1595d6bd13d97d932877b3bed54a95d3c4733a0f740d1fd66b")
 
