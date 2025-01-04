@@ -3,9 +3,9 @@ For videos & screenshots, progress and more see: https://github.com/opencv/openc
 ## Introduction to "Plan" and "V4D"
 
 ### Overview of "Plan"
-**Plan** is a computational graph engine built with C++20 templates, enabling developers to construct directed acyclic graphs (DAGs) from fragments of algorithms. By leveraging these graphs, Plan facilitates the optimization of parallel and concurrent algorithms, ensuring efficient resource utilization. The framework divides the lifetime of an algorithm into two distinct phases: **inference** and **execution**. 
+**Plan** is a task graph engine built with C++20 templates, enabling developers to construct directed acyclic graphs (DAGs) from fragments of algorithms. By leveraging these graphs, Plan facilitates the optimization of parallel and concurrent algorithms, ensuring efficient resource utilization. The framework divides the lifetime of an algorithm into two distinct phases: **inference** and **execution**. 
 
-- **Inference Phase:** During this phase, the computational graph is constructed by running the Plan implementation. This process organizes the algorithm's fragments and binds them to data, which may be classified as:
+- **Inference Phase:** During this phase, the task graph is constructed by running the Plan implementation. This process organizes the algorithm's fragments and binds them to data, which may be classified as:
   - **Safe Data:** Member variables of the Plan.
   - **Shared Data:** External variables (e.g., global or static data).
   
@@ -50,7 +50,7 @@ The following examples have been selected to deepen your understanding of Plan-V
 
 ## Why Plan-V4D?
 
-* Computational Graph Engine: Fast parallel code.
+* Task Graph Engine: Fast parallel code.
 * OpenGL: Easy access to OpenGL.
 * GUI: Simple yet powerful user interfaces through ImGui.
 * Vector graphics: Elegant and fast vector graphics through NanoVG.
