@@ -9,15 +9,18 @@
 #define BX_CONFIG_DEBUG 0
 
 #include "framebuffercontext.hpp"
-#include "bgfx/bgfx.h"
-#include "bx/bx.h"
-#include "bx/allocator.h"
-#include "bx/file.h"
-#include "bx/timer.h"
+#ifdef OPENCV_V4D_ENABLE_BGFX
+#  include "bgfx/bgfx.h"
+#  include "bx/bx.h"
+#  include "bx/allocator.h"
+#  include "bx/file.h"
+#  include "bx/timer.h"
+#endif
 
 namespace cv {
 namespace v4d {
 namespace util {
+#ifdef OPENCV_V4D_ENABLE_BGFX
 //adapted from https://github.com/bkaradzic/bgfx/blob/07be0f213acd73a4f6845dc8f7b20b93f66b7cc4/examples/common/bgfx_utils.cpp
 static thread_local bx::DefaultAllocator allocator;
 static thread_local bx::FileReaderI* file_reader = BX_NEW(&allocator, bx::FileReader);;
@@ -76,6 +79,7 @@ static bgfx::ShaderHandle load_shader(bx::FileReaderI* _reader, const char* _nam
 bgfx::ShaderHandle load_shader(const char* _name);
 bgfx::ProgramHandle load_program(bx::FileReaderI* _reader, const char* _vsName, const char* _fsName);
 bgfx::ProgramHandle load_program(const char* _vsName, const char* _fsName);
+#endif
 }
 namespace detail {
 

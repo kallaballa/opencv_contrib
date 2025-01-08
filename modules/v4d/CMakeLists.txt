@@ -6,6 +6,10 @@ OCV_OPTION(OPENCV_V4D_ENABLE_ES3 "Enable OpenGL ES 3.0 backend for V4D" OFF
 OCV_OPTION(OPENCV_V4D_ENABLE_BGFX "Enable bgfx for V4D" ON
   VERIFY HAVE_OPENGL)
 
+if(OPENCV_V4D_ENABLE_BGFX)
+    add_definitions(-DOPENCV_V4D_ENABLE_BGFX=1)
+endif()
+
 include(FetchContent)
 include(FindOpenCL)
 find_package(glfw3 3 REQUIRED)

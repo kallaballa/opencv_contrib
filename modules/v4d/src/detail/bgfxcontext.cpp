@@ -6,6 +6,7 @@
 #include "../../include/opencv2/v4d/detail/bgfxcontext.hpp"
 #include "../../include/opencv2/v4d/v4d.hpp"
 
+#ifdef OPENCV_V4D_ENABLE_BGFX
 #include <bx/bx.h>
 #include <bgfx/bgfx.h>
 #include <bgfx/platform.h>
@@ -18,11 +19,12 @@
 #define GLFW_EXPOSE_NATIVE_COCOA
 #endif
 #include <GLFW/glfw3native.h>
-
+#endif
 
 namespace cv {
 namespace v4d {
 namespace util {
+#ifdef OPENCV_V4D_ENABLE_BGFX
 CV_EXPORTS bgfx::ShaderHandle load_shader(const char* _name)
 {
 	return load_shader(file_reader, _name);
@@ -44,6 +46,7 @@ CV_EXPORTS bgfx::ProgramHandle load_program(const char* _vsName, const char* _fs
 {
 	return load_program(file_reader, _vsName, _fsName);
 }
+#endif
 }
 namespace detail {
 
@@ -51,20 +54,22 @@ BgfxContext::BgfxContext(cv::Ptr<FrameBufferContext> fbContext) :
 	mainFbContext_(fbContext),
 	bgfxContext_(FrameBufferContext::make("Bgfx", fbContext)) {
 //	bgfx::renderFrame();
+#ifdef OPENCV_V4D_ENABLE_BGFX
 	bgfx::Init init;
-#ifndef OPENCV_V4D_USE_ES3
+#  ifndef OPENCV_V4D_USE_ES3
 	init.type     = bgfx::RendererType::OpenGL;
-#else
+#  else
 	init.type     = bgfx::RendererType::OpenGLES;
-#endif
-#if BX_PLATFORM_LINUX || BX_PLATFORM_BSD
+#  endif
+
+#  if BX_PLATFORM_LINUX || BX_PLATFORM_BSD
 	init.platformData.ndt = glfwGetX11Display();
 	init.platformData.nwh = (void*)(uintptr_t)glfwGetX11Window(fbCtx()->getGLFWWindow());
-#elif BX_PLATFORM_OSX
+#  elif BX_PLATFORM_OSX
 	init.platformData.nwh = glfwGetCocoaWindow(fbCtx()->getGLFWWindow());
-#elif BX_PLATFORM_WINDOWS
+#  elif BX_PLATFORM_WINDOWS
 	init.platformData.nwh = glfwGetWin32Window(fbCtx()->getGLFWWindow());
-#endif
+#  endif
 	cv::Size sz = fbCtx()->size();
 	init.resolution.width  = sz.width;
 	init.resolution.height = sz.height;
@@ -75,6 +80,7 @@ BgfxContext::BgfxContext(cv::Ptr<FrameBufferContext> fbContext) :
 
 	// Enable debug text.
 	bgfx::setDebug(BGFX_DEBUG_NONE);
+#endif
 }
 
 int BgfxContext::execute(const cv::Rect& vp, std::function<void()> fn) {
