@@ -390,7 +390,7 @@ void FrameBufferContext::setup() {
     	GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferFlippedID_));
     	GL_CHECK(glGenTextures(1, &textureFlippedID_));
     	GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureFlippedID_));
-//    	GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+    	GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
     	GL_CHECK(
     			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
     	GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -405,7 +405,7 @@ void FrameBufferContext::setup() {
 
         GL_CHECK(glGenTextures(1, &textureID_));
         GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
-//        GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+        GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
         GL_CHECK(
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -424,7 +424,7 @@ void FrameBufferContext::setup() {
         GL_CHECK(glGenFramebuffers(1, &framebufferID_));
         GL_CHECK(glBindFramebuffer(GL_FRAMEBUFFER, framebufferID_));
         GL_CHECK(glBindTexture(GL_TEXTURE_2D, textureID_));
-//        GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
+        GL_CHECK(glPixelStorei(GL_UNPACK_ALIGNMENT, 1));
         GL_CHECK(
                 glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, sz.width, sz.height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0));
         GL_CHECK(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
