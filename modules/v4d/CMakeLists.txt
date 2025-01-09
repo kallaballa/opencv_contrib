@@ -6,12 +6,20 @@ OCV_OPTION(OPENCV_V4D_ENABLE_ES3 "Enable OpenGL ES 3.0 backend for V4D" OFF
 OCV_OPTION(OPENCV_V4D_ENABLE_BGFX "Enable bgfx for V4D" ON
   VERIFY HAVE_OPENGL)
 
+OCV_OPTION(OPENCV_V4D_ENABLE_MALI "Enable mali gpu support for V4D" ON
+  VERIFY HAVE_OPENGL)
+
 if(OPENCV_V4D_ENABLE_BGFX)
     add_definitions(-DOPENCV_V4D_ENABLE_BGFX=1)
 endif()
 
 include(FetchContent)
 include(FindOpenCL)
+
+if(OPENCV_V4D_ENABLE_MALI)
+  find_package(mali)
+endif()
+
 find_package(glfw3 3 REQUIRED)
 include(FindOpenGL)
 find_package(GLEW REQUIRED QUIET)
@@ -71,6 +79,9 @@ macro(add_binary_sample sample source)
   endif()
   if(OPENCV_V4D_ENABLE_BGFX)
     ocv_target_link_libraries(${sample} bimg bx bgfx)
+  endif()
+  if(OPENCV_V4D_ENABLE_MALI)
+    ocv_target_link_libraries(${sample} mali)
   endif()
   target_compile_features(${sample} PRIVATE cxx_std_20)
   # set_property(TARGET ${sample} PROPERTY POSITION_INDEPENDENT_CODE ON)
@@ -261,5 +272,9 @@ if(NOT (TARGET ${the_module}))
   endif()
   if(WITH_OPENCL)
     ocv_target_link_libraries(${the_module} "${OpenCL_LIBRARIES}")
+  endif()
+
+  if(OPENCV_V4D_ENABLE_MALI)
+    ocv_target_link_libraries(${the_module} mali)
   endif()
 endif()
