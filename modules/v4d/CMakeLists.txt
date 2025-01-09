@@ -63,7 +63,7 @@ macro(add_binary_sample sample source)
   ocv_target_link_libraries(${sample} opencv_v4d opencv_core opencv_imgproc opencv_videoio opencv_video opencv_imgcodecs opencv_face opencv_tracking opencv_objdetect opencv_stitching opencv_optflow opencv_features2d opencv_dnn opencv_flann "${OpenGL_LIBRARIES}" GLEW::glew glfw nanovg)
   if(WITH_OPENCL)
     ocv_target_link_libraries(${sample} "${OpenCL_LIBRARIES}")
-  endif
+  endif()
 
   if(OPENCV_V4D_ENABLE_BGFX)
     ocv_target_link_libraries(${sample} bimg bx bgfx)
@@ -248,5 +248,5 @@ if(NOT (TARGET ${the_module}))
   ocv_target_link_libraries(${the_module} bimg bx bgfx "${OpenGL_LIBRARIES}" GLEW::glew glfw nanovg)
   if(WITH_OPENCL)
     ocv_target_link_libraries(${the_module} "${OpenCL_LIBRARIES}")
-  endif
+  endif()
 endif()
