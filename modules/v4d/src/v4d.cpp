@@ -383,6 +383,7 @@ bool V4D::display() {
 			}
 		}
 		TimeTracker::getInstance()->newCount();
+		GL_CHECK(glFlush());
 		glfwSwapBuffers(fbCtx()->getGLFWWindow());
 		global.set(Global::Keys::DISPLAY_READY, true);
 		GL_CHECK(glViewport(0, 0, size().width, size().height));
