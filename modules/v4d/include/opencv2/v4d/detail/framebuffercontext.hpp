@@ -118,6 +118,9 @@ class CV_EXPORTS FrameBufferContext : public V4DContext {
     GLuint textureFlippedID_ = 0;
     GLuint textureID_ = 0;
     GLuint renderBufferID_ = 0;
+#ifdef HAVE_OPENCL
+    cl_mem clImage_ = nullptr;
+#endif
     CLExecContext_t context_;
     const cv::Size framebufferSize_;
     cv::Ptr<FrameBufferContext> parent_;
