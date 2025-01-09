@@ -88,10 +88,13 @@ cv::Ptr<Sink> Sink::make(cv::Ptr<V4D> window, const string& outputFilename, cons
 }
 
 cv::Ptr<Sink> Sink::make(cv::Ptr<V4D> window, const string& outputFilename, const float fps,
-        const cv::Size& frameSize, int fourcc) {
-    if (is_intel_va_supported()) {
+		const cv::Size& frameSize, int fourcc) {
+#ifdef HAVE_VA
+	if (is_intel_va_supported()) {
         return makeVaSink(window, outputFilename, fourcc, fps, frameSize, 0);
-    } else {
+    } else
+#endif
+    {
         try {
             return makeAnyHWSink(outputFilename, fourcc, fps, frameSize);
         } catch(...) {
