@@ -17,7 +17,8 @@ include(FetchContent)
 include(FindOpenCL)
 
 if(OPENCV_V4D_ENABLE_MALI)
-  find_package(mali)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(mali REQUIRED IMPORTED_TARGET mali)
 endif()
 
 find_package(glfw3 3 REQUIRED)
